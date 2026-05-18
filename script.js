@@ -6,6 +6,9 @@
 // @grant        none
 // ==/UserScript==
 
+/* ══ Set Office Target ══ */
+const offTarget = 60;
+
 (function () {
     'use strict';
 
@@ -470,8 +473,8 @@
         const officeEntry  = acts.find(a => a.name === 'Office');
         const officeMins   = officeEntry ? officeEntry.adj : 0;
 
-        // Office target (60% of real rota)
-        const targetMins   = realRota * 0.6;
+        // Office target 
+        const targetMins   = realRota * (offTarget / 100);
         const officePct    = targetMins > 0 ? (officeMins / targetMins) * 100 : 0;
         const officeActPct = realRota   > 0 ? (officeMins / realRota)   * 100 : 0;
 
@@ -531,10 +534,10 @@
         const offRemaining = Math.max(0, targetMins - officeMins);
         const offRemD = Math.floor(offRemaining / 480);
         const offRemH = Math.floor((offRemaining % 480) / 60);
-        const offRemM = offRemaining % 60;
+        const offRemM = offRemaining % offTarget;
 
         html += `<div class="ep-card ep-ring-card">
-            <div class="ep-card-title">Office Target · 60%</div>
+            <div class="ep-card-title">Office Target · ${offTarget}%</div>
             <div class="ep-ring-wrap">
                 ${offRing}
                 <div class="ep-ring-center">
@@ -548,7 +551,7 @@
 
         if (officePct < 100) {
             html += `<div class="ep-hint">${icon('today', 12, '#6b7280')}
-                <span>${offRemD > 0 ? offRemD+'d ' : ''}${offRemH}h${offRemM ? ' '+offRemM+'m' : ''} to hit 60%</span>
+                <span>${offRemD > 0 ? offRemD+'d ' : ''}${offRemH}h${offRemM ? ' '+offRemM+'m' : ''} to hit ${offTarget}%</span>
             </div>`;
         } else {
             html += `<div class="ep-hint" style="color:#22c55e">${icon('check', 12, '#22c55e')}
