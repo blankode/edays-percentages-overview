@@ -1,4 +1,4 @@
-# eDays Analyzer Clean
+# eDays Analyzer PRO
 
 A lightweight and clean userscript for the e-days platform that provides advanced monthly timesheet statistics, activity breakdowns, office target tracking, and buffer calculations directly inside the existing UI.
 
