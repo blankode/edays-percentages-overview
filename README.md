@@ -4,6 +4,8 @@ A lightweight and clean userscript for the e-days platform that provides advance
 
 Designed for people who want better visibility into their worked time without manually calculating percentages, office attendance, or remaining targets.
 
+<img width="800" height="450" alt="image" src="https://github.com/user-attachments/assets/9325b422-957c-4547-a062-2bcdf18d259a" />
+
 ---
 
 ## Features
