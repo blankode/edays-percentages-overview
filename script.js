@@ -488,7 +488,11 @@ const offTarget = 60;
         const dateStr = now.toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }).toUpperCase();
 
         // Hardcoded hex colors for SVG ring strokes (CSS vars don't resolve inside SVG paint attributes)
-        const offColor  = officePct >= 100 ? '#22c55e' : officePct >= 75 ? '#f59e0b' : '#ef4444';
+        const offColor  = officePct >= 100 ? '#22c55e'   // ✅ green  — target met
+                        : officePct >= 85  ? '#84cc16'    // 🟩 lime   — nearly there
+                        : officePct >= 65  ? '#eab308'    // 🟡 yellow — on track
+                        : officePct >= 45  ? '#f97316'    // 🟠 orange — needs attention
+                        :                    '#ef4444';   // 🔴 red    — well behind
         const rotaColor = rotaPct   >= 100 ? '#22c55e' : rotaPct   >= 80 ? '#3b82f6' : '#f59e0b';
 
         const offRing  = ring({ r: 54, pct: officePct, color: offColor,  sw: 6 });
