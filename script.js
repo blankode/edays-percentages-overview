@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      13.5
+// @version      14.0
 // @match        https://*.e-days.com/*
 // @grant        none
 // ==/UserScript==
@@ -11,6 +11,71 @@ const offTarget = 60;
 
 (function () {
     'use strict';
+
+    /* ═══════════════════════════════════════════════════════════════
+       THEME DETECTION
+       Reads the actual page background and picks dark or light tokens.
+    ═══════════════════════════════════════════════════════════════ */
+
+    const getPageBrightness = () => {
+        const candidates = [document.body, document.documentElement,
+            document.getElementById('mainTimesheetPanel'),
+            document.querySelector('.timesheet_container'),
+            document.querySelector('.main-content'),
+            document.querySelector('#content'),
+        ].filter(Boolean);
+
+        for (const el of candidates) {
+            const bg = getComputedStyle(el).backgroundColor;
+            const match = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+            if (!match) continue;
+            const [, r, g, b] = match.map(Number);
+            if (r === 0 && g === 0 && b === 0) continue; // transparent / unset
+            // Perceived luminance
+            const lum = (0.299 * r + 0.587 * g + 0.114 * b);
+            return lum; // 0=black, 255=white
+        }
+        return 255; // default to light if nothing detected
+    };
+
+    const buildTheme = () => {
+        const lum = getPageBrightness();
+        const isDark = lum < 100;
+
+        if (isDark) {
+            return {
+                isDark,
+                bg:        '#111827',
+                surface:   '#1a2235',
+                border:    'rgba(255,255,255,0.08)',
+                text:      '#e2e8f0',
+                muted:     '#6b7280',
+                faint:     'rgba(255,255,255,0.04)',
+                barTrack:  'rgba(255,255,255,0.07)',
+                chipBg:    'rgba(255,255,255,0.03)',
+                shadow:    '0 4px 24px rgba(0,0,0,0.4)',
+                ringTrack: 'rgba(128,128,128,0.25)',
+            };
+        } else {
+            // Light — match the eDays white/light-grey portal bg
+            const pageR = Math.round(Math.min(lum + 4, 255));  // nudge slightly off pure white for the card
+            const surfR = Math.max(pageR - 8, 235);
+            const pageBg = `rgb(${pageR},${pageR},${pageR})`;
+            return {
+                isDark,
+                bg:        pageBg,
+                surface:   `rgb(${surfR},${surfR},${surfR + 2})`,
+                border:    'rgba(0,0,0,0.09)',
+                text:      '#111827',
+                muted:     '#6b7280',
+                faint:     'rgba(0,0,0,0.03)',
+                barTrack:  'rgba(0,0,0,0.07)',
+                chipBg:    'rgba(0,0,0,0.03)',
+                shadow:    '0 2px 12px rgba(0,0,0,0.10)',
+                ringTrack: 'rgba(0,0,0,0.12)',
+            };
+        }
+    };
 
     /* ═══════════════════════════════════════════════════════════════
        UTILITIES
@@ -82,6 +147,8 @@ const offTarget = 60;
         today:         `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7z"/></svg>`,
         flag:          `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>`,
         savings:       `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.5 2C6.81 2 3 5.81 3 10.5S6.81 19 11.5 19h.5v3c4.86-2.34 8-7 8-11.5C20 5.81 16.19 2 11.5 2zm1 14.5h-2v-2h2v2zm0-4h-2c0-3.25 3-3 3-5 0-1.1-.9-2-2-2s-2 .9-2 2h-2c0-2.21 1.79-4 4-4s4 1.79 4 4c0 2.5-3 2.75-3 5z"/></svg>`,
+        sun:           `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.79 1.42-1.41zM4 10.5H1v2h3v-2zm9-9.95h-2V3.5h2V.55zm7.45 3.91l-1.41-1.41-1.79 1.79 1.41 1.41 1.79-1.79zm-3.21 13.7l1.79 1.8 1.41-1.41-1.8-1.79-1.4 1.4zM20 10.5v2h3v-2h-3zm-8-5c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm-1 16.95h2V19.5h-2v2.95zm-7.45-3.91l1.41 1.41 1.79-1.8-1.41-1.41-1.79 1.8z"/></svg>`,
+        moon:          `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1z"/></svg>`,
     };
 
     const icon = (name, size = 14, color = '#fff') =>
@@ -91,16 +158,28 @@ const offTarget = 60;
         `<span style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;background:${bg};border-radius:7px;flex-shrink:0;color:#fff;">${ICONS[name] || ''}</span>`;
 
     /* ═══════════════════════════════════════════════════════════════
-       SVG RING — uses hardcoded hex so stroke resolves inside SVG
+       OFFICE TARGET COLOR — graduated thresholds
     ═══════════════════════════════════════════════════════════════ */
 
-    const ring = ({ r = 54, pct, color, sw = 6 }) => {
+    const getOffColor = (pct) => {
+        if (pct >= 100) return '#22c55e';
+        if (pct >= 85)  return '#84cc16';
+        if (pct >= 65)  return '#eab308';
+        if (pct >= 45)  return '#f97316';
+        return '#ef4444';
+    };
+
+    /* ═══════════════════════════════════════════════════════════════
+       SVG RING
+    ═══════════════════════════════════════════════════════════════ */
+
+    const ring = ({ r = 54, pct, color, sw = 6, trackColor }) => {
         const circ = 2 * Math.PI * r;
         const dash = clamp(pct, 0, 100) / 100 * circ;
         const cx   = r + sw + 1;
         const sz   = cx * 2;
         return `<svg viewBox="0 0 ${sz} ${sz}" style="transform:rotate(-90deg);">
-            <circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="rgba(128,128,128,0.25)" stroke-width="${sw}"/>
+            <circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="${trackColor}" stroke-width="${sw}"/>
             <circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="${color}" stroke-width="${sw}"
                 stroke-dasharray="${dash.toFixed(2)} ${circ.toFixed(2)}" stroke-linecap="round"/>
         </svg>`;
@@ -163,268 +242,165 @@ const offTarget = 60;
         let bufferMinutes;
 
         if (todayIdx === -1) {
-            // Month is complete — use eDays' own Difference value directly
             bufferMinutes = summary.difference;
         } else {
-            // Month in progress — compute buffer from past days only
             bufferMinutes = 0;
             allDays.forEach((day, idx) => {
                 const absenceText = day.querySelector('.absence_detail_text')?.innerText || '';
-
-                // Skip full-day absences and public holidays entirely
                 if (absenceText.length > 0) return;
-
                 const dayMins = getDayTotalMinutes(day);
                 if (dayMins <= 0) return;
-
                 const isPast = idx < todayIdx;
-
                 if (isPast) {
-                    // Past days: full delta — surplus raises buffer, deficit drains it
                     bufferMinutes += dayMins - 480;
                 } else {
-                    // Today or future: only count surplus
                     if (dayMins > 480) bufferMinutes += dayMins - 480;
                 }
             });
         }
 
-        return {
-            workableDays,
-            soFar,
-            daysLeft,
-            workedDays,
-            progressPct,
-            bufferMinutes,
-            realRota,
-        };
+        return { workableDays, soFar, daysLeft, workedDays, progressPct, bufferMinutes, realRota };
     };
 
     /* ═══════════════════════════════════════════════════════════════
-       STYLES
+       STYLES — injected fresh on each render with live theme tokens
     ═══════════════════════════════════════════════════════════════ */
 
-    const STYLE_ID = 'edays-pro-v135-styles';
+    const STYLE_ID = 'edays-pro-v14-styles';
 
-    const injectStyles = () => {
-        if (document.getElementById(STYLE_ID)) return;
-        const s = document.createElement('style');
-        s.id = STYLE_ID;
+    const injectStyles = (T) => {
+        let s = document.getElementById(STYLE_ID);
+        if (!s) { s = document.createElement('style'); s.id = STYLE_ID; document.head.appendChild(s); }
+
         s.textContent = `
         #ep13 {
-            --ep-bg:        #111827;
-            --ep-surface:   #1a2235;
-            --ep-border:    rgba(255,255,255,0.08);
-            --ep-text:      #e2e8f0;
-            --ep-muted:     #6b7280;
-            --ep-faint:     rgba(255,255,255,0.04);
-
-            --ep-blue:      #3b82f6;
-            --ep-purple:    #a855f7;
-            --ep-green:     #22c55e;
-            --ep-amber:     #f59e0b;
-            --ep-red:       #ef4444;
-            --ep-cyan:      #06b6d4;
-            --ep-pink:      #ec4899;
-
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-            background: var(--ep-bg);
-            border: 1px solid var(--ep-border);
+            background: ${T.bg};
+            border: 1px solid ${T.border};
             border-radius: 14px;
             padding: 14px 16px 12px;
             margin: 0 0 16px;
-            color: var(--ep-text);
-            box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+            color: ${T.text};
+            box-shadow: ${T.shadow};
         }
 
         #ep13 .ep-hdr {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 12px;
-            padding-bottom: 10px;
-            border-bottom: 1px solid var(--ep-border);
+            display: flex; align-items: center; gap: 10px;
+            margin-bottom: 12px; padding-bottom: 10px;
+            border-bottom: 1px solid ${T.border};
         }
         #ep13 .ep-hdr-logo {
             width: 30px; height: 30px;
             background: linear-gradient(135deg, #3b82f6, #a855f7);
             border-radius: 8px;
-            display: flex; align-items: center; justify-content: center;
+            display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+        }
+        #ep13 .ep-hdr-title { font-size: 15px; font-weight: 700; letter-spacing: -0.3px; color: ${T.text}; }
+        #ep13 .ep-hdr-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+        #ep13 .ep-hdr-date  { font-size: 11px; color: ${T.muted}; letter-spacing: 0.5px; display: flex; align-items: center; gap: 5px; }
+        #ep13 .ep-pulse { width: 6px; height: 6px; border-radius: 50%; background: #22c55e; animation: ep-pulse 2s ease-in-out infinite; }
+        @keyframes ep-pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.35;transform:scale(.65)} }
+
+        /* ── Theme toggle button ── */
+        #ep13 .ep-theme-btn {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 26px; height: 26px; border-radius: 7px; cursor: pointer;
+            border: 1px solid ${T.border};
+            background: ${T.surface};
+            color: ${T.muted};
+            transition: background 0.15s, color 0.15s;
             flex-shrink: 0;
         }
-        #ep13 .ep-hdr-title {
-            font-size: 15px; font-weight: 700; letter-spacing: -0.3px;
-            color: var(--ep-text);
-        }
-        #ep13 .ep-hdr-date {
-            margin-left: auto;
-            font-size: 11px; color: var(--ep-muted);
-            letter-spacing: 0.5px;
-            display: flex; align-items: center; gap: 5px;
-        }
-        #ep13 .ep-pulse {
-            width: 6px; height: 6px; border-radius: 50%;
-            background: #22c55e;
-            animation: ep-pulse 2s ease-in-out infinite;
-        }
-        @keyframes ep-pulse {
-            0%,100% { opacity:1; transform:scale(1); }
-            50%      { opacity:.35; transform:scale(.65); }
-        }
+        #ep13 .ep-theme-btn:hover { background: ${T.isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}; color: ${T.text}; }
 
-        #ep13 .ep-grid {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 10px;
-        }
+        #ep13 .ep-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 
         #ep13 .ep-card {
-            background: var(--ep-surface);
-            border: 1px solid var(--ep-border);
-            border-radius: 10px;
-            padding: 12px;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            min-width: 0;
+            background: ${T.surface};
+            border: 1px solid ${T.border};
+            border-radius: 10px; padding: 12px;
+            display: flex; flex-direction: column; gap: 8px; min-width: 0;
         }
-        #ep13 .ep-card-title {
-            font-size: 9px; font-weight: 700; letter-spacing: 1.1px;
-            text-transform: uppercase; color: var(--ep-muted);
-        }
+        #ep13 .ep-card-title { font-size: 9px; font-weight: 700; letter-spacing: 1.1px; text-transform: uppercase; color: ${T.muted}; }
 
-        #ep13 .ep-act-row {
-            display: flex; align-items: center; gap: 8px;
-        }
+        #ep13 .ep-act-row { display: flex; align-items: center; gap: 8px; }
         #ep13 .ep-act-info { flex: 1; min-width: 0; }
-        #ep13 .ep-act-name {
-            font-size: 12px; font-weight: 600; color: var(--ep-text);
-            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-            line-height: 1.3;
-        }
-        #ep13 .ep-act-meta {
-            font-size: 10px; color: var(--ep-muted); line-height: 1.3;
-        }
-        #ep13 .ep-bar {
-            height: 3px; background: rgba(255,255,255,0.07);
-            border-radius: 3px; margin-top: 3px; overflow: hidden;
-        }
-        #ep13 .ep-bar-fill {
-            height: 100%; border-radius: 3px;
-        }
-        #ep13 .ep-divider {
-            height: 1px; background: var(--ep-border); margin: 2px 0;
-        }
-        #ep13 .ep-total-row {
-            display: flex; justify-content: space-between; align-items: center;
-        }
-        #ep13 .ep-total-label { font-size: 10px; color: var(--ep-muted); }
-        #ep13 .ep-total-val   { font-size: 11px; font-weight: 600; color: var(--ep-text); }
+        #ep13 .ep-act-name { font-size: 12px; font-weight: 600; color: ${T.text}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; }
+        #ep13 .ep-act-meta { font-size: 10px; color: ${T.muted}; line-height: 1.3; }
+        #ep13 .ep-bar       { height: 3px; background: ${T.barTrack}; border-radius: 3px; margin-top: 3px; overflow: hidden; }
+        #ep13 .ep-bar-fill  { height: 100%; border-radius: 3px; }
+        #ep13 .ep-divider   { height: 1px; background: ${T.border}; margin: 2px 0; }
+        #ep13 .ep-total-row { display: flex; justify-content: space-between; align-items: center; }
+        #ep13 .ep-total-label { font-size: 10px; color: ${T.muted}; }
+        #ep13 .ep-total-val   { font-size: 11px; font-weight: 600; color: ${T.text}; }
 
-        #ep13 .ep-ring-card {
-            align-items: center;
-            text-align: center;
-        }
-        #ep13 .ep-ring-wrap {
-            position: relative;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            width: 122px;
-            height: 122px;
-            flex-shrink: 0;
-        }
-        #ep13 .ep-ring-wrap svg {
-            position: absolute;
-            top: 0; left: 0;
-            width: 122px; height: 122px;
-        }
-        #ep13 .ep-ring-center {
-            position: relative;
-            z-index: 1;
-            display: flex; flex-direction: column;
-            align-items: center; justify-content: center;
-            pointer-events: none;
-        }
-        #ep13 .ep-ring-pct {
-            font-size: 24px; font-weight: 700;
-            letter-spacing: -0.5px; line-height: 1;
-        }
-        #ep13 .ep-ring-lbl {
-            font-size: 8px; color: var(--ep-muted);
-            letter-spacing: 0.8px; text-transform: uppercase;
-            margin-top: 1px;
-        }
-        #ep13 .ep-stat-row {
-            display: flex; justify-content: space-between; width: 100%;
-        }
-        #ep13 .ep-stat-k { font-size: 10px; color: var(--ep-muted); }
-        #ep13 .ep-stat-v { font-size: 10px; font-weight: 600; color: var(--ep-text); }
-        #ep13 .ep-hint {
-            font-size: 10px; color: var(--ep-muted);
-            display: flex; align-items: center; gap: 4px;
-            margin-top: 2px;
-        }
+        #ep13 .ep-ring-card { align-items: center; text-align: center; }
+        #ep13 .ep-ring-wrap { position: relative; display: flex; align-items: center; justify-content: center; width: 122px; height: 122px; flex-shrink: 0; }
+        #ep13 .ep-ring-wrap svg { position: absolute; top: 0; left: 0; width: 122px; height: 122px; }
+        #ep13 .ep-ring-center { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; }
+        #ep13 .ep-ring-pct { font-size: 24px; font-weight: 700; letter-spacing: -0.5px; line-height: 1; }
+        #ep13 .ep-ring-lbl { font-size: 8px; color: ${T.muted}; letter-spacing: 0.8px; text-transform: uppercase; margin-top: 1px; }
+        #ep13 .ep-stat-row { display: flex; justify-content: space-between; width: 100%; }
+        #ep13 .ep-stat-k   { font-size: 10px; color: ${T.muted}; }
+        #ep13 .ep-stat-v   { font-size: 10px; font-weight: 600; color: ${T.text}; }
+        #ep13 .ep-hint     { font-size: 10px; color: ${T.muted}; display: flex; align-items: center; gap: 4px; margin-top: 2px; }
 
-        #ep13 .ep-buf-top {
-            display: flex; align-items: center; gap: 8px;
-        }
-        #ep13 .ep-buf-val {
-            font-size: 24px; font-weight: 800;
-            letter-spacing: -1px; line-height: 1;
-        }
+        #ep13 .ep-buf-top { display: flex; align-items: center; gap: 8px; }
+        #ep13 .ep-buf-val { font-size: 24px; font-weight: 800; letter-spacing: -1px; line-height: 1; }
         #ep13 .ep-buf-val.pos { color: #22c55e; }
         #ep13 .ep-buf-val.neg { color: #ef4444; }
-        #ep13 .ep-buf-val.zer { color: var(--ep-muted); }
-        #ep13 .ep-buf-sub {
-            font-size: 10px; color: var(--ep-muted); line-height: 1.4;
-        }
-        #ep13 .ep-chip-grid {
-            display: grid; grid-template-columns: 1fr 1fr;
-            gap: 6px;
-        }
-        #ep13 .ep-chip {
-            background: rgba(255,255,255,0.03);
-            border: 1px solid var(--ep-border);
-            border-radius: 7px;
-            padding: 7px 8px;
-            text-align: center;
-        }
-        #ep13 .ep-chip-val {
-            font-size: 18px; font-weight: 700; line-height: 1;
-        }
-        #ep13 .ep-chip-lbl {
-            font-size: 8px; color: var(--ep-muted);
-            text-transform: uppercase; letter-spacing: 0.8px;
-            margin-top: 2px;
-        }
+        #ep13 .ep-buf-val.zer { color: ${T.muted}; }
+        #ep13 .ep-buf-sub { font-size: 10px; color: ${T.muted}; line-height: 1.4; }
+
+        #ep13 .ep-chip-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+        #ep13 .ep-chip { background: ${T.chipBg}; border: 1px solid ${T.border}; border-radius: 7px; padding: 7px 8px; text-align: center; }
+        #ep13 .ep-chip-val { font-size: 18px; font-weight: 700; line-height: 1; color: ${T.text}; }
+        #ep13 .ep-chip-lbl { font-size: 8px; color: ${T.muted}; text-transform: uppercase; letter-spacing: 0.8px; margin-top: 2px; }
+
         #ep13 .ep-prog-wrap { width: 100%; }
-        #ep13 .ep-prog-hdr {
-            display: flex; justify-content: space-between;
-            font-size: 9px; color: var(--ep-muted); margin-bottom: 4px;
-        }
-        #ep13 .ep-prog-track {
-            height: 5px; background: rgba(255,255,255,0.07);
-            border-radius: 5px; overflow: hidden;
-        }
-        #ep13 .ep-prog-fill {
-            height: 100%; border-radius: 5px;
-            background: linear-gradient(90deg, #3b82f6, #a855f7);
-        }
-        #ep13 .ep-notice {
-            display: flex; align-items: center; gap: 5px;
-            font-size: 10px; color: var(--ep-muted); flex-wrap: nowrap;
-        }
+        #ep13 .ep-prog-hdr  { display: flex; justify-content: space-between; font-size: 9px; color: ${T.muted}; margin-bottom: 4px; }
+        #ep13 .ep-prog-track { height: 5px; background: ${T.barTrack}; border-radius: 5px; overflow: hidden; }
+        #ep13 .ep-prog-fill  { height: 100%; border-radius: 5px; background: linear-gradient(90deg, #3b82f6, #a855f7); }
+
+        #ep13 .ep-notice       { display: flex; align-items: center; gap: 5px; font-size: 10px; color: ${T.muted}; flex-wrap: nowrap; }
         #ep13 .ep-notice.warn  { color: #ef4444; }
         #ep13 .ep-notice.good  { color: #22c55e; }
-        #ep13 .ep-notice.info  { color: var(--ep-muted); }
-        #ep13 .ep-notices { display: flex; flex-direction: column; gap: 4px; }
+        #ep13 .ep-notice.info  { color: ${T.muted}; }
+        #ep13 .ep-notices      { display: flex; flex-direction: column; gap: 4px; }
         `;
-        document.head.appendChild(s);
     };
 
     /* ═══════════════════════════════════════════════════════════════
-       RENDER
+       THEME STATE — supports manual override via button
+    ═══════════════════════════════════════════════════════════════ */
+
+    // null = auto, 'dark' or 'light' = manual override
+    let themeOverride = null;
+
+    const getTheme = () => {
+        if (themeOverride === 'dark') {
+            return {
+                isDark: true,
+                bg: '#111827', surface: '#1a2235', border: 'rgba(255,255,255,0.08)',
+                text: '#e2e8f0', muted: '#6b7280', faint: 'rgba(255,255,255,0.04)',
+                barTrack: 'rgba(255,255,255,0.07)', chipBg: 'rgba(255,255,255,0.03)',
+                shadow: '0 4px 24px rgba(0,0,0,0.4)', ringTrack: 'rgba(128,128,128,0.25)',
+            };
+        }
+        if (themeOverride === 'light') {
+            return {
+                isDark: false,
+                bg: '#ffffff', surface: '#f3f4f6', border: 'rgba(0,0,0,0.09)',
+                text: '#111827', muted: '#6b7280', faint: 'rgba(0,0,0,0.03)',
+                barTrack: 'rgba(0,0,0,0.07)', chipBg: 'rgba(0,0,0,0.03)',
+                shadow: '0 2px 12px rgba(0,0,0,0.10)', ringTrack: 'rgba(0,0,0,0.12)',
+            };
+        }
+        return buildTheme(); // auto-detect
+    };
+
+    /* ═══════════════════════════════════════════════════════════════
+       ACTIVITY CONFIG
     ═══════════════════════════════════════════════════════════════ */
 
     const ACT_CFG = {
@@ -435,8 +411,13 @@ const offTarget = 60;
     };
     const FALLBACK_CFG = { icon: 'timer', grad: 'linear-gradient(135deg,#64748b,#334155)', bg: '#475569' };
 
+    /* ═══════════════════════════════════════════════════════════════
+       RENDER
+    ═══════════════════════════════════════════════════════════════ */
+
     const renderUI = () => {
-        injectStyles();
+        const T = getTheme();
+        injectStyles(T);
 
         const mainPanel = document.getElementById('mainTimesheetPanel');
         if (!mainPanel) return;
@@ -463,7 +444,6 @@ const offTarget = 60;
         const realRota = summary.rota - summary.absences - summary.holidays;
         const factor   = summary.recorded / rawTotal;
 
-        // Scale activity minutes to match the authoritative recorded total
         const acts = Object.entries(actMap)
             .map(([name, mins]) => ({ name, adj: Math.floor(mins * factor) }))
             .filter(a => a.adj > 0)
@@ -473,37 +453,40 @@ const offTarget = 60;
         const officeEntry  = acts.find(a => a.name === 'Office');
         const officeMins   = officeEntry ? officeEntry.adj : 0;
 
-        // Office target 
         const targetMins   = realRota * (offTarget / 100);
         const officePct    = targetMins > 0 ? (officeMins / targetMins) * 100 : 0;
         const officeActPct = realRota   > 0 ? (officeMins / realRota)   * 100 : 0;
 
-        // Rota progress
         const rotaPct = realRota > 0 ? (summary.recorded / realRota) * 100 : 0;
 
-        // Days / buffer
         const ds = getDayStats(summary);
 
         const now     = new Date();
         const dateStr = now.toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }).toUpperCase();
 
-        // Hardcoded hex colors for SVG ring strokes (CSS vars don't resolve inside SVG paint attributes)
-        const offColor  = officePct >= 100 ? '#22c55e'   // ✅ green  — target met
-                        : officePct >= 85  ? '#84cc16'    // 🟩 lime   — nearly there
-                        : officePct >= 65  ? '#eab308'    // 🟡 yellow — on track
-                        : officePct >= 45  ? '#f97316'    // 🟠 orange — needs attention
-                        :                    '#ef4444';   // 🔴 red    — well behind
-        const rotaColor = rotaPct   >= 100 ? '#22c55e' : rotaPct   >= 80 ? '#3b82f6' : '#f59e0b';
+        const offColor  = getOffColor(officePct);
+        const rotaColor = rotaPct >= 100 ? '#22c55e' : rotaPct >= 80 ? '#3b82f6' : '#f59e0b';
 
-        const offRing  = ring({ r: 54, pct: officePct, color: offColor,  sw: 6 });
-        const rotaRing = ring({ r: 54, pct: rotaPct,   color: rotaColor, sw: 6 });
+        const offRing  = ring({ r: 54, pct: officePct,  color: offColor,  sw: 6, trackColor: T.ringTrack });
+        const rotaRing = ring({ r: 54, pct: rotaPct,    color: rotaColor, sw: 6, trackColor: T.ringTrack });
+
+        // Toggle icon — show opposite of current theme
+        const nextTheme   = T.isDark ? 'light' : 'dark';
+        const toggleIcon  = T.isDark ? 'sun' : 'moon';
+        const toggleTitle = T.isDark ? 'Switch to light theme' : 'Switch to dark theme';
 
         /* ── HEADER ── */
         let html = `
         <div class="ep-hdr">
             <div class="ep-hdr-logo">${icon('timer', 16)}</div>
             <div class="ep-hdr-title">eDays Analyzer Pro</div>
-            <div class="ep-hdr-date"><span class="ep-pulse"></span>${dateStr}</div>
+            <div class="ep-hdr-right">
+                <button class="ep-theme-btn" title="${toggleTitle}" onclick="
+                    window.__epThemeOverride = '${nextTheme}';
+                    document.dispatchEvent(new CustomEvent('ep-theme-toggle'));
+                ">${icon(toggleIcon, 14, T.muted)}</button>
+                <div class="ep-hdr-date"><span class="ep-pulse"></span>${dateStr}</div>
+            </div>
         </div>
         <div class="ep-grid">
         `;
@@ -554,7 +537,7 @@ const offTarget = 60;
             <div class="ep-stat-row"><span class="ep-stat-k">Target</span><span class="ep-stat-v">${fmt(targetMins)}</span></div>`;
 
         if (officePct < 100) {
-            html += `<div class="ep-hint">${icon('today', 12, '#6b7280')}
+            html += `<div class="ep-hint">${icon('today', 12, T.muted)}
                 <span>${offRemD > 0 ? offRemD+'d ' : ''}${offRemH}h${offRemM ? ' '+offRemM+'m' : ''} to hit ${offTarget}%</span>
             </div>`;
         } else {
@@ -584,7 +567,7 @@ const offTarget = 60;
         /* ══ CARD 4 · Buffer & Outlook ══ */
         const bufClass = ds.bufferMinutes > 0 ? 'pos' : ds.bufferMinutes < 0 ? 'neg' : 'zer';
         const bufIcon  = ds.bufferMinutes > 0 ? 'trending_up' : ds.bufferMinutes < 0 ? 'trending_down' : 'trending_flat';
-        const bufColor = ds.bufferMinutes > 0 ? '#22c55e' : ds.bufferMinutes < 0 ? '#ef4444' : '#6b7280';
+        const bufColor = ds.bufferMinutes > 0 ? '#22c55e' : ds.bufferMinutes < 0 ? '#ef4444' : T.muted;
 
         html += `<div class="ep-card">
             <div class="ep-card-title">Buffer &amp; Outlook</div>
@@ -625,7 +608,7 @@ const offTarget = 60;
 
             <div class="ep-notices">
                 ${ds.daysLeft > 0 ? `
-                <div class="ep-notice info">${icon('calendar', 12, '#6b7280')}
+                <div class="ep-notice info">${icon('calendar', 12, T.muted)}
                     <span>${ds.daysLeft}d left · ${fmt(ds.daysLeft * 480)} remaining</span>
                 </div>` : ''}
 
@@ -636,11 +619,11 @@ const offTarget = 60;
                 <div class="ep-notice warn">${icon('warning', 12, '#ef4444')}
                     <span>${fmt(Math.abs(ds.bufferMinutes))} deficit vs past days</span>
                 </div>` : `
-                <div class="ep-notice info">${icon('flag', 12, '#6b7280')}
+                <div class="ep-notice info">${icon('flag', 12, T.muted)}
                     <span>Exactly on target!</span>
                 </div>`}
 
-                <div class="ep-notice info">${icon('flag', 12, '#6b7280')}
+                <div class="ep-notice info">${icon('flag', 12, T.muted)}
                     <span>Month target: ${fmt(ds.realRota)}</span>
                 </div>
             </div>
@@ -653,6 +636,12 @@ const offTarget = 60;
     /* ═══════════════════════════════════════════════════════════════
        BOOT
     ═══════════════════════════════════════════════════════════════ */
+
+    // Listen for manual theme toggle from button click
+    document.addEventListener('ep-theme-toggle', () => {
+        themeOverride = window.__epThemeOverride || null;
+        renderUI();
+    });
 
     const boot = () => {
         const tick = setInterval(() => {
