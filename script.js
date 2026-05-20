@@ -1,9 +1,11 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      14.0
+// @version      15.0
 // @match        https://*.e-days.com/*
 // @grant        none
+// @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
+// @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // ==/UserScript==
 
 /* ══ Set Office Target ══ */
@@ -30,12 +32,11 @@ const offTarget = 60;
             const match = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
             if (!match) continue;
             const [, r, g, b] = match.map(Number);
-            if (r === 0 && g === 0 && b === 0) continue; // transparent / unset
-            // Perceived luminance
+            if (r === 0 && g === 0 && b === 0) continue;
             const lum = (0.299 * r + 0.587 * g + 0.114 * b);
-            return lum; // 0=black, 255=white
+            return lum;
         }
-        return 255; // default to light if nothing detected
+        return 255;
     };
 
     const buildTheme = () => {
@@ -228,15 +229,34 @@ const offTarget = 60;
 
         const workableDays = Math.round(realRota / 480);
         const workedDays   = Math.round(recorded / 480);
-        const daysLeft     = Math.max(0, Math.round((realRota - recorded) / 480));
-        const soFar        = Math.max(0, workableDays - daysLeft);
         const progressPct  = realRota > 0 ? (recorded / realRota) * 100 : 0;
 
         const allDays  = [...document.querySelectorAll('.tt_day_container')];
         const todayIdx = allDays.findIndex(d => d.querySelector('.today_chip'));
 
-        let bufferMinutes;
+        // ── Fixed "So Far": count actual elapsed workdays from the DOM ──
+        // A day counts as elapsed if it's before today and not a full absence/holiday.
+        // If today isn't found (viewing a past month), treat all days as elapsed.
+        let soFar = 0;
+        allDays.forEach((day, idx) => {
+            // Skip if this day is today or in the future
+            if (todayIdx !== -1 && idx >= todayIdx) return;
+            // Skip pure absence/holiday days (no period containers with time)
+            const hasTime = [...day.querySelectorAll('.tt_period_container')]
+                .some(p => getPeriodMinutes(p) > 0 ||
+                           p.querySelector('input[type="time"]')?.value);
+            const absenceText = day.querySelector('.absence_detail_text')?.innerText?.trim() || '';
+            // Count it as a workday if it had entries OR it wasn't a recorded absence
+            // (i.e. it's a plain working day the person may or may not have filled in)
+            const isPureAbsence = absenceText.length > 0 && !hasTime;
+            if (!isPureAbsence) soFar++;
+        });
+        // If no today marker found (past month view), soFar = workableDays
+        if (todayIdx === -1) soFar = workableDays;
 
+        const daysLeft = Math.max(0, workableDays - soFar);
+
+        let bufferMinutes;
         if (todayIdx === -1) {
             bufferMinutes = summary.difference;
         } else {
@@ -262,7 +282,7 @@ const offTarget = 60;
        STYLES — injected fresh on each render with live theme tokens
     ═══════════════════════════════════════════════════════════════ */
 
-    const STYLE_ID = 'edays-pro-v14-styles';
+    const STYLE_ID = 'edays-pro-v15-styles';
 
     const injectStyles = (T) => {
         let s = document.getElementById(STYLE_ID);
@@ -295,7 +315,6 @@ const offTarget = 60;
         #ep13 .ep-pulse { width: 6px; height: 6px; border-radius: 50%; background: #22c55e; animation: ep-pulse 2s ease-in-out infinite; }
         @keyframes ep-pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.35;transform:scale(.65)} }
 
-        /* ── Theme toggle button ── */
         #ep13 .ep-theme-btn {
             display: inline-flex; align-items: center; justify-content: center;
             width: 26px; height: 26px; border-radius: 7px; cursor: pointer;
@@ -368,7 +387,6 @@ const offTarget = 60;
        THEME STATE — supports manual override via button
     ═══════════════════════════════════════════════════════════════ */
 
-    // null = auto, 'dark' or 'light' = manual override
     let themeOverride = null;
 
     const getTheme = () => {
@@ -390,7 +408,7 @@ const offTarget = 60;
                 shadow: '0 2px 12px rgba(0,0,0,0.10)', ringTrack: 'rgba(0,0,0,0.12)',
             };
         }
-        return buildTheme(); // auto-detect
+        return buildTheme();
     };
 
     /* ═══════════════════════════════════════════════════════════════
@@ -464,7 +482,6 @@ const offTarget = 60;
         const offRing  = ring({ r: 54, pct: officePct,  color: offColor,  sw: 6, trackColor: T.ringTrack });
         const rotaRing = ring({ r: 54, pct: rotaPct,    color: rotaColor, sw: 6, trackColor: T.ringTrack });
 
-        // Toggle icon — show opposite of current theme
         const nextTheme   = T.isDark ? 'light' : 'dark';
         const toggleIcon  = T.isDark ? 'sun' : 'moon';
         const toggleTitle = T.isDark ? 'Switch to light theme' : 'Switch to dark theme';
@@ -628,10 +645,9 @@ const offTarget = 60;
     };
 
     /* ═══════════════════════════════════════════════════════════════
-       BOOT
+       BOOT — initial poll + MutationObserver for live updates
     ═══════════════════════════════════════════════════════════════ */
 
-    // Listen for manual theme toggle from button click
     document.addEventListener('ep-theme-toggle', () => {
         themeOverride = window.__epThemeOverride || null;
         renderUI();
@@ -645,7 +661,22 @@ const offTarget = 60;
             ) {
                 clearInterval(tick);
                 renderUI();
-                setInterval(renderUI, 4000);
+
+                // MutationObserver — re-render when the timesheet DOM changes
+                // (e.g. user edits a time entry, changes activity type, etc.)
+                let debounceTimer = null;
+                const observer = new MutationObserver(() => {
+                    clearTimeout(debounceTimer);
+                    debounceTimer = setTimeout(renderUI, 600);
+                });
+
+                const panel = document.getElementById('mainTimesheetPanel');
+                if (panel) {
+                    observer.observe(panel, { childList: true, subtree: true, characterData: true, attributes: true });
+                }
+
+                // Fallback poll every 30s in case observer misses summary-only changes
+                setInterval(renderUI, 30000);
             }
         }, 800);
     };
