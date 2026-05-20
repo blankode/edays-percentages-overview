@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      15.4
+// @version      15.5
 // @match        https://*.e-days.com/*
 // @grant        none
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
@@ -517,7 +517,7 @@ const offTarget = 60;
         html += `<div class="ep-divider"></div>
             <div class="ep-total-row">
                 <span class="ep-total-label">Total logged</span>
-                <span class="ep-total-val">${fmt(totalActMins)} / ${fmt(realRota)}</span>
+                <span class="ep-total-val">${fmt(totalActMins)} / ${fmt(realRota)} &nbsp;·&nbsp; ${totalActPct.toFixed(1)}%</span>
             </div>
             <div class="ep-bar"><div class="ep-bar-fill" style="width:${clamp(totalActPct,0,100)}%;background:linear-gradient(90deg,#3b82f6,#a855f7);"></div></div>
         </div>`;
