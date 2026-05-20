@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      15.0
+// @version      15.2
 // @match        https://*.e-days.com/*
 // @grant        none
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
@@ -227,34 +227,20 @@ const offTarget = 60;
         const realRota = summary.rota - summary.absences - summary.holidays;
         const recorded = summary.recorded;
 
-        const workableDays = Math.round(realRota / 480);
+        const allDays     = [...document.querySelectorAll('.tt_day_container')];
+        const workableDays = allDays.filter(d => {
+            if (d.querySelector('.absence_detail_text')) return false;
+            const dayText = d.querySelector('.timesheet_day_text')?.innerText?.trim() || '';
+            if (dayText.startsWith('Saturday') || dayText.startsWith('Sunday')) return false;
+            return true;
+        }).length;
         const workedDays   = Math.round(recorded / 480);
         const progressPct  = realRota > 0 ? (recorded / realRota) * 100 : 0;
 
-        const allDays  = [...document.querySelectorAll('.tt_day_container')];
+        const daysLeft = Math.round(Math.max(0, realRota - recorded) / 480);
+        const soFar    = Math.max(0, workableDays - daysLeft);
+
         const todayIdx = allDays.findIndex(d => d.querySelector('.today_chip'));
-
-        // ── Fixed "So Far": count actual elapsed workdays from the DOM ──
-        // A day counts as elapsed if it's before today and not a full absence/holiday.
-        // If today isn't found (viewing a past month), treat all days as elapsed.
-        let soFar = 0;
-        allDays.forEach((day, idx) => {
-            // Skip if this day is today or in the future
-            if (todayIdx !== -1 && idx >= todayIdx) return;
-            // Skip pure absence/holiday days (no period containers with time)
-            const hasTime = [...day.querySelectorAll('.tt_period_container')]
-                .some(p => getPeriodMinutes(p) > 0 ||
-                           p.querySelector('input[type="time"]')?.value);
-            const absenceText = day.querySelector('.absence_detail_text')?.innerText?.trim() || '';
-            // Count it as a workday if it had entries OR it wasn't a recorded absence
-            // (i.e. it's a plain working day the person may or may not have filled in)
-            const isPureAbsence = absenceText.length > 0 && !hasTime;
-            if (!isPureAbsence) soFar++;
-        });
-        // If no today marker found (past month view), soFar = workableDays
-        if (todayIdx === -1) soFar = workableDays;
-
-        const daysLeft = Math.max(0, workableDays - soFar);
 
         let bufferMinutes;
         if (todayIdx === -1) {
