@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      15.2
+// @version      15.4
 // @match        https://*.e-days.com/*
 // @grant        none
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
@@ -228,13 +228,21 @@ const offTarget = 60;
         const recorded = summary.recorded;
 
         const allDays     = [...document.querySelectorAll('.tt_day_container')];
+        const isHalfDayVacation = (d) => {
+            const txt = d.querySelector('.absence_detail_text')?.innerText?.trim() || '';
+            return txt === 'Vacation: AM' || txt === 'Vacation: PM';
+        };
         const workableDays = allDays.filter(d => {
-            if (d.querySelector('.absence_detail_text')) return false;
             const dayText = d.querySelector('.timesheet_day_text')?.innerText?.trim() || '';
             if (dayText.startsWith('Saturday') || dayText.startsWith('Sunday')) return false;
+            if (d.querySelector('.absence_detail_text') && !isHalfDayVacation(d)) return false;
             return true;
         }).length;
-        const workedDays   = Math.round(recorded / 480);
+        const workedDays   = allDays.filter(d => {
+            const dayText = d.querySelector('.timesheet_day_text')?.innerText?.trim() || '';
+            if (dayText.startsWith('Saturday') || dayText.startsWith('Sunday')) return false;
+            return getDayTotalMinutes(d) > 0;
+        }).length;
         const progressPct  = realRota > 0 ? (recorded / realRota) * 100 : 0;
 
         const daysLeft = Math.round(Math.max(0, realRota - recorded) / 480);
