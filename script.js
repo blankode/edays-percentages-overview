@@ -306,7 +306,7 @@ const offTarget = 60;
         #ep13 .ep-hdr-title { font-size: 17px; font-weight: 700; letter-spacing: -0.3px; color: ${T.text}; }
         #ep13 .ep-hdr-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
         #ep13 .ep-hdr-date  { font-size: 13px; color: ${T.muted}; letter-spacing: 0.5px; display: flex; align-items: center; gap: 5px; }
-        #ep13 .ep-pulse { width: 6px; height: 6px; border-radius: 50%; background: #22c55e; animation: ep-pulse 2s ease-in-out infinite; }
+        #ep13 .ep-pulse { width: 6px; height: 6px; border-radius: 50%; background: #22c55e; animation: ep-pulse 3.5s ease-in-out infinite; }
         @keyframes ep-pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.35;transform:scale(.65)} }
 
         #ep13 .ep-theme-btn {
