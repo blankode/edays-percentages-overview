@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      15.5
+// @version      15.6
 // @match        https://*.e-days.com/*
 // @grant        none
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
@@ -381,7 +381,8 @@ const offTarget = 60;
        THEME STATE — supports manual override via button
     ═══════════════════════════════════════════════════════════════ */
 
-    let themeOverride = null;
+    const THEME_KEY = 'ep-theme-override';
+    let themeOverride = localStorage.getItem(THEME_KEY) || null;
 
     const getTheme = () => {
         if (themeOverride === 'dark') {
@@ -644,6 +645,8 @@ const offTarget = 60;
 
     document.addEventListener('ep-theme-toggle', () => {
         themeOverride = window.__epThemeOverride || null;
+        if (themeOverride) localStorage.setItem(THEME_KEY, themeOverride);
+        else localStorage.removeItem(THEME_KEY);
         renderUI();
     });
 
