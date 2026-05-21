@@ -150,6 +150,7 @@ Tested on `*.e-days.com` monthly timesheet view.
 
 | Version | Changes |
 |---|---|
+| **15.6** | Moved dark/white theme to localStorage |
 | **15.5** | Added % to Total Logged in Activity Breakdown |
 | **15.4** | Half-day vacations (AM/PM) excluded from absence filter |
 | **15.3** | Worked days now counted from DOM, not hour division |
