@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      15.6
+// @version      15.9
 // @match        https://*.e-days.com/*
 // @grant        none
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
@@ -16,11 +16,12 @@ const offTarget = 60;
 
     /* ═══════════════════════════════════════════════════════════════
        THEME DETECTION
-       Reads the actual page background and picks dark or light tokens.
     ═══════════════════════════════════════════════════════════════ */
 
     const getPageBrightness = () => {
-        const candidates = [document.body, document.documentElement,
+        const candidates = [
+            document.body,
+            document.documentElement,
             document.getElementById('mainTimesheetPanel'),
             document.querySelector('.timesheet_container'),
             document.querySelector('.main-content'),
@@ -28,50 +29,34 @@ const offTarget = 60;
         ].filter(Boolean);
 
         for (const el of candidates) {
-            const bg = getComputedStyle(el).backgroundColor;
+            const bg    = getComputedStyle(el).backgroundColor;
             const match = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
             if (!match) continue;
             const [, r, g, b] = match.map(Number);
             if (r === 0 && g === 0 && b === 0) continue;
-            const lum = (0.299 * r + 0.587 * g + 0.114 * b);
-            return lum;
+            return (0.299 * r + 0.587 * g + 0.114 * b);
         }
         return 255;
     };
 
     const buildTheme = () => {
-        const lum = getPageBrightness();
-        const isDark = lum < 100;
-
+        const isDark = getPageBrightness() < 100;
         if (isDark) {
             return {
                 isDark,
-                bg:        '#181818',
-                surface:   '#242424',
-                border:    'rgba(255,255,255,0.08)',
-                text:      '#e8e8e8',
-                muted:     '#888888',
-                faint:     'rgba(255,255,255,0.04)',
-                barTrack:  'rgba(255,255,255,0.07)',
-                chipBg:    'rgba(255,255,255,0.03)',
-                shadow:    '0 4px 24px rgba(0,0,0,0.4)',
-                ringTrack: 'rgba(255,255,255,0.12)',
-            };
-        } else {
-            return {
-                isDark,
-                bg:        '#ffffff',
-                surface:   '#f7f7f7',
-                border:    'rgba(0,0,0,0.08)',
-                text:      '#111827',
-                muted:     '#6b7280',
-                faint:     'rgba(0,0,0,0.03)',
-                barTrack:  'rgba(0,0,0,0.07)',
-                chipBg:    'rgba(0,0,0,0.03)',
-                shadow:    '0 2px 12px rgba(0,0,0,0.10)',
-                ringTrack: 'rgba(0,0,0,0.12)',
+                bg: '#181818', surface: '#242424', border: 'rgba(255,255,255,0.08)',
+                text: '#e8e8e8', muted: '#888888', faint: 'rgba(255,255,255,0.04)',
+                barTrack: 'rgba(255,255,255,0.07)', chipBg: 'rgba(255,255,255,0.03)',
+                shadow: '0 4px 24px rgba(0,0,0,0.4)', ringTrack: 'rgba(255,255,255,0.12)',
             };
         }
+        return {
+            isDark,
+            bg: '#ffffff', surface: '#f7f7f7', border: 'rgba(0,0,0,0.08)',
+            text: '#111827', muted: '#6b7280', faint: 'rgba(0,0,0,0.03)',
+            barTrack: 'rgba(0,0,0,0.07)', chipBg: 'rgba(0,0,0,0.03)',
+            shadow: '0 2px 12px rgba(0,0,0,0.10)', ringTrack: 'rgba(0,0,0,0.12)',
+        };
     };
 
     /* ═══════════════════════════════════════════════════════════════
@@ -89,7 +74,7 @@ const offTarget = 60;
         const abs  = Math.abs(mins);
         const h    = Math.floor(abs / 60);
         const m    = abs % 60;
-        return m === 0 ? `${sign}${h}h` : `${sign}${h}h ${String(m).padStart(2,'0')}m`;
+        return m === 0 ? `${sign}${h}h` : `${sign}${h}h ${String(m).padStart(2, '0')}m`;
     };
 
     const parseTime = value => {
@@ -100,6 +85,24 @@ const offTarget = 60;
     };
 
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+    /* ═══════════════════════════════════════════════════════════════
+       SCROLL HELPERS
+    ═══════════════════════════════════════════════════════════════ */
+
+    const smoothScrollTo = (el, offset = -165) => {
+        if (!el) return;
+        const top = el.getBoundingClientRect().top + window.scrollY + offset;
+        window.scrollTo({ top, behavior: 'smooth' });
+    };
+
+    const jumpToToday = () => {
+        const chip   = document.querySelector('.today_chip');
+        const target = chip ? (chip.closest('.tt_day_container') || chip) : null;
+        smoothScrollTo(target);
+    };
+
+    const jumpToAnalyzer = () => smoothScrollTo(document.getElementById('ep13'));
 
     /* ═══════════════════════════════════════════════════════════════
        PERIOD / DAY HELPERS
@@ -126,7 +129,7 @@ const offTarget = 60;
     };
 
     /* ═══════════════════════════════════════════════════════════════
-       INLINE SVG ICONS
+       ICONS
     ═══════════════════════════════════════════════════════════════ */
 
     const ICONS = {
@@ -146,6 +149,8 @@ const offTarget = 60;
         savings:       `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.5 2C6.81 2 3 5.81 3 10.5S6.81 19 11.5 19h.5v3c4.86-2.34 8-7 8-11.5C20 5.81 16.19 2 11.5 2zm1 14.5h-2v-2h2v2zm0-4h-2c0-3.25 3-3 3-5 0-1.1-.9-2-2-2s-2 .9-2 2h-2c0-2.21 1.79-4 4-4s4 1.79 4 4c0 2.5-3 2.75-3 5z"/></svg>`,
         sun:           `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.79 1.42-1.41zM4 10.5H1v2h3v-2zm9-9.95h-2V3.5h2V.55zm7.45 3.91l-1.41-1.41-1.79 1.79 1.41 1.41 1.79-1.79zm-3.21 13.7l1.79 1.8 1.41-1.41-1.8-1.79-1.4 1.4zM20 10.5v2h3v-2h-3zm-8-5c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm-1 16.95h2V19.5h-2v2.95zm-7.45-3.91l1.41 1.41 1.79-1.8-1.41-1.41-1.79 1.8z"/></svg>`,
         moon:          `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1z"/></svg>`,
+        arrow_down:    `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 12l-1.41-1.41L13 16.17V4h-2v12.17l-5.58-5.59L4 12l8 8 8-8z"/></svg>`,
+        arrow_up:      `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z"/></svg>`,
     };
 
     const icon = (name, size = 14, color = '#fff') =>
@@ -155,7 +160,7 @@ const offTarget = 60;
         `<span style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;background:${bg};border-radius:7px;flex-shrink:0;color:#fff;">${ICONS[name] || ''}</span>`;
 
     /* ═══════════════════════════════════════════════════════════════
-       OFFICE TARGET COLOR — graduated thresholds
+       OFFICE TARGET COLOR
     ═══════════════════════════════════════════════════════════════ */
 
     const getOffColor = (pct) => {
@@ -205,7 +210,6 @@ const offTarget = 60;
     const getActivityData = () => {
         const actMap = { 'Office': 0, 'Mobile Working': 0, 'Business Travel': 0, 'No Activity': 0 };
         let rawTotal = 0, workedDays = 0;
-
         document.querySelectorAll('.tt_day_container').forEach(day => {
             let dayWorked = false;
             day.querySelectorAll('.tt_period_container').forEach(period => {
@@ -219,36 +223,35 @@ const offTarget = 60;
             });
             if (dayWorked) workedDays++;
         });
-
         return { actMap, rawTotal, workedDays };
     };
 
     const getDayStats = (summary) => {
         const realRota = summary.rota - summary.absences - summary.holidays;
-        const recorded = summary.recorded;
+        const allDays  = [...document.querySelectorAll('.tt_day_container')];
 
-        const allDays     = [...document.querySelectorAll('.tt_day_container')];
         const isHalfDayVacation = (d) => {
             const txt = d.querySelector('.absence_detail_text')?.innerText?.trim() || '';
             return txt === 'Vacation: AM' || txt === 'Vacation: PM';
         };
+
         const workableDays = allDays.filter(d => {
-            const dayText = d.querySelector('.timesheet_day_text')?.innerText?.trim() || '';
-            if (dayText.startsWith('Saturday') || dayText.startsWith('Sunday')) return false;
+            const t = d.querySelector('.timesheet_day_text')?.innerText?.trim() || '';
+            if (t.startsWith('Saturday') || t.startsWith('Sunday')) return false;
             if (d.querySelector('.absence_detail_text') && !isHalfDayVacation(d)) return false;
             return true;
         }).length;
-        const workedDays   = allDays.filter(d => {
-            const dayText = d.querySelector('.timesheet_day_text')?.innerText?.trim() || '';
-            if (dayText.startsWith('Saturday') || dayText.startsWith('Sunday')) return false;
+
+        const workedDays = allDays.filter(d => {
+            const t = d.querySelector('.timesheet_day_text')?.innerText?.trim() || '';
+            if (t.startsWith('Saturday') || t.startsWith('Sunday')) return false;
             return getDayTotalMinutes(d) > 0;
         }).length;
-        const progressPct  = realRota > 0 ? (recorded / realRota) * 100 : 0;
 
-        const daysLeft = Math.round(Math.max(0, realRota - recorded) / 480);
-        const soFar    = Math.max(0, workableDays - daysLeft);
-
-        const todayIdx = allDays.findIndex(d => d.querySelector('.today_chip'));
+        const progressPct = realRota > 0 ? (summary.recorded / realRota) * 100 : 0;
+        const daysLeft    = Math.round(Math.max(0, realRota - summary.recorded) / 480);
+        const soFar       = Math.max(0, workableDays - daysLeft);
+        const todayIdx    = allDays.findIndex(d => d.querySelector('.today_chip'));
 
         let bufferMinutes;
         if (todayIdx === -1) {
@@ -256,15 +259,13 @@ const offTarget = 60;
         } else {
             bufferMinutes = 0;
             allDays.forEach((day, idx) => {
-                const absenceText = day.querySelector('.absence_detail_text')?.innerText || '';
-                if (absenceText.length > 0) return;
+                if (day.querySelector('.absence_detail_text')?.innerText) return;
                 const dayMins = getDayTotalMinutes(day);
                 if (dayMins <= 0) return;
-                const isPast = idx < todayIdx;
-                if (isPast) {
+                if (idx < todayIdx) {
                     bufferMinutes += dayMins - 480;
-                } else {
-                    if (dayMins > 480) bufferMinutes += dayMins - 480;
+                } else if (dayMins > 480) {
+                    bufferMinutes += dayMins - 480;
                 }
             });
         }
@@ -272,8 +273,16 @@ const offTarget = 60;
         return { workableDays, soFar, daysLeft, workedDays, progressPct, bufferMinutes, realRota };
     };
 
+    const getTodayMinutes = () => {
+        const todayEl = [...document.querySelectorAll('.tt_day_container')]
+            .find(d => d.querySelector('.today_chip'));
+        return todayEl ? getDayTotalMinutes(todayEl) : 0;
+    };
+
+    const hasTodayOnPage = () => !!document.querySelector('.today_chip');
+
     /* ═══════════════════════════════════════════════════════════════
-       STYLES — injected fresh on each render with live theme tokens
+       STYLES
     ═══════════════════════════════════════════════════════════════ */
 
     const STYLE_ID = 'edays-pro-v15-styles';
@@ -304,53 +313,63 @@ const offTarget = 60;
             display: flex; align-items: center; justify-content: center; flex-shrink: 0;
         }
         #ep13 .ep-hdr-title { font-size: 17px; font-weight: 700; letter-spacing: -0.3px; color: ${T.text}; }
-        #ep13 .ep-hdr-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+        #ep13 .ep-hdr-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
         #ep13 .ep-hdr-date  { font-size: 13px; color: ${T.muted}; letter-spacing: 0.5px; display: flex; align-items: center; gap: 5px; }
         #ep13 .ep-pulse { width: 6px; height: 6px; border-radius: 50%; background: #22c55e; animation: ep-pulse 3.5s ease-in-out infinite; }
         @keyframes ep-pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.35;transform:scale(.65)} }
 
-        #ep13 .ep-theme-btn {
-            display: inline-flex; align-items: center; justify-content: center;
-            width: 26px; height: 26px; border-radius: 7px; cursor: pointer;
+        #ep13 .ep-btn {
+            display: inline-flex; align-items: center; gap: 5px;
+            font-size: 12px; font-weight: 500;
+            border-radius: 7px; cursor: pointer;
             border: 1px solid ${T.border};
             background: ${T.surface};
             color: ${T.muted};
-            transition: background 0.15s, color 0.15s;
-            flex-shrink: 0;
+            transition: background 0.15s, color 0.15s, border-color 0.15s;
+            user-select: none; white-space: nowrap;
         }
-        #ep13 .ep-theme-btn:hover { background: ${T.isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}; color: ${T.text}; }
+        #ep13 .ep-btn:hover {
+            background: ${T.isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)'};
+            color: ${T.text};
+            border-color: ${T.isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.15)'};
+        }
+        #ep13 .ep-btn-icon  { width: 26px; height: 26px; padding: 0; justify-content: center; }
+        #ep13 .ep-btn-label { padding: 4px 10px; }
+        #ep13 .ep-btn-pill  {
+            padding: 4px 10px; gap: 6px;
+            background: ${T.chipBg};
+        }
 
         #ep13 .ep-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 
         #ep13 .ep-card {
-            background: ${T.surface};
-            border: 1px solid ${T.border};
+            background: ${T.surface}; border: 1px solid ${T.border};
             border-radius: 10px; padding: 12px;
             display: flex; flex-direction: column; gap: 8px; min-width: 0;
         }
         #ep13 .ep-card-title { font-size: 11px; font-weight: 700; letter-spacing: 1.1px; text-transform: uppercase; color: ${T.muted}; }
 
-        #ep13 .ep-act-row { display: flex; align-items: center; gap: 8px; }
+        #ep13 .ep-act-row  { display: flex; align-items: center; gap: 8px; }
         #ep13 .ep-act-info { flex: 1; min-width: 0; }
         #ep13 .ep-act-name { font-size: 13px; font-weight: 600; color: ${T.text}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; }
         #ep13 .ep-act-meta { font-size: 12px; color: ${T.muted}; line-height: 1.3; }
-        #ep13 .ep-bar       { height: 3px; background: ${T.barTrack}; border-radius: 3px; margin-top: 3px; overflow: hidden; }
-        #ep13 .ep-bar-fill  { height: 100%; border-radius: 3px; }
-        #ep13 .ep-divider   { height: 1px; background: ${T.border}; margin: 2px 0; }
-        #ep13 .ep-total-row { display: flex; justify-content: space-between; align-items: center; }
+        #ep13 .ep-bar      { height: 3px; background: ${T.barTrack}; border-radius: 3px; margin-top: 3px; overflow: hidden; }
+        #ep13 .ep-bar-fill { height: 100%; border-radius: 3px; }
+        #ep13 .ep-divider  { height: 1px; background: ${T.border}; margin: 2px 0; }
+        #ep13 .ep-total-row   { display: flex; justify-content: space-between; align-items: center; }
         #ep13 .ep-total-label { font-size: 12px; color: ${T.muted}; }
         #ep13 .ep-total-val   { font-size: 13px; font-weight: 600; color: ${T.text}; }
 
-        #ep13 .ep-ring-card { align-items: center; text-align: center; }
-        #ep13 .ep-ring-wrap { position: relative; display: flex; align-items: center; justify-content: center; width: 122px; height: 122px; flex-shrink: 0; }
+        #ep13 .ep-ring-card   { align-items: center; text-align: center; }
+        #ep13 .ep-ring-wrap   { position: relative; display: flex; align-items: center; justify-content: center; width: 122px; height: 122px; flex-shrink: 0; }
         #ep13 .ep-ring-wrap svg { position: absolute; top: 0; left: 0; width: 122px; height: 122px; }
         #ep13 .ep-ring-center { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; }
-        #ep13 .ep-ring-pct { font-size: 26px; font-weight: 700; letter-spacing: -0.5px; line-height: 1; }
-        #ep13 .ep-ring-lbl { font-size: 10px; color: ${T.muted}; letter-spacing: 0.8px; text-transform: uppercase; margin-top: 1px; }
-        #ep13 .ep-stat-row { display: flex; justify-content: space-between; width: 100%; }
-        #ep13 .ep-stat-k   { font-size: 12px; color: ${T.muted}; }
-        #ep13 .ep-stat-v   { font-size: 12px; font-weight: 600; color: ${T.text}; }
-        #ep13 .ep-hint     { font-size: 12px; color: ${T.muted}; display: flex; align-items: center; gap: 4px; margin-top: 2px; }
+        #ep13 .ep-ring-pct    { font-size: 26px; font-weight: 700; letter-spacing: -0.5px; line-height: 1; }
+        #ep13 .ep-ring-lbl    { font-size: 10px; color: ${T.muted}; letter-spacing: 0.8px; text-transform: uppercase; margin-top: 1px; }
+        #ep13 .ep-stat-row    { display: flex; justify-content: space-between; width: 100%; }
+        #ep13 .ep-stat-k      { font-size: 12px; color: ${T.muted}; }
+        #ep13 .ep-stat-v      { font-size: 12px; font-weight: 600; color: ${T.text}; }
+        #ep13 .ep-hint        { font-size: 12px; color: ${T.muted}; display: flex; align-items: center; gap: 4px; margin-top: 2px; }
 
         #ep13 .ep-buf-top { display: flex; align-items: center; gap: 8px; }
         #ep13 .ep-buf-val { font-size: 26px; font-weight: 800; letter-spacing: -1px; line-height: 1; }
@@ -360,49 +379,89 @@ const offTarget = 60;
         #ep13 .ep-buf-sub { font-size: 12px; color: ${T.muted}; line-height: 1.4; }
 
         #ep13 .ep-chip-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-        #ep13 .ep-chip { background: ${T.chipBg}; border: 1px solid ${T.border}; border-radius: 7px; padding: 7px 8px; text-align: center; }
-        #ep13 .ep-chip-val { font-size: 20px; font-weight: 700; line-height: 1; color: ${T.text}; }
-        #ep13 .ep-chip-lbl { font-size: 10px; color: ${T.muted}; text-transform: uppercase; letter-spacing: 0.8px; margin-top: 2px; }
+        #ep13 .ep-chip      { background: ${T.chipBg}; border: 1px solid ${T.border}; border-radius: 7px; padding: 7px 8px; text-align: center; }
+        #ep13 .ep-chip-val  { font-size: 20px; font-weight: 700; line-height: 1; color: ${T.text}; }
+        #ep13 .ep-chip-lbl  { font-size: 10px; color: ${T.muted}; text-transform: uppercase; letter-spacing: 0.8px; margin-top: 2px; }
 
-        #ep13 .ep-prog-wrap { width: 100%; }
-        #ep13 .ep-prog-hdr  { display: flex; justify-content: space-between; font-size: 11px; color: ${T.muted}; margin-bottom: 4px; }
+        #ep13 .ep-prog-wrap  { width: 100%; }
+        #ep13 .ep-prog-hdr   { display: flex; justify-content: space-between; font-size: 11px; color: ${T.muted}; margin-bottom: 4px; }
         #ep13 .ep-prog-track { height: 5px; background: ${T.barTrack}; border-radius: 5px; overflow: hidden; }
         #ep13 .ep-prog-fill  { height: 100%; border-radius: 5px; background: linear-gradient(90deg, #3b82f6, #a855f7); }
 
-        #ep13 .ep-notice       { display: flex; align-items: center; gap: 5px; font-size: 12px; color: ${T.muted}; flex-wrap: nowrap; }
-        #ep13 .ep-notice.warn  { color: #ef4444; }
-        #ep13 .ep-notice.good  { color: #22c55e; }
-        #ep13 .ep-notice.info  { color: ${T.muted}; }
-        #ep13 .ep-notices      { display: flex; flex-direction: column; gap: 4px; }
+        #ep13 .ep-notice      { display: flex; align-items: center; gap: 5px; font-size: 12px; color: ${T.muted}; }
+        #ep13 .ep-notice.warn { color: #ef4444; }
+        #ep13 .ep-notice.good { color: #22c55e; }
+        #ep13 .ep-notices     { display: flex; flex-direction: column; gap: 4px; }
+
+        /* ── Today strip ── */
+        #ep13 .ep-today-strip {
+            margin-top: 10px;
+            background: ${T.surface};
+            border: 1px solid ${T.border};
+            border-radius: 10px;
+            padding: 10px 14px;
+            display: flex; align-items: center; gap: 16px;
+        }
+        #ep13 .ep-today-label {
+            display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+        }
+        #ep13 .ep-today-label-text {
+            font-size: 11px; font-weight: 700; letter-spacing: 1.1px;
+            text-transform: uppercase; color: ${T.muted}; white-space: nowrap;
+        }
+        #ep13 .ep-today-centre {
+            flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px;
+        }
+        #ep13 .ep-today-nums-row {
+            display: flex; align-items: baseline; gap: 6px;
+        }
+        #ep13 .ep-today-done  { font-size: 20px; font-weight: 800; letter-spacing: -0.5px; line-height: 1; color: ${T.text}; }
+        #ep13 .ep-today-sep   { font-size: 13px; color: ${T.muted}; }
+        #ep13 .ep-today-total { font-size: 13px; color: ${T.muted}; }
+        #ep13 .ep-today-rem   { font-size: 12px; color: ${T.muted}; margin-left: 6px; display: flex; align-items: center; gap: 4px; }
+        #ep13 .ep-today-rem.done { color: #22c55e; }
+        #ep13 .ep-today-track { height: 5px; background: ${T.barTrack}; border-radius: 5px; overflow: hidden; }
+        #ep13 .ep-today-fill  { height: 100%; border-radius: 5px; transition: width 0.4s ease; }
+        #ep13 .ep-today-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+
+        /* toggle pill inside the buffer button */
+        #ep13 .ep-toggle-track {
+            display: inline-block; width: 28px; height: 16px; border-radius: 8px;
+            position: relative; vertical-align: middle; flex-shrink: 0;
+            transition: background 0.2s;
+        }
+        #ep13 .ep-toggle-thumb {
+            position: absolute; width: 12px; height: 12px; background: #fff;
+            border-radius: 50%; top: 2px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+            transition: left 0.2s;
+        }
         `;
     };
 
     /* ═══════════════════════════════════════════════════════════════
-       THEME STATE — supports manual override via button
+       THEME STATE
     ═══════════════════════════════════════════════════════════════ */
 
-    const THEME_KEY = 'ep-theme-override';
-    let themeOverride = localStorage.getItem(THEME_KEY) || null;
+    const THEME_KEY     = 'ep-theme-override';
+    const TODAY_BUF_KEY = 'ep-today-buffer';
+    let themeOverride   = localStorage.getItem(THEME_KEY) || null;
 
     const getTheme = () => {
-        if (themeOverride === 'dark') {
-            return {
-                isDark: true,
-                bg: '#181818', surface: '#242424', border: 'rgba(255,255,255,0.08)',
-                text: '#e8e8e8', muted: '#888888', faint: 'rgba(255,255,255,0.04)',
-                barTrack: 'rgba(255,255,255,0.07)', chipBg: 'rgba(255,255,255,0.03)',
-                shadow: '0 4px 24px rgba(0,0,0,0.4)', ringTrack: 'rgba(255,255,255,0.12)',
-            };
-        }
-        if (themeOverride === 'light') {
-            return {
-                isDark: false,
-                bg: '#ffffff', surface: '#f7f7f7', border: 'rgba(0,0,0,0.08)',
-                text: '#111827', muted: '#6b7280', faint: 'rgba(0,0,0,0.03)',
-                barTrack: 'rgba(0,0,0,0.07)', chipBg: 'rgba(0,0,0,0.03)',
-                shadow: '0 2px 12px rgba(0,0,0,0.10)', ringTrack: 'rgba(0,0,0,0.12)',
-            };
-        }
+        if (themeOverride === 'dark') return {
+            isDark: true,
+            bg: '#181818', surface: '#242424', border: 'rgba(255,255,255,0.08)',
+            text: '#e8e8e8', muted: '#888888', faint: 'rgba(255,255,255,0.04)',
+            barTrack: 'rgba(255,255,255,0.07)', chipBg: 'rgba(255,255,255,0.03)',
+            shadow: '0 4px 24px rgba(0,0,0,0.4)', ringTrack: 'rgba(255,255,255,0.12)',
+        };
+        if (themeOverride === 'light') return {
+            isDark: false,
+            bg: '#ffffff', surface: '#f7f7f7', border: 'rgba(0,0,0,0.08)',
+            text: '#111827', muted: '#6b7280', faint: 'rgba(0,0,0,0.03)',
+            barTrack: 'rgba(0,0,0,0.07)', chipBg: 'rgba(0,0,0,0.03)',
+            shadow: '0 2px 12px rgba(0,0,0,0.10)', ringTrack: 'rgba(0,0,0,0.12)',
+        };
         return buildTheme();
     };
 
@@ -417,6 +476,45 @@ const offTarget = 60;
         'No Activity':     { icon: 'block',   grad: 'linear-gradient(135deg,#374151,#111827)', bg: '#374151' },
     };
     const FALLBACK_CFG = { icon: 'timer', grad: 'linear-gradient(135deg,#64748b,#334155)', bg: '#475569' };
+
+    /* ═══════════════════════════════════════════════════════════════
+       BIND INTERACTIONS
+       Called after every innerHTML set — attaches all click handlers
+       via real event listeners on data-action elements.
+       No inline onclick anywhere in the HTML.
+    ═══════════════════════════════════════════════════════════════ */
+
+    const bindInteractions = (container) => {
+        container.querySelectorAll('[data-action]').forEach(el => {
+            el.addEventListener('click', (e) => {
+                e.preventDefault();
+
+                const action = el.dataset.action;
+
+                if (action === 'jump-today') {
+                    jumpToToday();
+                }
+
+                if (action === 'jump-analyzer') {
+                    jumpToAnalyzer();
+                }
+
+                if (action === 'theme-toggle') {
+                    themeOverride = el.dataset.theme;
+                    localStorage.setItem(THEME_KEY, themeOverride);
+                    renderUI();
+                    injectBackButton(getTheme());
+                }
+
+                if (action === 'buf-toggle') {
+                    const cur = localStorage.getItem(TODAY_BUF_KEY) === 'true';
+                    localStorage.setItem(TODAY_BUF_KEY, String(!cur));
+                    renderUI();
+                    injectBackButton(getTheme());
+                }
+            });
+        });
+    };
 
     /* ═══════════════════════════════════════════════════════════════
        RENDER
@@ -448,10 +546,9 @@ const offTarget = 60;
             return;
         }
 
-        const realRota = summary.rota - summary.absences - summary.holidays;
-        const factor   = summary.recorded / rawTotal;
-
-        const acts = Object.entries(actMap)
+        const realRota     = summary.rota - summary.absences - summary.holidays;
+        const factor       = summary.recorded / rawTotal;
+        const acts         = Object.entries(actMap)
             .map(([name, mins]) => ({ name, adj: Math.floor(mins * factor) }))
             .filter(a => a.adj > 0)
             .sort((a, b) => b.adj - a.adj);
@@ -459,27 +556,22 @@ const offTarget = 60;
         const totalActMins = acts.reduce((s, a) => s + a.adj, 0);
         const officeEntry  = acts.find(a => a.name === 'Office');
         const officeMins   = officeEntry ? officeEntry.adj : 0;
-
         const targetMins   = realRota * (offTarget / 100);
         const officePct    = targetMins > 0 ? (officeMins / targetMins) * 100 : 0;
         const officeActPct = realRota   > 0 ? (officeMins / realRota)   * 100 : 0;
+        const rotaPct      = realRota   > 0 ? (summary.recorded / realRota) * 100 : 0;
+        const ds           = getDayStats(summary);
 
-        const rotaPct = realRota > 0 ? (summary.recorded / realRota) * 100 : 0;
-
-        const ds = getDayStats(summary);
-
-        const now     = new Date();
-        const dateStr = now.toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }).toUpperCase();
-
-        const offColor  = getOffColor(officePct);
-        const rotaColor = rotaPct >= 100 ? '#22c55e' : rotaPct >= 80 ? '#3b82f6' : '#f59e0b';
-
-        const offRing  = ring({ r: 54, pct: officePct,  color: offColor,  sw: 6, trackColor: T.ringTrack });
-        const rotaRing = ring({ r: 54, pct: rotaPct,    color: rotaColor, sw: 6, trackColor: T.ringTrack });
-
-        const nextTheme   = T.isDark ? 'light' : 'dark';
-        const toggleIcon  = T.isDark ? 'sun' : 'moon';
-        const toggleTitle = T.isDark ? 'Switch to light theme' : 'Switch to dark theme';
+        const now          = new Date();
+        const dateStr      = now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).toUpperCase();
+        const offColor     = getOffColor(officePct);
+        const rotaColor    = rotaPct >= 100 ? '#22c55e' : rotaPct >= 80 ? '#3b82f6' : '#f59e0b';
+        const offRing      = ring({ r: 54, pct: officePct, color: offColor,  sw: 6, trackColor: T.ringTrack });
+        const rotaRing     = ring({ r: 54, pct: rotaPct,   color: rotaColor, sw: 6, trackColor: T.ringTrack });
+        const todayOnPage  = hasTodayOnPage();
+        const nextTheme    = T.isDark ? 'light' : 'dark';
+        const toggleIcon   = T.isDark ? 'sun' : 'moon';
+        const toggleTitle  = T.isDark ? 'Switch to light theme' : 'Switch to dark theme';
 
         /* ── HEADER ── */
         let html = `
@@ -487,21 +579,17 @@ const offTarget = 60;
             <div class="ep-hdr-logo">${icon('timer', 16)}</div>
             <div class="ep-hdr-title">eDays Analyzer Pro</div>
             <div class="ep-hdr-right">
-                <button class="ep-theme-btn" title="${toggleTitle}" onclick="
-                    window.__epThemeOverride = '${nextTheme}';
-                    document.dispatchEvent(new CustomEvent('ep-theme-toggle'));
-                ">${icon(toggleIcon, 14, T.muted)}</button>
+                <span class="ep-btn ep-btn-icon" role="button" tabindex="0" data-action="theme-toggle" data-theme="${nextTheme}" title="${toggleTitle}">
+                    ${icon(toggleIcon, 14, T.muted)}
+                </span>
                 <div class="ep-hdr-date"><span class="ep-pulse"></span>${dateStr}</div>
             </div>
         </div>
-        <div class="ep-grid">
-        `;
+        <div class="ep-grid">`;
 
         /* ══ CARD 1 · Activity Breakdown ══ */
         const totalActPct = realRota > 0 ? (totalActMins / realRota) * 100 : 0;
-        html += `<div class="ep-card">
-            <div class="ep-card-title">Activity Breakdown</div>`;
-
+        html += `<div class="ep-card"><div class="ep-card-title">Activity Breakdown</div>`;
         acts.forEach(({ name, adj }) => {
             const cfg = ACT_CFG[name] || FALLBACK_CFG;
             const pct = realRota > 0 ? (adj / realRota) * 100 : 0;
@@ -514,7 +602,6 @@ const offTarget = 60;
                 </div>
             </div>`;
         });
-
         html += `<div class="ep-divider"></div>
             <div class="ep-total-row">
                 <span class="ep-total-label">Total logged</span>
@@ -528,7 +615,6 @@ const offTarget = 60;
         const offRemD = Math.floor(offRemaining / 480);
         const offRemH = Math.floor((offRemaining % 480) / 60);
         const offRemM = offRemaining % offTarget;
-
         html += `<div class="ep-card ep-ring-card">
             <div class="ep-card-title">Office Target · ${offTarget}%</div>
             <div class="ep-ring-wrap">
@@ -540,18 +626,11 @@ const offTarget = 60;
             </div>
             <div class="ep-stat-row"><span class="ep-stat-k">Actual</span><span class="ep-stat-v">${officeActPct.toFixed(1)}% of rota</span></div>
             <div class="ep-stat-row"><span class="ep-stat-k">Logged</span><span class="ep-stat-v">${fmt(officeMins)}</span></div>
-            <div class="ep-stat-row"><span class="ep-stat-k">Target</span><span class="ep-stat-v">${fmt(targetMins)}</span></div>`;
-
-        if (officePct < 100) {
-            html += `<div class="ep-hint">${icon('today', 12, T.muted)}
-                <span>${offRemD > 0 ? offRemD+'d ' : ''}${offRemH}h${offRemM ? ' '+offRemM+'m' : ''} to hit ${offTarget}%</span>
-            </div>`;
-        } else {
-            html += `<div class="ep-hint" style="color:#22c55e">${icon('check', 12, '#22c55e')}
-                <span>Office target met!</span>
-            </div>`;
-        }
-        html += `</div>`;
+            <div class="ep-stat-row"><span class="ep-stat-k">Target</span><span class="ep-stat-v">${fmt(targetMins)}</span></div>
+            ${officePct < 100
+                ? `<div class="ep-hint">${icon('today', 12, T.muted)}<span>${offRemD > 0 ? offRemD + 'd ' : ''}${offRemH}h${offRemM ? ' ' + offRemM + 'm' : ''} to hit ${offTarget}%</span></div>`
+                : `<div class="ep-hint" style="color:#22c55e">${icon('check', 12, '#22c55e')}<span>Office target met!</span></div>`}
+        </div>`;
 
         /* ══ CARD 3 · Time vs Rota ══ */
         html += `<div class="ep-card ep-ring-card">
@@ -574,81 +653,138 @@ const offTarget = 60;
         const bufClass = ds.bufferMinutes > 0 ? 'pos' : ds.bufferMinutes < 0 ? 'neg' : 'zer';
         const bufIcon  = ds.bufferMinutes > 0 ? 'trending_up' : ds.bufferMinutes < 0 ? 'trending_down' : 'trending_flat';
         const bufColor = ds.bufferMinutes > 0 ? '#22c55e' : ds.bufferMinutes < 0 ? '#ef4444' : T.muted;
-
         html += `<div class="ep-card">
             <div class="ep-card-title">Buffer &amp; Outlook</div>
-
             <div class="ep-buf-top">
                 ${icon(bufIcon, 20, bufColor)}
                 <span class="ep-buf-val ${bufClass}">${fmt(ds.bufferMinutes)}</span>
                 <span class="ep-buf-sub">${ds.bufferMinutes >= 0 ? 'ahead of' : 'behind'} daily target<br>vs past days</span>
             </div>
-
             <div class="ep-chip-grid">
-                <div class="ep-chip">
-                    <div class="ep-chip-val">${ds.workableDays}</div>
-                    <div class="ep-chip-lbl">Workable</div>
-                </div>
-                <div class="ep-chip">
-                    <div class="ep-chip-val" style="color:#3b82f6">${ds.soFar}</div>
-                    <div class="ep-chip-lbl">So Far</div>
-                </div>
-                <div class="ep-chip">
-                    <div class="ep-chip-val" style="color:#a855f7">${ds.daysLeft}</div>
-                    <div class="ep-chip-lbl">Days Left</div>
-                </div>
-                <div class="ep-chip">
-                    <div class="ep-chip-val" style="color:#f59e0b">${ds.workedDays}</div>
-                    <div class="ep-chip-lbl">Worked</div>
-                </div>
+                <div class="ep-chip"><div class="ep-chip-val">${ds.workableDays}</div><div class="ep-chip-lbl">Workable</div></div>
+                <div class="ep-chip"><div class="ep-chip-val" style="color:#3b82f6">${ds.soFar}</div><div class="ep-chip-lbl">So Far</div></div>
+                <div class="ep-chip"><div class="ep-chip-val" style="color:#a855f7">${ds.daysLeft}</div><div class="ep-chip-lbl">Days Left</div></div>
+                <div class="ep-chip"><div class="ep-chip-val" style="color:#f59e0b">${ds.workedDays}</div><div class="ep-chip-lbl">Worked</div></div>
             </div>
-
             <div class="ep-prog-wrap">
-                <div class="ep-prog-hdr">
-                    <span>Month progress</span><span>${ds.progressPct.toFixed(0)}%</span>
-                </div>
-                <div class="ep-prog-track">
-                    <div class="ep-prog-fill" style="width:${clamp(ds.progressPct, 0, 100).toFixed(1)}%"></div>
-                </div>
+                <div class="ep-prog-hdr"><span>Month progress</span><span>${ds.progressPct.toFixed(0)}%</span></div>
+                <div class="ep-prog-track"><div class="ep-prog-fill" style="width:${clamp(ds.progressPct, 0, 100).toFixed(1)}%"></div></div>
             </div>
-
             <div class="ep-notices">
-                ${ds.daysLeft > 0 ? `
-                <div class="ep-notice info">${icon('calendar', 12, T.muted)}
-                    <span>${ds.daysLeft}d left · ${fmt(ds.daysLeft * 480)} remaining</span>
-                </div>` : ''}
-
-                ${ds.bufferMinutes > 0 ? `
-                <div class="ep-notice good">${icon('savings', 12, '#22c55e')}
-                    <span>${fmt(ds.bufferMinutes)} banked above daily target</span>
-                </div>` : ds.bufferMinutes < 0 ? `
-                <div class="ep-notice warn">${icon('warning', 12, '#ef4444')}
-                    <span>${fmt(Math.abs(ds.bufferMinutes))} deficit vs past days</span>
-                </div>` : `
-                <div class="ep-notice info">${icon('flag', 12, T.muted)}
-                    <span>Exactly on target!</span>
-                </div>`}
-
-                <div class="ep-notice info">${icon('flag', 12, T.muted)}
-                    <span>Month target: ${fmt(ds.realRota)}</span>
-                </div>
+                ${ds.daysLeft > 0 ? `<div class="ep-notice">${icon('calendar', 12, T.muted)}<span>${ds.daysLeft}d left · ${fmt(ds.daysLeft * 480)} remaining</span></div>` : ''}
+                ${ds.bufferMinutes > 0
+                    ? `<div class="ep-notice good">${icon('savings', 12, '#22c55e')}<span>${fmt(ds.bufferMinutes)} banked above daily target</span></div>`
+                    : ds.bufferMinutes < 0
+                        ? `<div class="ep-notice warn">${icon('warning', 12, '#ef4444')}<span>${fmt(Math.abs(ds.bufferMinutes))} deficit vs past days</span></div>`
+                        : `<div class="ep-notice">${icon('flag', 12, T.muted)}<span>Exactly on target!</span></div>`}
+                <div class="ep-notice">${icon('flag', 12, T.muted)}<span>Month target: ${fmt(ds.realRota)}</span></div>
             </div>
         </div>`;
 
-        html += `</div>`; // close ep-grid
+        html += `</div>`; // close .ep-grid
+
+        /* ══ TODAY STRIP ══ */
+        const todayBufOn      = localStorage.getItem(TODAY_BUF_KEY) === 'true';
+        const todayWorked     = getTodayMinutes();
+        const dailyTarget     = 480;
+        const effectiveTarget = todayBufOn ? Math.max(0, dailyTarget - ds.bufferMinutes) : dailyTarget;
+        const todayRemaining  = Math.max(0, effectiveTarget - todayWorked);
+        const todayPct        = effectiveTarget > 0 ? Math.min(100, (todayWorked / effectiveTarget) * 100) : 0;
+        const todayDone       = todayWorked >= effectiveTarget;
+        const todayBarColor   = todayDone ? '#22c55e' : '#3b82f6';
+
+        const remMarkup = todayDone
+            ? `<span class="ep-today-rem done">${icon('check', 12, '#22c55e')} Day complete!</span>`
+            : `<span class="ep-today-rem">${icon('timer', 12, T.muted)} ${fmt(todayRemaining)} left</span>`;
+
+        html += `
+        <div class="ep-today-strip">
+            <div class="ep-today-label">
+                ${iconBadge('timer', '#1d4ed8', 26)}
+                <span class="ep-today-label-text">Today</span>
+            </div>
+
+            <div class="ep-today-centre">
+                <div class="ep-today-nums-row">
+                    <span class="ep-today-done">${fmt(todayWorked)}</span>
+                    <span class="ep-today-sep">/</span>
+                    <span class="ep-today-total">${fmt(effectiveTarget)}</span>
+                    ${remMarkup}
+                </div>
+                <div class="ep-today-track">
+                    <div class="ep-today-fill" style="width:${todayPct.toFixed(1)}%;background:${todayBarColor};"></div>
+                </div>
+            </div>
+
+            <div class="ep-today-actions">
+                <span class="ep-btn ep-btn-pill" role="button" tabindex="0" data-action="buf-toggle" title="${todayBufOn ? 'Disable' : 'Enable'} buffer adjustment">
+                    <span class="ep-toggle-track" style="background:${todayBufOn ? '#3b82f6' : T.barTrack};">
+                        <span class="ep-toggle-thumb" style="left:${todayBufOn ? '14px' : '2px'};"></span>
+                    </span>
+                    Include buffer
+                </span>
+                ${todayOnPage ? `
+                <span class="ep-btn ep-btn-label" role="button" tabindex="0" data-action="jump-today" title="Scroll to today's entry">
+                    ${icon('arrow_down', 13, T.muted)} Jump to today
+                </span>` : ''}
+            </div>
+        </div>`;
+
         container.innerHTML = html;
+
+        // Wire up all interactions after render — zero inline onclick
+        bindInteractions(container);
     };
 
     /* ═══════════════════════════════════════════════════════════════
-       BOOT — initial poll + MutationObserver for live updates
+       BACK BUTTON — injected into today's day container in the DOM
     ═══════════════════════════════════════════════════════════════ */
 
-    document.addEventListener('ep-theme-toggle', () => {
-        themeOverride = window.__epThemeOverride || null;
-        if (themeOverride) localStorage.setItem(THEME_KEY, themeOverride);
-        else localStorage.removeItem(THEME_KEY);
-        renderUI();
-    });
+    const BACK_BTN_ID = 'ep-back-chip';
+
+    const injectBackButton = (T) => {
+        document.getElementById(BACK_BTN_ID)?.remove();
+
+        const todayChip      = document.querySelector('.today_chip');
+        const todayContainer = todayChip?.closest('.tt_day_container');
+        if (!todayContainer) return;
+
+        const btn = document.createElement('span');
+        btn.id            = BACK_BTN_ID;
+        btn.role          = 'button';
+        btn.tabIndex      = 0;
+        btn.title         = 'Scroll back to eDays Analyzer';
+        btn.innerHTML     = `<span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;color:currentColor;">${ICONS['arrow_up']}</span> Back to analyzer`;
+        btn.style.cssText = `
+            display: inline-flex; align-items: center; gap: 5px;
+            font-size: 12px; font-weight: 500; cursor: pointer;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            padding: 4px 10px; border-radius: 7px;
+            border: 1px solid ${T.border};
+            background: ${T.surface};
+            color: ${T.muted};
+            margin-bottom: 6px;
+            user-select: none; white-space: nowrap;
+        `;
+
+        const hover = (on) => {
+            btn.style.background = on
+                ? (T.isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
+                : T.surface;
+            btn.style.color = on ? T.text : T.muted;
+        };
+
+        btn.addEventListener('click',       (e) => { e.preventDefault(); jumpToAnalyzer(); });
+        btn.addEventListener('keydown',     (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); jumpToAnalyzer(); } });
+        btn.addEventListener('mouseenter',  () => hover(true));
+        btn.addEventListener('mouseleave',  () => hover(false));
+
+        todayContainer.insertBefore(btn, todayContainer.firstChild);
+    };
+
+    /* ═══════════════════════════════════════════════════════════════
+       BOOT
+    ═══════════════════════════════════════════════════════════════ */
 
     const boot = () => {
         const tick = setInterval(() => {
@@ -658,21 +794,28 @@ const offTarget = 60;
             ) {
                 clearInterval(tick);
                 renderUI();
+                injectBackButton(getTheme());
 
-                // MutationObserver — re-render when the timesheet DOM changes
-                // (e.g. user edits a time entry, changes activity type, etc.)
                 let debounceTimer = null;
                 const observer = new MutationObserver(() => {
                     clearTimeout(debounceTimer);
-                    debounceTimer = setTimeout(renderUI, 600);
+                    debounceTimer = setTimeout(() => {
+                        renderUI();
+                        if (!document.getElementById(BACK_BTN_ID)) {
+                            injectBackButton(getTheme());
+                        }
+                    }, 600);
                 });
 
                 const panel = document.getElementById('mainTimesheetPanel');
                 if (panel) {
-                    observer.observe(panel, { childList: true, subtree: true, characterData: true, attributes: true });
+                    observer.observe(panel, {
+                        childList: true, subtree: true,
+                        characterData: true, attributes: true,
+                    });
                 }
 
-                // Fallback poll every 30s in case observer misses summary-only changes
+                // Fallback poll every 30s
                 setInterval(renderUI, 30000);
             }
         }, 800);
