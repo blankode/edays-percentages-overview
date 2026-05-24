@@ -150,6 +150,9 @@ Tested on `*.e-days.com` monthly timesheet view.
 
 | Version | Changes |
 |---|---|
+| **15.9** | Replaced all <button> elements with <span role="button"> + data-action delegation to fix page refresh caused by form submit; removed stopPropagation; unified scroll offset to −165px above target |
+| **15.8** | Redesigned Today row as a full-width horizontal strip below the card grid; added "Jump to today" button in strip and header; added "Back to analyzer" chip injected directly above today's entry in the eDays DOM |
+| **15.7** | Added Today's Progress strip with live hours worked vs 8h target, progress bar, and "Include buffer" toggle persisted to localStorage |
 | **15.6** | Moved dark/white theme to localStorage |
 | **15.5** | Added % to Total Logged in Activity Breakdown |
 | **15.4** | Half-day vacations (AM/PM) excluded from absence filter |
