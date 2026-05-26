@@ -11,7 +11,7 @@
 /* ══ Set Office Target ══ */
 const offTarget = 60;
 
-(function () {
+(function() {
     'use strict';
 
     /* ═══════════════════════════════════════════════════════════════
@@ -29,7 +29,7 @@ const offTarget = 60;
         ].filter(Boolean);
 
         for (const el of candidates) {
-            const bg    = getComputedStyle(el).backgroundColor;
+            const bg = getComputedStyle(el).backgroundColor;
             const match = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
             if (!match) continue;
             const [, r, g, b] = match.map(Number);
@@ -44,18 +44,30 @@ const offTarget = 60;
         if (isDark) {
             return {
                 isDark,
-                bg: '#181818', surface: '#242424', border: 'rgba(255,255,255,0.08)',
-                text: '#e8e8e8', muted: '#888888', faint: 'rgba(255,255,255,0.04)',
-                barTrack: 'rgba(255,255,255,0.07)', chipBg: 'rgba(255,255,255,0.03)',
-                shadow: '0 4px 24px rgba(0,0,0,0.4)', ringTrack: 'rgba(255,255,255,0.12)',
+                bg: '#181818',
+                surface: '#242424',
+                border: 'rgba(255,255,255,0.08)',
+                text: '#e8e8e8',
+                muted: '#888888',
+                faint: 'rgba(255,255,255,0.04)',
+                barTrack: 'rgba(255,255,255,0.07)',
+                chipBg: 'rgba(255,255,255,0.03)',
+                shadow: '0 4px 24px rgba(0,0,0,0.4)',
+                ringTrack: 'rgba(255,255,255,0.12)',
             };
         }
         return {
             isDark,
-            bg: '#ffffff', surface: '#f7f7f7', border: 'rgba(0,0,0,0.08)',
-            text: '#111827', muted: '#6b7280', faint: 'rgba(0,0,0,0.03)',
-            barTrack: 'rgba(0,0,0,0.07)', chipBg: 'rgba(0,0,0,0.03)',
-            shadow: '0 2px 12px rgba(0,0,0,0.10)', ringTrack: 'rgba(0,0,0,0.12)',
+            bg: '#ffffff',
+            surface: '#f7f7f7',
+            border: 'rgba(0,0,0,0.08)',
+            text: '#111827',
+            muted: '#6b7280',
+            faint: 'rgba(0,0,0,0.03)',
+            barTrack: 'rgba(0,0,0,0.07)',
+            chipBg: 'rgba(0,0,0,0.03)',
+            shadow: '0 2px 12px rgba(0,0,0,0.10)',
+            ringTrack: 'rgba(0,0,0,0.12)',
         };
     };
 
@@ -71,9 +83,9 @@ const offTarget = 60;
 
     const fmt = (mins) => {
         const sign = mins < 0 ? '-' : '';
-        const abs  = Math.abs(mins);
-        const h    = Math.floor(abs / 60);
-        const m    = abs % 60;
+        const abs = Math.abs(mins);
+        const h = Math.floor(abs / 60);
+        const m = abs % 60;
         return m === 0 ? `${sign}${h}h` : `${sign}${h}h ${String(m).padStart(2, '0')}m`;
     };
 
@@ -93,11 +105,14 @@ const offTarget = 60;
     const smoothScrollTo = (el, offset = -165) => {
         if (!el) return;
         const top = el.getBoundingClientRect().top + window.scrollY + offset;
-        window.scrollTo({ top, behavior: 'smooth' });
+        window.scrollTo({
+            top,
+            behavior: 'smooth'
+        });
     };
 
     const jumpToToday = () => {
-        const chip   = document.querySelector('.today_chip');
+        const chip = document.querySelector('.today_chip');
         const target = chip ? (chip.closest('.tt_day_container') || chip) : null;
         smoothScrollTo(target);
     };
@@ -115,17 +130,32 @@ const offTarget = 60;
 
     const getPeriodMinutes = (periodEl) => {
         const inputs = periodEl.querySelectorAll('input[type="time"]');
-        if (inputs.length >= 2 && inputs[0].value && inputs[1].value) {
-            const dur = timeToMinutes(inputs[1].value) - timeToMinutes(inputs[0].value);
-            return dur > 0 ? dur : 0;
+        let startVal = inputs[0]?.value || '';
+        let endVal = inputs[1]?.value || '';
+
+        // Fallback: parse the hiddenLabel, e.g. "working period 1, 09:32 to 11:00"
+        // or an open period: "working period 1, 09:32 to "
+        if (!startVal) {
+            const lbl = periodEl.querySelector('label.hiddenLabel')?.innerText || '';
+            const match = lbl.match(/(\d{2}:\d{2})\s+to\s+(\d{2}:\d{2})?/);
+            if (match) {
+                startVal = match[1] || '';
+                endVal = match[2] || '';
+            }
         }
-        const lbl   = periodEl.querySelector('label.hiddenLabel')?.innerText || '';
-        const match = lbl.match(/(\d{2}:\d{2})\s+to\s+(\d{2}:\d{2})/);
-        if (match) {
-            const dur = timeToMinutes(match[2]) - timeToMinutes(match[1]);
-            return dur > 0 ? dur : 0;
+
+        if (!startVal) return 0;
+
+        // If no end time → period is still open; use current time as live end
+        if (!endVal) {
+            const now = new Date();
+            const hh = String(now.getHours()).padStart(2, '0');
+            const mm = String(now.getMinutes()).padStart(2, '0');
+            endVal = `${hh}:${mm}`;
         }
-        return 0;
+
+        const dur = timeToMinutes(endVal) - timeToMinutes(startVal);
+        return dur > 0 ? dur : 0;
     };
 
     /* ═══════════════════════════════════════════════════════════════
@@ -133,32 +163,32 @@ const offTarget = 60;
     ═══════════════════════════════════════════════════════════════ */
 
     const ICONS = {
-        office:        `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 21h18v-2H3v2zm0-4h18v-2H3v2zm0-4h18v-2H3v2zm0-4h18V7H3v2zm0-6v2h18V3H3z"/></svg>`,
-        laptop:        `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 18c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z"/></svg>`,
-        flight:        `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>`,
-        block:         `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-4H7l5-8v4h4l-5 8z"/></svg>`,
-        timer:         `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M15 1H9v2h6V1zm-4 13h2V8h-2v6zm8.03-6.61l1.42-1.42c-.43-.51-.9-.99-1.41-1.41l-1.42 1.42C16.07 4.74 14.12 4 12 4c-4.97 0-9 4.03-9 9s4.02 9 9 9 9-4.03 9-9c0-2.12-.74-4.07-1.97-5.61zM12 20c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg>`,
-        trending_up:   `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 6l2.29 2.29-4.88 4.88-4-4L2 16.59 3.41 18l6-6 4 4 6.3-6.29L22 12V6z"/></svg>`,
+        office: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 21h18v-2H3v2zm0-4h18v-2H3v2zm0-4h18v-2H3v2zm0-4h18V7H3v2zm0-6v2h18V3H3z"/></svg>`,
+        laptop: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 18c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z"/></svg>`,
+        flight: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>`,
+        block: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-4H7l5-8v4h4l-5 8z"/></svg>`,
+        timer: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M15 1H9v2h6V1zm-4 13h2V8h-2v6zm8.03-6.61l1.42-1.42c-.43-.51-.9-.99-1.41-1.41l-1.42 1.42C16.07 4.74 14.12 4 12 4c-4.97 0-9 4.03-9 9s4.02 9 9 9 9-4.03 9-9c0-2.12-.74-4.07-1.97-5.61zM12 20c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg>`,
+        trending_up: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 6l2.29 2.29-4.88 4.88-4-4L2 16.59 3.41 18l6-6 4 4 6.3-6.29L22 12V6z"/></svg>`,
         trending_down: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 18l2.29-2.29-4.88-4.88-4 4L2 7.41 3.41 6l6 6 4-4 6.3 6.29L22 12v6z"/></svg>`,
         trending_flat: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M22 12l-4-4v3H3v2h15v3z"/></svg>`,
-        check:         `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>`,
-        warning:       `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>`,
-        calendar:      `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17 12h-5v5h5v-5zM16 1v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-1V1h-2zm3 18H5V8h14v11z"/></svg>`,
-        today:         `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7z"/></svg>`,
-        flag:          `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>`,
-        savings:       `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.5 2C6.81 2 3 5.81 3 10.5S6.81 19 11.5 19h.5v3c4.86-2.34 8-7 8-11.5C20 5.81 16.19 2 11.5 2zm1 14.5h-2v-2h2v2zm0-4h-2c0-3.25 3-3 3-5 0-1.1-.9-2-2-2s-2 .9-2 2h-2c0-2.21 1.79-4 4-4s4 1.79 4 4c0 2.5-3 2.75-3 5z"/></svg>`,
-        sun:           `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.79 1.42-1.41zM4 10.5H1v2h3v-2zm9-9.95h-2V3.5h2V.55zm7.45 3.91l-1.41-1.41-1.79 1.79 1.41 1.41 1.79-1.79zm-3.21 13.7l1.79 1.8 1.41-1.41-1.8-1.79-1.4 1.4zM20 10.5v2h3v-2h-3zm-8-5c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm-1 16.95h2V19.5h-2v2.95zm-7.45-3.91l1.41 1.41 1.79-1.8-1.41-1.41-1.79 1.8z"/></svg>`,
-        moon:          `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1z"/></svg>`,
-        arrow_down:    `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 12l-1.41-1.41L13 16.17V4h-2v12.17l-5.58-5.59L4 12l8 8 8-8z"/></svg>`,
-        arrow_up:      `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z"/></svg>`,
-        car:           `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/></svg>`,
-        bike:          `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 5.5c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zM5 12c-2.8 0-5 2.2-5 5s2.2 5 5 5 5-2.2 5-5-2.2-5-5-5zm0 8.5c-1.9 0-3.5-1.6-3.5-3.5s1.6-3.5 3.5-3.5 3.5 1.6 3.5 3.5-1.6 3.5-3.5 3.5zm5.8-10l2.4-2.4.8.8c1.3 1.3 3 2.1 5.1 2.1V9c-1.5 0-2.7-.6-3.6-1.5l-1.9-1.9c-.5-.4-1-.6-1.6-.6s-1.1.2-1.4.6L7.8 8.4C7.3 8.8 7 9.4 7 10c0 .6.3 1.2.8 1.6l3.2 2.4V18h2v-5l-3.2-2.5.8-.8zM19 12c-2.8 0-5 2.2-5 5s2.2 5 5 5 5-2.2 5-5-2.2-5-5-5zm0 8.5c-1.9 0-3.5-1.6-3.5-3.5s1.6-3.5 3.5-3.5 3.5 1.6 3.5 3.5-1.6 3.5-3.5 3.5z"/></svg>`,
-        walk:          `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M13.49 5.48c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm-3.6 13.9l1-4.4 2.1 2v6h2v-7.5l-2.1-2 .6-3c1.3 1.5 3.3 2.5 5.5 2.5v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1l-5.2 2.2v4.7h2v-3.4l1.8-.7-1.6 8.1-4.9-1-.4 2 7 1.4z"/></svg>`,
-        chevron_down:  `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>`,
-        chevron_up:    `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6 1.41 1.41z"/></svg>`,
-        map_pin:       `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>`,
-        lightbulb:     `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7z"/></svg>`,
-        home:          `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>`,
+        check: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>`,
+        warning: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>`,
+        calendar: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17 12h-5v5h5v-5zM16 1v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-1V1h-2zm3 18H5V8h14v11z"/></svg>`,
+        today: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7z"/></svg>`,
+        flag: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>`,
+        savings: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.5 2C6.81 2 3 5.81 3 10.5S6.81 19 11.5 19h.5v3c4.86-2.34 8-7 8-11.5C20 5.81 16.19 2 11.5 2zm1 14.5h-2v-2h2v2zm0-4h-2c0-3.25 3-3 3-5 0-1.1-.9-2-2-2s-2 .9-2 2h-2c0-2.21 1.79-4 4-4s4 1.79 4 4c0 2.5-3 2.75-3 5z"/></svg>`,
+        sun: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.79 1.42-1.41zM4 10.5H1v2h3v-2zm9-9.95h-2V3.5h2V.55zm7.45 3.91l-1.41-1.41-1.79 1.79 1.41 1.41 1.79-1.79zm-3.21 13.7l1.79 1.8 1.41-1.41-1.8-1.79-1.4 1.4zM20 10.5v2h3v-2h-3zm-8-5c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm-1 16.95h2V19.5h-2v2.95zm-7.45-3.91l1.41 1.41 1.79-1.8-1.41-1.41-1.79 1.8z"/></svg>`,
+        moon: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1z"/></svg>`,
+        arrow_down: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 12l-1.41-1.41L13 16.17V4h-2v12.17l-5.58-5.59L4 12l8 8 8-8z"/></svg>`,
+        arrow_up: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z"/></svg>`,
+        car: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/></svg>`,
+        bike: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 5.5c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zM5 12c-2.8 0-5 2.2-5 5s2.2 5 5 5 5-2.2 5-5-2.2-5-5-5zm0 8.5c-1.9 0-3.5-1.6-3.5-3.5s1.6-3.5 3.5-3.5 3.5 1.6 3.5 3.5-1.6 3.5-3.5 3.5zm5.8-10l2.4-2.4.8.8c1.3 1.3 3 2.1 5.1 2.1V9c-1.5 0-2.7-.6-3.6-1.5l-1.9-1.9c-.5-.4-1-.6-1.6-.6s-1.1.2-1.4.6L7.8 8.4C7.3 8.8 7 9.4 7 10c0 .6.3 1.2.8 1.6l3.2 2.4V18h2v-5l-3.2-2.5.8-.8zM19 12c-2.8 0-5 2.2-5 5s2.2 5 5 5 5-2.2 5-5-2.2-5-5-5zm0 8.5c-1.9 0-3.5-1.6-3.5-3.5s1.6-3.5 3.5-3.5 3.5 1.6 3.5 3.5-1.6 3.5-3.5 3.5z"/></svg>`,
+        walk: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M13.49 5.48c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm-3.6 13.9l1-4.4 2.1 2v6h2v-7.5l-2.1-2 .6-3c1.3 1.5 3.3 2.5 5.5 2.5v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1l-5.2 2.2v4.7h2v-3.4l1.8-.7-1.6 8.1-4.9-1-.4 2 7 1.4z"/></svg>`,
+        chevron_down: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>`,
+        chevron_up: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6 1.41 1.41z"/></svg>`,
+        map_pin: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>`,
+        lightbulb: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7z"/></svg>`,
+        home: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>`,
     };
 
     const icon = (name, size = 14, color = '#fff') =>
@@ -173,9 +203,9 @@ const offTarget = 60;
 
     const getOffColor = (pct) => {
         if (pct >= 100) return '#22c55e';
-        if (pct >= 85)  return '#84cc16';
-        if (pct >= 65)  return '#eab308';
-        if (pct >= 45)  return '#f97316';
+        if (pct >= 85) return '#84cc16';
+        if (pct >= 65) return '#eab308';
+        if (pct >= 45) return '#f97316';
         return '#ef4444';
     };
 
@@ -183,11 +213,17 @@ const offTarget = 60;
        SVG RING
     ═══════════════════════════════════════════════════════════════ */
 
-    const ring = ({ r = 54, pct, color, sw = 6, trackColor }) => {
+    const ring = ({
+        r = 54,
+        pct,
+        color,
+        sw = 6,
+        trackColor
+    }) => {
         const circ = 2 * Math.PI * r;
         const dash = clamp(pct, 0, 100) / 100 * circ;
-        const cx   = r + sw + 1;
-        const sz   = cx * 2;
+        const cx = r + sw + 1;
+        const sz = cx * 2;
         return `<svg viewBox="0 0 ${sz} ${sz}" style="transform:rotate(-90deg);">
             <circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="${trackColor}" stroke-width="${sw}"/>
             <circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="${color}" stroke-width="${sw}"
@@ -200,24 +236,36 @@ const offTarget = 60;
     ═══════════════════════════════════════════════════════════════ */
 
     const getSummaryData = () => {
-        const data = { recorded: 0, rota: 0, absences: 0, holidays: 0, difference: 0 };
+        const data = {
+            recorded: 0,
+            rota: 0,
+            absences: 0,
+            holidays: 0,
+            difference: 0
+        };
         document.querySelectorAll('.desktop_summary .summary_block').forEach(block => {
             const spans = block.querySelectorAll('span');
             if (spans.length < 2) return;
             const minutes = parseTime(spans[0].innerText.trim());
-            const label   = spans[1].innerText.trim();
-            if (label.includes('Time recorded'))   data.recorded   = minutes;
-            if (label.includes('Rota'))            data.rota       = Math.abs(minutes);
-            if (label.includes('Absences'))        data.absences   = Math.abs(minutes);
-            if (label.includes('Public holidays')) data.holidays   = Math.abs(minutes);
-            if (label.includes('Difference'))      data.difference = minutes;
+            const label = spans[1].innerText.trim();
+            if (label.includes('Time recorded')) data.recorded = minutes;
+            if (label.includes('Rota')) data.rota = Math.abs(minutes);
+            if (label.includes('Absences')) data.absences = Math.abs(minutes);
+            if (label.includes('Public holidays')) data.holidays = Math.abs(minutes);
+            if (label.includes('Difference')) data.difference = minutes;
         });
         return data;
     };
 
     const getActivityData = () => {
-        const actMap = { 'Office': 0, 'Mobile Working': 0, 'Business Travel': 0, 'No Activity': 0 };
-        let rawTotal = 0, workedDays = 0;
+        const actMap = {
+            'Office': 0,
+            'Mobile Working': 0,
+            'Business Travel': 0,
+            'No Activity': 0
+        };
+        let rawTotal = 0,
+            workedDays = 0;
         document.querySelectorAll('.tt_day_container').forEach(day => {
             let dayWorked = false;
             day.querySelectorAll('.tt_period_container').forEach(period => {
@@ -227,16 +275,20 @@ const offTarget = 60;
                 const act = period.querySelector('.chosen-single span')?.innerText.trim() || 'No Activity';
                 if (!(act in actMap)) actMap[act] = 0;
                 actMap[act] += dur;
-                rawTotal    += dur;
+                rawTotal += dur;
             });
             if (dayWorked) workedDays++;
         });
-        return { actMap, rawTotal, workedDays };
+        return {
+            actMap,
+            rawTotal,
+            workedDays
+        };
     };
 
     const getDayStats = (summary) => {
         const realRota = summary.rota - summary.absences - summary.holidays;
-        const allDays  = [...document.querySelectorAll('.tt_day_container')];
+        const allDays = [...document.querySelectorAll('.tt_day_container')];
 
         const isHalfDayVacation = (d) => {
             const txt = d.querySelector('.absence_detail_text')?.innerText?.trim() || '';
@@ -257,9 +309,9 @@ const offTarget = 60;
         }).length;
 
         const progressPct = realRota > 0 ? (summary.recorded / realRota) * 100 : 0;
-        const daysLeft    = Math.round(Math.max(0, realRota - summary.recorded) / 480);
-        const soFar       = Math.max(0, workableDays - daysLeft);
-        const todayIdx    = allDays.findIndex(d => d.querySelector('.today_chip'));
+        const daysLeft = Math.round(Math.max(0, realRota - summary.recorded) / 480);
+        const soFar = Math.max(0, workableDays - daysLeft);
+        const todayIdx = allDays.findIndex(d => d.querySelector('.today_chip'));
 
         let bufferMinutes;
         if (todayIdx === -1) {
@@ -278,13 +330,29 @@ const offTarget = 60;
             });
         }
 
-        return { workableDays, soFar, daysLeft, workedDays, progressPct, bufferMinutes, realRota };
+        return {
+            workableDays,
+            soFar,
+            daysLeft,
+            workedDays,
+            progressPct,
+            bufferMinutes,
+            realRota
+        };
     };
 
+    // Sums periods directly (including any live open-ended period)
+    // instead of reading the saved .duration_hours total.
     const getTodayMinutes = () => {
         const todayEl = [...document.querySelectorAll('.tt_day_container')]
             .find(d => d.querySelector('.today_chip'));
-        return todayEl ? getDayTotalMinutes(todayEl) : 0;
+        if (!todayEl) return 0;
+
+        let total = 0;
+        todayEl.querySelectorAll('.tt_period_container').forEach(period => {
+            total += getPeriodMinutes(period);
+        });
+        return total;
     };
 
     const hasTodayOnPage = () => !!document.querySelector('.today_chip');
@@ -300,29 +368,38 @@ const offTarget = 60;
             .findIndex(d => d.querySelector('.today_chip'));
 
         return [...document.querySelectorAll('.tt_day_container')].map((day, idx) => {
-            const label   = day.querySelector('.timesheet_day_text')?.innerText?.trim() || '';
+            const label = day.querySelector('.timesheet_day_text')?.innerText?.trim() || '';
             // label is like "Monday 5" or "Tuesday 12"
-            const parts   = label.split(' ');
+            const parts = label.split(' ');
             const dayName = parts[0] || '';
             const dateNum = parseInt(parts[1] || '0', 10);
 
-            const DOW_MAP = { Sunday:0, Monday:1, Tuesday:2, Wednesday:3, Thursday:4, Friday:5, Saturday:6 };
+            const DOW_MAP = {
+                Sunday: 0,
+                Monday: 1,
+                Tuesday: 2,
+                Wednesday: 3,
+                Thursday: 4,
+                Friday: 5,
+                Saturday: 6
+            };
             const dayOfWeek = DOW_MAP[dayName] ?? -1;
             const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
-            const absenceText  = day.querySelector('.absence_detail_text')?.innerText?.trim() || '';
-            const isHalfDay    = absenceText === 'Vacation: AM' || absenceText === 'Vacation: PM';
-            const isAbsent     = !!absenceText && !isHalfDay;
-            const isHoliday    = absenceText.toLowerCase().includes('holiday');
+            const absenceText = day.querySelector('.absence_detail_text')?.innerText?.trim() || '';
+            const isHalfDay = absenceText === 'Vacation: AM' || absenceText === 'Vacation: PM';
+            const isAbsent = !!absenceText && !isHalfDay;
+            const isHoliday = absenceText.toLowerCase().includes('holiday');
 
-            const isToday  = idx === todayIdx;
-            const isPast   = todayIdx !== -1 ? idx < todayIdx : false;
+            const isToday = idx === todayIdx;
+            const isPast = todayIdx !== -1 ? idx < todayIdx : false;
             const isFuture = todayIdx !== -1 ? idx > todayIdx : true;
 
             const totalMins = getDayTotalMinutes(day);
 
             // Scan periods for activity types
-            let hasOffice = false, hasWFH = false;
+            let hasOffice = false,
+                hasWFH = false;
             day.querySelectorAll('.tt_period_container').forEach(period => {
                 const dur = getPeriodMinutes(period);
                 if (dur <= 0) return;
@@ -334,9 +411,21 @@ const offTarget = 60;
             const isWorkable = !isWeekend && !isAbsent && !isHoliday;
 
             return {
-                label, dayName, dateNum, dayOfWeek, isWeekend,
-                isAbsent, isHoliday, isHalfDay, isToday, isPast, isFuture,
-                totalMins, hasOffice, hasWFH, isWorkable,
+                label,
+                dayName,
+                dateNum,
+                dayOfWeek,
+                isWeekend,
+                isAbsent,
+                isHoliday,
+                isHalfDay,
+                isToday,
+                isPast,
+                isFuture,
+                totalMins,
+                hasOffice,
+                hasWFH,
+                isWorkable,
                 el: day,
             };
         });
@@ -352,7 +441,10 @@ const offTarget = 60;
      *  - Group consecutive days within the same week (cluster rule)
      *  - Spread load as evenly as possible across remaining weeks
      */
-    const buildSchedulePlan = ({ days, officeStillNeeded }) => {
+    const buildSchedulePlan = ({
+        days,
+        officeStillNeeded
+    }) => {
         // Separate future workable days — not already committed to office
         const future = days.filter(d => (d.isFuture || d.isToday) && d.isWorkable && !d.hasOffice);
 
@@ -368,22 +460,28 @@ const offTarget = 60;
         });
 
         // Sort each week's days by preference: Wed(3) > Tue(2) > Thu(4) > Mon(1) > Fri(5)
-        const DOW_PREF = { 3: 0, 2: 1, 4: 2, 1: 3, 5: 4 };
+        const DOW_PREF = {
+            3: 0,
+            2: 1,
+            4: 2,
+            1: 3,
+            5: 4
+        };
         weekMap.forEach(wdays => wdays.sort((a, b) =>
             (DOW_PREF[a.dayOfWeek] ?? 9) - (DOW_PREF[b.dayOfWeek] ?? 9)
         ));
 
-        const weeks       = [...weekMap.entries()].sort((a, b) => a[0] - b[0]);
-        const planned     = new Set(); // dateNums of planned office days
-        let remaining     = officeStillNeeded;
+        const weeks = [...weekMap.entries()].sort((a, b) => a[0] - b[0]);
+        const planned = new Set(); // dateNums of planned office days
+        let remaining = officeStillNeeded;
 
         // Distribute: try to fill each week with at most ceil(remaining/weeksLeft) days,
         // clustered on preferred days
         weeks.forEach(([, wdays], wi) => {
             if (remaining <= 0) return;
-            const weeksLeft  = weeks.length - wi;
-            const quota      = Math.ceil(remaining / weeksLeft);
-            const toAssign   = Math.min(quota, wdays.length, remaining);
+            const weeksLeft = weeks.length - wi;
+            const quota = Math.ceil(remaining / weeksLeft);
+            const toAssign = Math.min(quota, wdays.length, remaining);
             // Pick the top `toAssign` preferred days
             wdays.slice(0, toAssign).forEach(d => planned.add(d.dateNum));
             remaining -= toAssign;
@@ -396,43 +494,43 @@ const offTarget = 60;
        COMMUTE FORECASTER — config & persistence
     ═══════════════════════════════════════════════════════════════ */
 
-    const COMMUTE_OPEN_KEY    = 'ep-commute-open';
-    const COMMUTE_KM_KEY      = 'ep-commute-km';
-    const COMMUTE_MODE_KEY    = 'ep-commute-mode';
+    const COMMUTE_OPEN_KEY = 'ep-commute-open';
+    const COMMUTE_KM_KEY = 'ep-commute-km';
+    const COMMUTE_MODE_KEY = 'ep-commute-mode';
 
     // Transport mode configs: speeds in km/h, colours, labels
     const TRANSPORT_MODES = {
         car: {
-            label:    'Drive',
-            icon:     'car',
+            label: 'Drive',
+            icon: 'car',
             // avg speed in city traffic (Timișoara), km/h
             // includes parking walk (~5 min flat overhead each way)
             speedKmh: 30,
-            parkingMin: 5,       // flat overhead each way for parking
-            color:    '#f97316', // orange
-            grad:     'linear-gradient(135deg,#f97316,#ef4444)',
-            bg:       '#92400e',
-            tip:      'Assumes city traffic. Add +5 min parking overhead each way.',
+            parkingMin: 5, // flat overhead each way for parking
+            color: '#f97316', // orange
+            grad: 'linear-gradient(135deg,#f97316,#ef4444)',
+            bg: '#92400e',
+            tip: 'Assumes city traffic. Add +5 min parking overhead each way.',
         },
         bike: {
-            label:    'Cycle',
-            icon:     'bike',
+            label: 'Cycle',
+            icon: 'bike',
             speedKmh: 16,
             parkingMin: 2,
-            color:    '#22c55e', // green
-            grad:     'linear-gradient(135deg,#22c55e,#16a34a)',
-            bg:       '#14532d',
-            tip:      'Assumes an average cycling pace on urban roads.',
+            color: '#22c55e', // green
+            grad: 'linear-gradient(135deg,#22c55e,#16a34a)',
+            bg: '#14532d',
+            tip: 'Assumes an average cycling pace on urban roads.',
         },
         walk: {
-            label:    'Walk',
-            icon:     'walk',
+            label: 'Walk',
+            icon: 'walk',
             speedKmh: 5,
             parkingMin: 0,
-            color:    '#3b82f6', // blue
-            grad:     'linear-gradient(135deg,#3b82f6,#6366f1)',
-            bg:       '#1e3a8a',
-            tip:      'Assumes a brisk walking pace (~5 km/h).',
+            color: '#3b82f6', // blue
+            grad: 'linear-gradient(135deg,#3b82f6,#6366f1)',
+            bg: '#1e3a8a',
+            tip: 'Assumes a brisk walking pace (~5 km/h).',
         },
     };
 
@@ -440,7 +538,12 @@ const offTarget = 60;
      * Calculate commute stats for a given km distance and transport mode.
      * Returns one-way minutes, round-trip minutes, monthly totals etc.
      */
-    const calcCommute = ({ km, mode, officeDaysPerMonth, workableDays }) => {
+    const calcCommute = ({
+        km,
+        mode,
+        officeDaysPerMonth,
+        workableDays
+    }) => {
         const cfg = TRANSPORT_MODES[mode];
         // one-way travel time in minutes
         const travelMins = (km / cfg.speedKmh) * 60;
@@ -448,16 +551,16 @@ const offTarget = 60;
         const roundTripMins = oneWayMins * 2;
 
         // monthly totals
-        const monthlyCommuteMins  = roundTripMins * officeDaysPerMonth;
+        const monthlyCommuteMins = roundTripMins * officeDaysPerMonth;
         const monthlyCommuteHours = monthlyCommuteMins / 60;
 
         // How many clustered weeks could optimise commuting
         // (e.g. doing all 3 office days in one go Mon-Wed-Thu)
         const weeksInMonth = workableDays / 5;
-        const daysPerWeek  = officeDaysPerMonth / weeksInMonth;
+        const daysPerWeek = officeDaysPerMonth / weeksInMonth;
 
         // Efficiency: WFH saves this time back
-        const wfhDays          = workableDays - officeDaysPerMonth;
+        const wfhDays = workableDays - officeDaysPerMonth;
         const timeSavedVsAllOffice = ((workableDays - officeDaysPerMonth) * roundTripMins);
 
         return {
@@ -479,7 +582,11 @@ const offTarget = 60;
 
     const injectStyles = (T) => {
         let s = document.getElementById(STYLE_ID);
-        if (!s) { s = document.createElement('style'); s.id = STYLE_ID; document.head.appendChild(s); }
+        if (!s) {
+            s = document.createElement('style');
+            s.id = STYLE_ID;
+            document.head.appendChild(s);
+        }
 
         s.textContent = `
         #ep13 {
@@ -843,24 +950,36 @@ const offTarget = 60;
        THEME STATE
     ═══════════════════════════════════════════════════════════════ */
 
-    const THEME_KEY     = 'ep-theme-override';
+    const THEME_KEY = 'ep-theme-override';
     const TODAY_BUF_KEY = 'ep-today-buffer';
-    let themeOverride   = localStorage.getItem(THEME_KEY) || null;
+    let themeOverride = localStorage.getItem(THEME_KEY) || null;
 
     const getTheme = () => {
         if (themeOverride === 'dark') return {
             isDark: true,
-            bg: '#181818', surface: '#242424', border: 'rgba(255,255,255,0.08)',
-            text: '#e8e8e8', muted: '#888888', faint: 'rgba(255,255,255,0.04)',
-            barTrack: 'rgba(255,255,255,0.07)', chipBg: 'rgba(255,255,255,0.03)',
-            shadow: '0 4px 24px rgba(0,0,0,0.4)', ringTrack: 'rgba(255,255,255,0.12)',
+            bg: '#181818',
+            surface: '#242424',
+            border: 'rgba(255,255,255,0.08)',
+            text: '#e8e8e8',
+            muted: '#888888',
+            faint: 'rgba(255,255,255,0.04)',
+            barTrack: 'rgba(255,255,255,0.07)',
+            chipBg: 'rgba(255,255,255,0.03)',
+            shadow: '0 4px 24px rgba(0,0,0,0.4)',
+            ringTrack: 'rgba(255,255,255,0.12)',
         };
         if (themeOverride === 'light') return {
             isDark: false,
-            bg: '#ffffff', surface: '#f7f7f7', border: 'rgba(0,0,0,0.08)',
-            text: '#111827', muted: '#6b7280', faint: 'rgba(0,0,0,0.03)',
-            barTrack: 'rgba(0,0,0,0.07)', chipBg: 'rgba(0,0,0,0.03)',
-            shadow: '0 2px 12px rgba(0,0,0,0.10)', ringTrack: 'rgba(0,0,0,0.12)',
+            bg: '#ffffff',
+            surface: '#f7f7f7',
+            border: 'rgba(0,0,0,0.08)',
+            text: '#111827',
+            muted: '#6b7280',
+            faint: 'rgba(0,0,0,0.03)',
+            barTrack: 'rgba(0,0,0,0.07)',
+            chipBg: 'rgba(0,0,0,0.03)',
+            shadow: '0 2px 12px rgba(0,0,0,0.10)',
+            ringTrack: 'rgba(0,0,0,0.12)',
         };
         return buildTheme();
     };
@@ -870,20 +989,48 @@ const offTarget = 60;
     ═══════════════════════════════════════════════════════════════ */
 
     const ACT_CFG = {
-        'Office':          { icon: 'office',  grad: 'linear-gradient(135deg,#3b82f6,#06b6d4)', bg: '#1d4ed8' },
-        'Mobile Working':  { icon: 'laptop',  grad: 'linear-gradient(135deg,#ec4899,#f97316)', bg: '#9d174d' },
-        'Business Travel': { icon: 'flight',  grad: 'linear-gradient(135deg,#a855f7,#7c3aed)', bg: '#6b21a8' },
-        'No Activity':     { icon: 'block',   grad: 'linear-gradient(135deg,#374151,#111827)', bg: '#374151' },
+        'Office': {
+            icon: 'office',
+            grad: 'linear-gradient(135deg,#3b82f6,#06b6d4)',
+            bg: '#1d4ed8'
+        },
+        'Mobile Working': {
+            icon: 'laptop',
+            grad: 'linear-gradient(135deg,#ec4899,#f97316)',
+            bg: '#9d174d'
+        },
+        'Business Travel': {
+            icon: 'flight',
+            grad: 'linear-gradient(135deg,#a855f7,#7c3aed)',
+            bg: '#6b21a8'
+        },
+        'No Activity': {
+            icon: 'block',
+            grad: 'linear-gradient(135deg,#374151,#111827)',
+            bg: '#374151'
+        },
     };
-    const FALLBACK_CFG = { icon: 'timer', grad: 'linear-gradient(135deg,#64748b,#334155)', bg: '#475569' };
+    const FALLBACK_CFG = {
+        icon: 'timer',
+        grad: 'linear-gradient(135deg,#64748b,#334155)',
+        bg: '#475569'
+    };
 
     /* ═══════════════════════════════════════════════════════════════
        BUILD SCHEDULE PLANNER HTML
     ═══════════════════════════════════════════════════════════════ */
 
-    const buildScheduleSection = ({ T, days, officeDaysNeeded, alreadyDoneOffice }) => {
+    const buildScheduleSection = ({
+        T,
+        days,
+        officeDaysNeeded,
+        alreadyDoneOffice
+    }) => {
         const officeStillNeeded = Math.max(0, officeDaysNeeded - alreadyDoneOffice);
-        const plannedDates      = buildSchedulePlan({ days, officeStillNeeded });
+        const plannedDates = buildSchedulePlan({
+            days,
+            officeStillNeeded
+        });
 
         // ── Legend ──
         let html = `<div class="ep-sched-section">
@@ -924,14 +1071,14 @@ const offTarget = 60;
         // Day cells
         days.forEach(d => {
             let cls = 'ep-cal-day ';
-            if (d.isWeekend)          cls += 'ep-cal-weekend';
+            if (d.isWeekend) cls += 'ep-cal-weekend';
             else if (d.isAbsent || d.isHoliday) cls += 'ep-cal-absent';
-            else if (d.hasOffice)     cls += 'ep-cal-done-off';
+            else if (d.hasOffice) cls += 'ep-cal-done-off';
             else if (d.hasWFH && (d.isPast || d.isToday)) cls += 'ep-cal-done-wfh';
             else if (d.isPast || d.isToday) cls += 'ep-cal-done-any';
             else if (plannedDates.has(d.dateNum)) cls += 'ep-cal-plan-off';
-            else if (d.isFuture)      cls += 'ep-cal-plan-wfh';
-            else                       cls += 'ep-cal-plan-wfh';
+            else if (d.isFuture) cls += 'ep-cal-plan-wfh';
+            else cls += 'ep-cal-plan-wfh';
 
             if (d.isToday) cls += ' ep-cal-today';
 
@@ -951,13 +1098,19 @@ const offTarget = 60;
         });
 
         html += `<div class="ep-week-rows">`;
-        const DNAMES = { 1:'Mon', 2:'Tue', 3:'Wed', 4:'Thu', 5:'Fri' };
+        const DNAMES = {
+            1: 'Mon',
+            2: 'Tue',
+            3: 'Wed',
+            4: 'Thu',
+            5: 'Fri'
+        };
         let weekNum = 0;
         weekBuckets.forEach((wdays) => {
             weekNum++;
-            const offDone  = wdays.filter(d => d.hasOffice).length;
-            const planned  = wdays.filter(d => plannedDates.has(d.dateNum)).length;
-            const wfhDone  = wdays.filter(d => d.hasWFH && !d.hasOffice && (d.isPast || d.isToday)).length;
+            const offDone = wdays.filter(d => d.hasOffice).length;
+            const planned = wdays.filter(d => plannedDates.has(d.dateNum)).length;
+            const wfhDone = wdays.filter(d => d.hasWFH && !d.hasOffice && (d.isPast || d.isToday)).length;
 
             // Build 5-slot row Mon→Fri
             const slotMap = new Map(wdays.map(d => [d.dayOfWeek, d]));
@@ -965,7 +1118,7 @@ const offTarget = 60;
                 <div class="ep-week-label">W${weekNum}</div>
                 <div class="ep-week-days">`;
 
-            [1,2,3,4,5].forEach(dow => {
+            [1, 2, 3, 4, 5].forEach(dow => {
                 const d = slotMap.get(dow);
                 if (!d) {
                     html += `<div class="ep-week-day-pill ep-wp-off">—</div>`;
@@ -973,12 +1126,20 @@ const offTarget = 60;
                 }
                 let cls = 'ep-week-day-pill ';
                 let label = DNAMES[dow];
-                if (d.isAbsent || d.isHoliday) { cls += 'ep-wp-absent'; label = 'abs'; }
-                else if (d.hasOffice)           { cls += 'ep-wp-done'; }
-                else if (plannedDates.has(d.dateNum)) { cls += 'ep-wp-office'; }
-                else if (d.hasWFH)              { cls += 'ep-wp-wfh'; }
-                else if (d.isFuture || d.isToday) { cls += 'ep-wp-wfh'; }
-                else                            { cls += 'ep-wp-wfh'; }
+                if (d.isAbsent || d.isHoliday) {
+                    cls += 'ep-wp-absent';
+                    label = 'abs';
+                } else if (d.hasOffice) {
+                    cls += 'ep-wp-done';
+                } else if (plannedDates.has(d.dateNum)) {
+                    cls += 'ep-wp-office';
+                } else if (d.hasWFH) {
+                    cls += 'ep-wp-wfh';
+                } else if (d.isFuture || d.isToday) {
+                    cls += 'ep-wp-wfh';
+                } else {
+                    cls += 'ep-wp-wfh';
+                }
                 html += `<div class="${cls}" title="${d.label}">${label}</div>`;
             });
 
@@ -993,10 +1154,10 @@ const offTarget = 60;
         html += `</div>`; // end week rows
 
         // ── Summary stat: efficiency ──
-        const totalWorkable   = days.filter(d => d.isWorkable).length;
-        const totalPlanned    = plannedDates.size + alreadyDoneOffice;
-        const totalWFH        = totalWorkable - totalPlanned;
-        const pctOffice       = totalWorkable > 0 ? Math.round((totalPlanned / totalWorkable) * 100) : 0;
+        const totalWorkable = days.filter(d => d.isWorkable).length;
+        const totalPlanned = plannedDates.size + alreadyDoneOffice;
+        const totalWFH = totalWorkable - totalPlanned;
+        const pctOffice = totalWorkable > 0 ? Math.round((totalPlanned / totalWorkable) * 100) : 0;
 
         html += `<div style="display:flex;gap:8px;flex-wrap:wrap;">
             <div class="ep-cmute-stat" style="flex:1;min-width:80px;">
@@ -1025,16 +1186,21 @@ const offTarget = 60;
        BUILD COMMUTE FORECASTER HTML
     ═══════════════════════════════════════════════════════════════ */
 
-    const buildCommutePanel = ({ T, summary, ds, days }) => {
-        const km        = parseInt(localStorage.getItem(COMMUTE_KM_KEY) || '5', 10);
-        const mode      = localStorage.getItem(COMMUTE_MODE_KEY) || 'car';
-        const isOpen    = localStorage.getItem(COMMUTE_OPEN_KEY) === 'true';
+    const buildCommutePanel = ({
+        T,
+        summary,
+        ds,
+        days
+    }) => {
+        const km = parseInt(localStorage.getItem(COMMUTE_KM_KEY) || '5', 10);
+        const mode = localStorage.getItem(COMMUTE_MODE_KEY) || 'car';
+        const isOpen = localStorage.getItem(COMMUTE_OPEN_KEY) === 'true';
 
-        const realRota          = ds.realRota;
+        const realRota = ds.realRota;
         // office days required this month to hit the target
         const requiredOfficeMins = realRota * (offTarget / 100);
-        const officeDaysNeeded  = Math.ceil(requiredOfficeMins / 480);
-        const workable          = ds.workableDays;
+        const officeDaysNeeded = Math.ceil(requiredOfficeMins / 480);
+        const workable = ds.workableDays;
         const officeDaysPerMonth = Math.min(officeDaysNeeded, workable);
 
         // Already-done office days (past + today)
@@ -1042,20 +1208,42 @@ const offTarget = 60;
             d.hasOffice && (d.isPast || d.isToday)
         ).length;
 
-        const stats = calcCommute({ km, mode, officeDaysPerMonth, workableDays: workable });
+        const stats = calcCommute({
+            km,
+            mode,
+            officeDaysPerMonth,
+            workableDays: workable
+        });
 
-        const modeCfg  = TRANSPORT_MODES[mode];
+        const modeCfg = TRANSPORT_MODES[mode];
 
         // Build comparison bars — all 3 modes at current km
         const allModeStats = Object.entries(TRANSPORT_MODES).map(([key, cfg]) => {
-            const s = calcCommute({ km, mode: key, officeDaysPerMonth, workableDays: workable });
-            return { key, cfg, ...s };
+            const s = calcCommute({
+                km,
+                mode: key,
+                officeDaysPerMonth,
+                workableDays: workable
+            });
+            return {
+                key,
+                cfg,
+                ...s
+            };
         });
         const maxMonthlyMins = Math.max(...allModeStats.map(m => m.monthlyCommuteMins));
 
         // Insight text
         const savedHours = (stats.timeSavedVsAllOffice / 60).toFixed(1);
-        const insightText = buildInsightText({ stats, mode, km, officeDaysPerMonth, workable, savedHours, modeCfg });
+        const insightText = buildInsightText({
+            stats,
+            mode,
+            km,
+            officeDaysPerMonth,
+            workable,
+            savedHours,
+            modeCfg
+        });
 
         /* ── Toggle header ── */
         let html = `
@@ -1128,7 +1316,12 @@ const offTarget = 60;
         html += `<div>
             <div class="ep-cmute-ctrl-label" style="margin-bottom:8px;">All-Mode Comparison · monthly commute at ${km} km</div>
             <div class="ep-cmute-compare">`;
-        allModeStats.forEach(({ key, cfg, monthlyCommuteMins, oneWayMins }) => {
+        allModeStats.forEach(({
+            key,
+            cfg,
+            monthlyCommuteMins,
+            oneWayMins
+        }) => {
             const barPct = maxMonthlyMins > 0 ? (monthlyCommuteMins / maxMonthlyMins) * 100 : 0;
             const isActive = key === mode;
             html += `<div class="ep-cmute-cmp-row">
@@ -1151,7 +1344,8 @@ const offTarget = 60;
         /* ── Schedule Planner ── */
         html += `<div class="ep-divider"></div>`;
         html += buildScheduleSection({
-            T, days,
+            T,
+            days,
             officeDaysNeeded: officeDaysPerMonth,
             alreadyDoneOffice,
         });
@@ -1161,16 +1355,24 @@ const offTarget = 60;
         return html;
     };
 
-    const buildInsightText = ({ stats, mode, km, officeDaysPerMonth, workable, savedHours, modeCfg }) => {
+    const buildInsightText = ({
+        stats,
+        mode,
+        km,
+        officeDaysPerMonth,
+        workable,
+        savedHours,
+        modeCfg
+    }) => {
         const wfhDays = workable - officeDaysPerMonth;
         const modeLabel = modeCfg.label.toLowerCase();
 
         // Clustered office days advice
         // Recommend clustering e.g. Mon-Tue-Wed to minimise frequency-related costs
         const daysPerWeek = stats.daysPerWeek;
-        const clusterTip = daysPerWeek <= 3
-            ? `Clustering your <strong>${officeDaysPerMonth} office days</strong> into <strong>${Math.ceil(daysPerWeek)} consecutive days per week</strong> minimises context-switching and commute overhead.`
-            : `Your office requirement is high — aim to group days back-to-back to reduce transition time.`;
+        const clusterTip = daysPerWeek <= 3 ?
+            `Clustering your <strong>${officeDaysPerMonth} office days</strong> into <strong>${Math.ceil(daysPerWeek)} consecutive days per week</strong> minimises context-switching and commute overhead.` :
+            `Your office requirement is high — aim to group days back-to-back to reduce transition time.`;
 
         // Time efficiency
         const timeCost = stats.roundTripMins;
@@ -1184,9 +1386,9 @@ const offTarget = 60;
         }
 
         // WFH savings
-        const savingsTip = wfhDays > 0
-            ? ` Working from home <strong>${wfhDays} days</strong> saves you approximately <strong>${fmt(stats.timeSavedVsAllOffice)}</strong> vs a full office month.`
-            : '';
+        const savingsTip = wfhDays > 0 ?
+            ` Working from home <strong>${wfhDays} days</strong> saves you approximately <strong>${fmt(stats.timeSavedVsAllOffice)}</strong> vs a full office month.` :
+            '';
 
         return clusterTip + efficiencyTip + savingsTip;
     };
@@ -1201,8 +1403,12 @@ const offTarget = 60;
                 e.preventDefault();
                 const action = el.dataset.action;
 
-                if (action === 'jump-today')    { jumpToToday(); }
-                if (action === 'jump-analyzer') { jumpToAnalyzer(); }
+                if (action === 'jump-today') {
+                    jumpToToday();
+                }
+                if (action === 'jump-analyzer') {
+                    jumpToAnalyzer();
+                }
 
                 if (action === 'theme-toggle') {
                     themeOverride = el.dataset.theme;
@@ -1266,8 +1472,12 @@ const offTarget = 60;
             mainPanel.insertBefore(container, mainPanel.firstChild);
         }
 
-        const summary  = getSummaryData();
-        const { actMap, rawTotal, workedDays } = getActivityData();
+        const summary = getSummaryData();
+        const {
+            actMap,
+            rawTotal,
+            workedDays
+        } = getActivityData();
 
         if (!summary.recorded || !rawTotal) {
             container.innerHTML = `<div class="ep-hdr">
@@ -1278,32 +1488,51 @@ const offTarget = 60;
             return;
         }
 
-        const realRota     = summary.rota - summary.absences - summary.holidays;
-        const factor       = summary.recorded / rawTotal;
-        const acts         = Object.entries(actMap)
-            .map(([name, mins]) => ({ name, adj: Math.floor(mins * factor) }))
+        const realRota = summary.rota - summary.absences - summary.holidays;
+        const factor = summary.recorded / rawTotal;
+        const acts = Object.entries(actMap)
+            .map(([name, mins]) => ({
+                name,
+                adj: Math.floor(mins * factor)
+            }))
             .filter(a => a.adj > 0)
             .sort((a, b) => b.adj - a.adj);
 
         const totalActMins = acts.reduce((s, a) => s + a.adj, 0);
-        const officeEntry  = acts.find(a => a.name === 'Office');
-        const officeMins   = officeEntry ? officeEntry.adj : 0;
-        const targetMins   = realRota * (offTarget / 100);
-        const officePct    = targetMins > 0 ? (officeMins / targetMins) * 100 : 0;
-        const officeActPct = realRota   > 0 ? (officeMins / realRota)   * 100 : 0;
-        const rotaPct      = realRota   > 0 ? (summary.recorded / realRota) * 100 : 0;
-        const ds           = getDayStats(summary);
+        const officeEntry = acts.find(a => a.name === 'Office');
+        const officeMins = officeEntry ? officeEntry.adj : 0;
+        const targetMins = realRota * (offTarget / 100);
+        const officePct = targetMins > 0 ? (officeMins / targetMins) * 100 : 0;
+        const officeActPct = realRota > 0 ? (officeMins / realRota) * 100 : 0;
+        const rotaPct = realRota > 0 ? (summary.recorded / realRota) * 100 : 0;
+        const ds = getDayStats(summary);
 
-        const now          = new Date();
-        const dateStr      = now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).toUpperCase();
-        const offColor     = getOffColor(officePct);
-        const rotaColor    = rotaPct >= 100 ? '#22c55e' : rotaPct >= 80 ? '#3b82f6' : '#f59e0b';
-        const offRing      = ring({ r: 54, pct: officePct, color: offColor,  sw: 6, trackColor: T.ringTrack });
-        const rotaRing     = ring({ r: 54, pct: rotaPct,   color: rotaColor, sw: 6, trackColor: T.ringTrack });
-        const todayOnPage  = hasTodayOnPage();
-        const nextTheme    = T.isDark ? 'light' : 'dark';
-        const toggleIcon   = T.isDark ? 'sun' : 'moon';
-        const toggleTitle  = T.isDark ? 'Switch to light theme' : 'Switch to dark theme';
+        const now = new Date();
+        const dateStr = now.toLocaleDateString('en-GB', {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric'
+        }).toUpperCase();
+        const offColor = getOffColor(officePct);
+        const rotaColor = rotaPct >= 100 ? '#22c55e' : rotaPct >= 80 ? '#3b82f6' : '#f59e0b';
+        const offRing = ring({
+            r: 54,
+            pct: officePct,
+            color: offColor,
+            sw: 6,
+            trackColor: T.ringTrack
+        });
+        const rotaRing = ring({
+            r: 54,
+            pct: rotaPct,
+            color: rotaColor,
+            sw: 6,
+            trackColor: T.ringTrack
+        });
+        const todayOnPage = hasTodayOnPage();
+        const nextTheme = T.isDark ? 'light' : 'dark';
+        const toggleIcon = T.isDark ? 'sun' : 'moon';
+        const toggleTitle = T.isDark ? 'Switch to light theme' : 'Switch to dark theme';
 
         /* ── HEADER ── */
         let html = `
@@ -1322,7 +1551,10 @@ const offTarget = 60;
         /* ══ CARD 1 · Activity Breakdown ══ */
         const totalActPct = realRota > 0 ? (totalActMins / realRota) * 100 : 0;
         html += `<div class="ep-card"><div class="ep-card-title">Activity Breakdown</div>`;
-        acts.forEach(({ name, adj }) => {
+        acts.forEach(({
+            name,
+            adj
+        }) => {
             const cfg = ACT_CFG[name] || FALLBACK_CFG;
             const pct = realRota > 0 ? (adj / realRota) * 100 : 0;
             html += `<div class="ep-act-row">
@@ -1383,7 +1615,7 @@ const offTarget = 60;
 
         /* ══ CARD 4 · Buffer & Outlook ══ */
         const bufClass = ds.bufferMinutes > 0 ? 'pos' : ds.bufferMinutes < 0 ? 'neg' : 'zer';
-        const bufIcon  = ds.bufferMinutes > 0 ? 'trending_up' : ds.bufferMinutes < 0 ? 'trending_down' : 'trending_flat';
+        const bufIcon = ds.bufferMinutes > 0 ? 'trending_up' : ds.bufferMinutes < 0 ? 'trending_down' : 'trending_flat';
         const bufColor = ds.bufferMinutes > 0 ? '#22c55e' : ds.bufferMinutes < 0 ? '#ef4444' : T.muted;
         html += `<div class="ep-card">
             <div class="ep-card-title">Buffer &amp; Outlook</div>
@@ -1416,18 +1648,18 @@ const offTarget = 60;
         html += `</div>`; // close .ep-grid
 
         /* ══ TODAY STRIP ══ */
-        const todayBufOn      = localStorage.getItem(TODAY_BUF_KEY) === 'true';
-        const todayWorked     = getTodayMinutes();
-        const dailyTarget     = 480;
+        const todayBufOn = localStorage.getItem(TODAY_BUF_KEY) === 'true';
+        const todayWorked = getTodayMinutes();
+        const dailyTarget = 480;
         const effectiveTarget = todayBufOn ? Math.max(0, dailyTarget - ds.bufferMinutes) : dailyTarget;
-        const todayRemaining  = Math.max(0, effectiveTarget - todayWorked);
-        const todayPct        = effectiveTarget > 0 ? Math.min(100, (todayWorked / effectiveTarget) * 100) : 0;
-        const todayDone       = todayWorked >= effectiveTarget;
-        const todayBarColor   = todayDone ? '#22c55e' : '#3b82f6';
+        const todayRemaining = Math.max(0, effectiveTarget - todayWorked);
+        const todayPct = effectiveTarget > 0 ? Math.min(100, (todayWorked / effectiveTarget) * 100) : 0;
+        const todayDone = todayWorked >= effectiveTarget;
+        const todayBarColor = todayDone ? '#22c55e' : '#3b82f6';
 
-        const remMarkup = todayDone
-            ? `<span class="ep-today-rem done">${icon('check', 12, '#22c55e')} Day complete!</span>`
-            : `<span class="ep-today-rem">${icon('timer', 12, T.muted)} ${fmt(todayRemaining)} left</span>`;
+        const remMarkup = todayDone ?
+            `<span class="ep-today-rem done">${icon('check', 12, '#22c55e')} Day complete!</span>` :
+            `<span class="ep-today-rem">${icon('timer', 12, T.muted)} ${fmt(todayRemaining)} left</span>`;
 
         html += `
         <div class="ep-today-strip">
@@ -1464,7 +1696,12 @@ const offTarget = 60;
 
         /* ══ COMMUTE FORECASTER ══ */
         const detailedDays = getDetailedDayData();
-        html += buildCommutePanel({ T, summary, ds, days: detailedDays });
+        html += buildCommutePanel({
+            T,
+            summary,
+            ds,
+            days: detailedDays
+        });
 
         container.innerHTML = html;
 
@@ -1481,16 +1718,16 @@ const offTarget = 60;
     const injectBackButton = (T) => {
         document.getElementById(BACK_BTN_ID)?.remove();
 
-        const todayChip      = document.querySelector('.today_chip');
+        const todayChip = document.querySelector('.today_chip');
         const todayContainer = todayChip?.closest('.tt_day_container');
         if (!todayContainer) return;
 
         const btn = document.createElement('span');
-        btn.id            = BACK_BTN_ID;
-        btn.role          = 'button';
-        btn.tabIndex      = 0;
-        btn.title         = 'Scroll back to eDays Analyzer';
-        btn.innerHTML     = `<span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;color:currentColor;">${ICONS['arrow_up']}</span> Back to analyzer`;
+        btn.id = BACK_BTN_ID;
+        btn.role = 'button';
+        btn.tabIndex = 0;
+        btn.title = 'Scroll back to eDays Analyzer';
+        btn.innerHTML = `<span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;color:currentColor;">${ICONS['arrow_up']}</span> Back to analyzer`;
         btn.style.cssText = `
             display: inline-flex; align-items: center; gap: 5px;
             font-size: 12px; font-weight: 500; cursor: pointer;
@@ -1504,16 +1741,24 @@ const offTarget = 60;
         `;
 
         const hover = (on) => {
-            btn.style.background = on
-                ? (T.isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
-                : T.surface;
+            btn.style.background = on ?
+                (T.isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)') :
+                T.surface;
             btn.style.color = on ? T.text : T.muted;
         };
 
-        btn.addEventListener('click',       (e) => { e.preventDefault(); jumpToAnalyzer(); });
-        btn.addEventListener('keydown',     (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); jumpToAnalyzer(); } });
-        btn.addEventListener('mouseenter',  () => hover(true));
-        btn.addEventListener('mouseleave',  () => hover(false));
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            jumpToAnalyzer();
+        });
+        btn.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                jumpToAnalyzer();
+            }
+        });
+        btn.addEventListener('mouseenter', () => hover(true));
+        btn.addEventListener('mouseleave', () => hover(false));
 
         todayContainer.insertBefore(btn, todayContainer.firstChild);
     };
@@ -1537,11 +1782,11 @@ const offTarget = 60;
                     // Ignore any mutation that originates inside our own widget —
                     // those are caused by our own renders / CSS hover transitions
                     // and must never trigger a re-render loop.
-                    const ep      = document.getElementById('ep13');
+                    const ep = document.getElementById('ep13');
                     const backBtn = document.getElementById(BACK_BTN_ID);
                     const ours = mutations.every(m =>
-                        (ep      && (ep.contains(m.target)      || ep      === m.target)) ||
-                        (backBtn && (backBtn.contains(m.target)  || backBtn === m.target))
+                        (ep && (ep.contains(m.target) || ep === m.target)) ||
+                        (backBtn && (backBtn.contains(m.target) || backBtn === m.target))
                     );
                     if (ours) return;
 
@@ -1557,8 +1802,8 @@ const offTarget = 60;
                 const panel = document.getElementById('mainTimesheetPanel');
                 if (panel) {
                     observer.observe(panel, {
-                        childList:     true,
-                        subtree:       true,
+                        childList: true,
+                        subtree: true,
                         characterData: true,
                         // attributes deliberately omitted — we don't need to watch
                         // style/class attribute changes and they cause hover flicker
