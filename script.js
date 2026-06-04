@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      17.0
+// @version      17.1
 // @match        https://*.e-days.com/*
 // @grant        GM_xmlhttpRequest
 // @connect      router.project-osrm.org
@@ -139,7 +139,7 @@ const offTarget = 60;
 
     /* Road/path tortuosity factors & speeds used for fallback estimation */
     const MODE_ESTIMATE = {
-        car:  { speedKmh: 35, factor: 1.35 },  // city driving + road winding
+        car:  { speedKmh: 35, factor: 1.35 },
         bike: { speedKmh: 16, factor: 1.20 },
         walk: { speedKmh: 5,  factor: 1.15 },
     };
@@ -238,7 +238,6 @@ const offTarget = 60;
 
     /* ═══════════════════════════════════════════════════════════════
        OSRM via GM_xmlhttpRequest  (bypasses page CSP)
-       Falls back to Haversine estimate if fetch fails.
     ═══════════════════════════════════════════════════════════════ */
     const CACHE_TTL = 6*60*60*1000;
 
@@ -256,11 +255,6 @@ const offTarget = 60;
         });
     });
 
-    /**
-     * Fetch route via OSRM (GM_xmlhttpRequest bypasses CSP).
-     * Falls back to Haversine + speed estimate on any failure.
-     * Returns { mins, distanceKm, estimated }
-     */
     const fetchRoute = async (homeLat, homeLng, officeLat, officeLng, mode) => {
         const profile = OSRM_PROFILE[mode]||'driving';
         const cacheKey = `${profile}|${homeLat.toFixed(4)},${homeLng.toFixed(4)}|${officeLat.toFixed(4)},${officeLng.toFixed(4)}`;
@@ -286,7 +280,6 @@ const offTarget = 60;
             }
         } catch(_) { /* fall through to estimate */ }
 
-        // Haversine fallback
         const distanceKm = Math.round(straight*10)/10;
         const mins = estimateMins(straight, mode);
         const result = { mins, distanceKm, estimated:true, ts:Date.now() };
@@ -295,9 +288,6 @@ const offTarget = 60;
         return result;
     };
 
-    /**
-     * Reverse geocode via Nominatim using GM_xmlhttpRequest.
-     */
     const reverseGeocode = (lat, lng) => new Promise(resolve => {
         const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`;
         try {
@@ -308,6 +298,20 @@ const offTarget = 60;
                 resolve([suburb,city].filter(Boolean).join(', ') || `${lat.toFixed(3)},${lng.toFixed(3)}`);
             }).catch(()=>resolve(`${lat.toFixed(3)},${lng.toFixed(3)}`));
         } catch { resolve(`${lat.toFixed(3)},${lng.toFixed(3)}`); }
+    });
+
+    /* Geocode a free-text address string via Nominatim */
+    const geocodeAddress = (query) => new Promise(resolve => {
+        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
+        try {
+            gmFetch(url).then(results => {
+                if (results && results.length) {
+                    resolve({ lat: parseFloat(results[0].lat), lng: parseFloat(results[0].lon), label: results[0].display_name.split(',').slice(0,3).join(',').trim() });
+                } else {
+                    resolve(null);
+                }
+            }).catch(() => resolve(null));
+        } catch { resolve(null); }
     });
 
     /* ═══════════════════════════════════════════════════════════════
@@ -358,6 +362,8 @@ const offTarget = 60;
         refresh:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>`,
         info:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>`,
         globe:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>`,
+        edit:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>`,
+        search:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>`,
     };
     const icon = (name,size=14,color='#fff') =>
         `<span style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;color:${color};flex-shrink:0;">${ICONS[name]||''}</span>`;
@@ -392,6 +398,12 @@ const offTarget = 60;
             if(lbl.includes('Difference'))    d.difference=mins;
         });
         return d;
+    };
+
+    /* Check if eDays summary panel has actually loaded (rota > 0 means the page is ready) */
+    const isSummaryReady = () => {
+        const blocks = document.querySelectorAll('.desktop_summary .summary_block');
+        return blocks.length > 0;
     };
 
     const getActivityData = () => {
@@ -452,25 +464,18 @@ const offTarget = 60;
     };
     const hasTodayOnPage = () => !!document.querySelector('.today_chip');
 
-    /**
-     * Per-day detail. Fixes NaN: dateNum now comes from the day's
-     * actual date element, falling back to parsing the label text.
-     */
     const getDetailedDayData = () => {
         const todayIdx=[...document.querySelectorAll('.tt_day_container')].findIndex(d=>d.querySelector('.today_chip'));
         return [...document.querySelectorAll('.tt_day_container')].map((day,idx)=>{
-            // Prefer a dedicated date-number element if present, then parse label
             const label=day.querySelector('.timesheet_day_text')?.innerText?.trim()||'';
             const parts=label.split(' ');
             const dayName=parts[0]||'';
 
-            // Robustly parse the date number — skip NaN
             let dateNum=0;
             for(let i=1;i<parts.length;i++){
                 const n=parseInt(parts[i],10);
                 if(!isNaN(n)&&n>=1&&n<=31){dateNum=n;break;}
             }
-            // Absolute fallback: try to read a data attribute or sibling element
             if(!dateNum){
                 const txt=day.querySelector('[class*="date"]')?.innerText||'';
                 const m=txt.match(/\d+/); if(m) dateNum=parseInt(m[0],10);
@@ -535,7 +540,7 @@ const offTarget = 60;
     /* ═══════════════════════════════════════════════════════════════
        STYLES
     ═══════════════════════════════════════════════════════════════ */
-    const STYLE_ID='edays-pro-v18-styles';
+    const STYLE_ID='edays-pro-v17-styles';
     const injectStyles = T => {
         let s=document.getElementById(STYLE_ID);
         if(!s){s=document.createElement('style');s.id=STYLE_ID;document.head.appendChild(s);}
@@ -606,6 +611,11 @@ const offTarget = 60;
         #ep13 .ep-today-actions{display:flex;align-items:center;gap:6px;flex-shrink:0;}
         #ep13 .ep-toggle-track{display:inline-block;width:28px;height:16px;border-radius:8px;position:relative;vertical-align:middle;flex-shrink:0;transition:background .2s;}
         #ep13 .ep-toggle-thumb{position:absolute;width:12px;height:12px;background:#fff;border-radius:50%;top:2px;box-shadow:0 1px 2px rgba(0,0,0,0.25);transition:left .2s;}
+        /* EMPTY STATE */
+        #ep13 .ep-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:28px 16px;text-align:center;}
+        #ep13 .ep-empty-icon{width:44px;height:44px;background:${T.surface};border:1px solid ${T.border};border-radius:12px;display:flex;align-items:center;justify-content:center;}
+        #ep13 .ep-empty-title{font-size:15px;font-weight:700;color:${T.text};}
+        #ep13 .ep-empty-sub{font-size:13px;color:${T.muted};line-height:1.5;max-width:340px;}
         /* COMMUTE */
         #ep13 .ep-commute-toggle{margin-top:8px;display:flex;align-items:center;gap:8px;padding:8px 14px;background:${T.surface};border:1px solid ${T.border};border-radius:10px;cursor:pointer;user-select:none;transition:background .15s;}
         #ep13 .ep-commute-toggle:hover{background:${T.isDark?'rgba(255,255,255,0.06)':'rgba(0,0,0,0.04)'};}
@@ -624,6 +634,15 @@ const offTarget = 60;
         #ep13 .ep-locate-btn{display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:7px;cursor:pointer;border:1px solid ${T.border};background:${T.chipBg};font-size:12px;font-weight:500;color:${T.muted};user-select:none;transition:all .15s;}
         #ep13 .ep-locate-btn:hover{color:${T.text};border-color:${T.isDark?'rgba(255,255,255,0.2)':'rgba(0,0,0,0.18)'};}
         #ep13 .ep-locate-btn.loading{opacity:.6;pointer-events:none;}
+        /* Manual address input */
+        #ep13 .ep-addr-form{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;}
+        #ep13 input.ep-addr-input{flex:1;min-width:160px;padding:6px 10px;border-radius:7px;border:1px solid ${T.border};background:${T.bg};color:${T.text};font-size:12px;font-family:inherit;outline:none;}
+        #ep13 input.ep-addr-input:focus{border-color:#3b82f6;}
+        #ep13 input.ep-addr-input::placeholder{color:${T.muted};}
+        #ep13 .ep-addr-submit{display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border-radius:7px;cursor:pointer;border:1px solid rgba(59,130,246,.4);background:rgba(59,130,246,.12);font-size:12px;font-weight:600;color:#3b82f6;user-select:none;transition:all .15s;white-space:nowrap;}
+        #ep13 .ep-addr-submit:hover{background:rgba(59,130,246,.22);}
+        #ep13 .ep-addr-submit.loading{opacity:.6;pointer-events:none;}
+        #ep13 .ep-addr-error{font-size:11px;color:#ef4444;display:flex;align-items:center;gap:4px;margin-top:3px;}
         #ep13 .ep-cmute-controls{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;}
         #ep13 .ep-cmute-ctrl-group{display:flex;flex-direction:column;gap:5px;}
         #ep13 .ep-cmute-ctrl-label{font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:${T.muted};}
@@ -756,7 +775,6 @@ const offTarget = 60;
         for(let i=0;i<colOffset;i++) html+=`<div class="ep-cal-day ep-cal-empty"></div>`;
 
         days.forEach(d=>{
-            // Skip days with no valid dateNum — show as empty spacer
             if(!d.dateNum){html+=`<div class="ep-cal-day ep-cal-empty"></div>`;return;}
             let cls='ep-cal-day ';
             let hrsLbl='';
@@ -885,12 +903,19 @@ const offTarget = 60;
             <div class="ep-home-row">
                 ${hasHome
                     ? `<span class="ep-home-coords">${homeLabel||`${homeLat.toFixed(4)}, ${homeLng.toFixed(4)}`}</span>`
-                    : `<span style="font-size:12px;color:${T.muted};">Not set — click to detect</span>`}
+                    : `<span style="font-size:12px;color:${T.muted};">Not set</span>`}
                 <span class="ep-locate-btn${routeLoading?' loading':''}" data-action="locate-home" id="ep-locate-btn">
-                    ${icon('pin_drop',12,T.muted)} ${hasHome?'Update':'Detect location'}
+                    ${icon('pin_drop',12,T.muted)} ${hasHome?'GPS update':'Detect GPS'}
                 </span>
                 ${hasHome?`<span class="ep-locate-btn" data-action="clear-home" style="padding:5px 8px;" title="Clear">${icon('block',12,T.muted)}</span>`:''}
             </div>
+            <div class="ep-addr-form">
+                <input class="ep-addr-input" id="ep-addr-input" type="text" placeholder="Or type address: e.g. Calea Șagului 100, Timișoara" autocomplete="off" spellcheck="false">
+                <span class="ep-addr-submit" data-action="geocode-address" id="ep-addr-submit">
+                    ${icon('search',12,'#3b82f6')} Search
+                </span>
+            </div>
+            <div id="ep-addr-error" style="display:none;" class="ep-addr-error">${icon('warning',11,'#ef4444')} <span id="ep-addr-error-msg"></span></div>
         </div>`;
 
         /* Transport mode */
@@ -953,7 +978,6 @@ const offTarget = 60;
                 <div class="ep-cmute-stat"><div class="ep-cmute-stat-val" style="color:#22c55e;">${fmt(wfhDays*roundTripMins)}</div><div class="ep-cmute-stat-lbl">Time Saved</div></div>
             </div>`;
 
-            // Multi-mode comparison using cached values
             const cache=getRouteCache();
             const allModes=office.modes.map(k=>{
                 const prof=OSRM_PROFILE[k]||'driving';
@@ -1076,6 +1100,27 @@ const offTarget = 60;
                         {enableHighAccuracy:false,timeout:12000,maximumAge:60000}
                     );
                 }
+                if(action==='geocode-address'){
+                    const input=document.getElementById('ep-addr-input');
+                    const errEl=document.getElementById('ep-addr-error');
+                    const errMsg=document.getElementById('ep-addr-error-msg');
+                    const submitBtn=document.getElementById('ep-addr-submit');
+                    const query=input?.value?.trim();
+                    if(!query) return;
+                    if(errEl) errEl.style.display='none';
+                    if(submitBtn){submitBtn.classList.add('loading');submitBtn.innerHTML=`<span class="ep-spin">${icon('refresh',12,'#3b82f6')}</span> Searching…`;}
+                    const result=await geocodeAddress(query);
+                    if(result){
+                        localStorage.setItem(LS.HOME_LAT,result.lat);
+                        localStorage.setItem(LS.HOME_LNG,result.lng);
+                        localStorage.setItem(LS.HOME_LABEL,result.label);
+                        await triggerRouteRefresh(true);
+                        renderUI(); injectBackButton(getTheme());
+                    } else {
+                        if(submitBtn){submitBtn.classList.remove('loading');submitBtn.innerHTML=`${icon('search',12,'#3b82f6')} Search`;}
+                        if(errEl&&errMsg){errMsg.textContent='Address not found. Try a more specific query.';errEl.style.display='flex';}
+                    }
+                }
                 if(action==='clear-home'){
                     [LS.HOME_LAT,LS.HOME_LNG,LS.HOME_LABEL].forEach(k=>localStorage.removeItem(k));
                     _routeState={status:'idle',oneWayMins:null,distanceKm:null,estimated:false,officeKey:null,mode:null};
@@ -1086,6 +1131,17 @@ const offTarget = 60;
                 }
             });
         });
+
+        /* Allow pressing Enter in the address field to trigger search */
+        const addrInput=container.querySelector('#ep-addr-input');
+        if(addrInput){
+            addrInput.addEventListener('keydown', e=>{
+                if(e.key==='Enter'){
+                    e.preventDefault();
+                    container.querySelector('[data-action="geocode-address"]')?.click();
+                }
+            });
+        }
 
         const sel=container.querySelector('#ep-office-select');
         if(sel){
@@ -1112,10 +1168,44 @@ const offTarget = 60;
         let container=document.getElementById('ep13');
         if(!container){container=document.createElement('div');container.id='ep13';mainPanel.insertBefore(container,mainPanel.firstChild);}
 
+        /* ── BUG FIX: empty-month / new-month state ──────────────────
+           Previously checked summary.recorded && rawTotal, which are
+           both 0 at the start of a month, causing infinite "Loading…".
+           Now we check isSummaryReady() to confirm the DOM has loaded,
+           then render an "empty month" card instead of spinning forever.
+        ──────────────────────────────────────────────────────────────── */
+        if(!isSummaryReady()){
+            container.innerHTML=`<div class="ep-hdr"><div class="ep-hdr-logo">${icon('timer',16)}</div><div class="ep-hdr-title">eDays Analyzer Pro</div><div class="ep-hdr-date"><span class="ep-pulse"></span> Loading…</div></div>`;
+            return;
+        }
+
         const summary=getSummaryData();
         const {actMap,rawTotal,workedDays}=getActivityData();
-        if(!summary.recorded||!rawTotal){
-            container.innerHTML=`<div class="ep-hdr"><div class="ep-hdr-logo">${icon('timer',16)}</div><div class="ep-hdr-title">eDays Analyzer Pro</div><div class="ep-hdr-date"><span class="ep-pulse"></span> Loading…</div></div>`;
+        const dateStr=new Date().toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}).toUpperCase();
+
+        /* Empty month: panel is ready but nothing logged yet */
+        if(!summary.recorded && !rawTotal){
+            const ds=getDayStats(summary);
+            const detailedDays=getDetailedDayData();
+            const nextTheme=T.isDark?'light':'dark';
+            container.innerHTML=`
+                <div class="ep-hdr">
+                    <div class="ep-hdr-logo">${icon('timer',16)}</div>
+                    <div class="ep-hdr-title">eDays Analyzer Pro</div>
+                    <div class="ep-hdr-right">
+                        <span class="ep-btn ep-btn-icon" data-action="theme-toggle" data-theme="${nextTheme}" title="${T.isDark?'Light':'Dark'} theme">${icon(T.isDark?'sun':'moon',14,T.muted)}</span>
+                        <div class="ep-hdr-date"><span class="ep-pulse"></span>${dateStr}</div>
+                    </div>
+                </div>
+                <div class="ep-empty">
+                    <div class="ep-empty-icon">${icon('calendar',22,T.muted)}</div>
+                    <div class="ep-empty-title">New month — no entries yet</div>
+                    <div class="ep-empty-sub">Start logging time in eDays and the dashboard will populate automatically. Commute Forecaster and Schedule Planner are still available below.</div>
+                </div>`;
+            // Still render commute/schedule section even with no hours
+            const commuteHtml=buildCommutePanel({T,ds,days:detailedDays});
+            container.innerHTML+=commuteHtml;
+            bindInteractions(container);
             return;
         }
 
@@ -1129,10 +1219,8 @@ const offTarget = 60;
         const officeActPct=realRota>0?(officeMins/realRota)*100:0;
         const rotaPct=realRota>0?(summary.recorded/realRota)*100:0;
         const ds=getDayStats(summary);
-        const dateStr=new Date().toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}).toUpperCase();
         const offColor=getOffColor(officePct);
         const rotaColor=rotaPct>=100?'#22c55e':rotaPct>=80?'#3b82f6':'#f59e0b';
-        const T2=T;
         const nextTheme=T.isDark?'light':'dark';
 
         let html=`<div class="ep-hdr">
@@ -1267,7 +1355,6 @@ const offTarget = 60;
                 clearInterval(tick);
                 renderUI();
                 injectBackButton(getTheme());
-                // Pre-fetch route if home already saved
                 const hLat=parseFloat(localStorage.getItem(LS.HOME_LAT)||'0');
                 const hLng=parseFloat(localStorage.getItem(LS.HOME_LNG)||'0');
                 if(hLat&&hLng) triggerRouteRefresh();
