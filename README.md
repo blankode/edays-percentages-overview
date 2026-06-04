@@ -149,8 +149,9 @@ Tested on `*.e-days.com` monthly timesheet view.
 ## ∿ Changelog
 
 | Version | Changes |
-|---|---|
-| **17.0** | Completed implementation of commute forecaster with real traffic data based on location; included all Company offices;
+|---|---| 
+| **17.1** | Fixed infinite loading on empty/new months; added manual address text input for home location alongside GPS detection |
+| **17.0** | Completed implementation of commute forecaster with real traffic data based on location; included all Company offices |
 | **16.0** | Implemented commute forecaster for Timisoara UBC1 Office; fixed mouse hover issues with the span elements |
 | **15.9** | Replaced all <button> elements with <span role="button"> + data-action delegation to fix page refresh caused by form submit; removed stopPropagation; unified scroll offset to −165px above target |
 | **15.8** | Redesigned Today row as a full-width horizontal strip below the card grid; added "Jump to today" button in strip and header; added "Back to analyzer" chip injected directly above today's entry in the eDays DOM |
