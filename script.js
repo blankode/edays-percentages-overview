@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      17.1
+// @version      17.2
 // @match        https://*.e-days.com/*
 // @grant        GM_xmlhttpRequest
 // @connect      router.project-osrm.org
@@ -232,9 +232,8 @@ const offTarget = 60;
     /* ═══════════════════════════════════════════════════════════════
        SCROLL HELPERS
     ═══════════════════════════════════════════════════════════════ */
-    const smoothScrollTo = (el, offset=-165) => { if(!el) return; window.scrollTo({ top:el.getBoundingClientRect().top+window.scrollY+offset, behavior:'smooth' }); };
-    const jumpToToday    = () => { const c=document.querySelector('.today_chip'); smoothScrollTo(c?(c.closest('.tt_day_container')||c):null); };
-    const jumpToAnalyzer = () => smoothScrollTo(document.getElementById('ep13'));
+    const jumpToToday    = () => { const c = document.querySelector('.today_chip'); if(c) { const d = c.closest('.tt_day_container'); if(d) { d.id = 'ep-today-anchor'; location.hash = 'ep-today-anchor'; } } };
+    const jumpToAnalyzer = () => { location.hash = 'ep13'; };
 
     /* ═══════════════════════════════════════════════════════════════
        OSRM via GM_xmlhttpRequest  (bypasses page CSP)
@@ -440,8 +439,21 @@ const offTarget = 60;
         }).length;
         const progressPct=realRota>0?(summary.recorded/realRota)*100:0;
         const daysLeft=Math.round(Math.max(0,realRota-summary.recorded)/480);
-        const soFar=Math.max(0,workableDays-daysLeft);
         const todayIdx=allDays.findIndex(d=>d.querySelector('.today_chip'));
+
+        /* Office streak: longest consecutive run of days with Office time, up to and including today */
+        let officeStreak=0, curStreak=0;
+        allDays.forEach((day,idx)=>{
+            if(todayIdx!==-1&&idx>todayIdx) return; // only past + today
+            const t=day.querySelector('.timesheet_day_text')?.innerText?.trim()||'';
+            if(t.startsWith('Saturday')||t.startsWith('Sunday')) return; // skip weekends (don't break streak)
+            const hasOfficeToday=[...day.querySelectorAll('.tt_period_container')].some(p=>{
+                const dur=getPeriodMinutes(p); if(dur<=0) return false;
+                return p.querySelector('.chosen-single span')?.innerText.trim()==='Office';
+            });
+            if(hasOfficeToday){ curStreak++; officeStreak=Math.max(officeStreak,curStreak); }
+            else { curStreak=0; }
+        });
         let bufferMinutes;
         if(todayIdx===-1){bufferMinutes=summary.difference;}
         else{
@@ -453,7 +465,7 @@ const offTarget = 60;
                 else if(m>480){bufferMinutes+=m-480;}
             });
         }
-        return {workableDays,soFar,daysLeft,workedDays,progressPct,bufferMinutes,realRota};
+        return {workableDays,officeStreak,daysLeft,workedDays,progressPct,bufferMinutes,realRota};
     };
 
     const getTodayMinutes = () => {
@@ -707,6 +719,9 @@ const offTarget = 60;
         #ep13 .ep-hours-prog-track{height:6px;background:${T.barTrack};border-radius:6px;overflow:hidden;display:flex;}
         #ep13 .ep-hours-prog-done{height:100%;background:linear-gradient(90deg,#22c55e,#84cc16);}
         #ep13 .ep-hours-prog-plan{height:100%;background:linear-gradient(90deg,#3b82f6,#6366f1);}
+        html { scroll-behavior: smooth; }
+        #ep-today-anchor { scroll-margin-top: 75px; }
+        #ep13 { scroll-margin-top: 75px; }
         `;
     };
 
@@ -724,15 +739,7 @@ const offTarget = 60;
     /* ═══════════════════════════════════════════════════════════════
        ROUTE STATE
     ═══════════════════════════════════════════════════════════════ */
-    let _routeState = { status:'idle', oneWayMins:null, distanceKm:null, estimated:false, officeKey:null, mode:null };
-
-    const currentRouteKey = () => {
-        const hLat=parseFloat(localStorage.getItem(LS.HOME_LAT)||'0');
-        const hLng=parseFloat(localStorage.getItem(LS.HOME_LNG)||'0');
-        const ok=localStorage.getItem(LS.OFFICE)||'timisoara';
-        const m=localStorage.getItem(LS.MODE)||'car';
-        return `${ok}|${m}|${hLat.toFixed(4)},${hLng.toFixed(4)}`;
-    };
+    let _routeState = { status:'idle', oneWayMins:null, distanceKm:null, estimated:false, officeKey:null, mode:null, homeLat:null, homeLng:null };
 
     /* ═══════════════════════════════════════════════════════════════
        SCHEDULE SECTION HTML
@@ -1031,8 +1038,15 @@ const offTarget = 60;
         const officeKey=localStorage.getItem(LS.OFFICE)||'timisoara';
         const office=OFFICES[officeKey]||OFFICES.timisoara;
         const mode=localStorage.getItem(LS.MODE)||office.modes[0]||'car';
-        const key=currentRouteKey();
-        if(!force&&_routeState.status==='ok'&&`${_routeState.officeKey}|${_routeState.mode}|${_routeState.homeLat?.toFixed(4)},${_routeState.homeLng?.toFixed(4)}`===key) return;
+
+        /* Skip if nothing changed and we already have a good result */
+        if(!force
+            && _routeState.status==='ok'
+            && _routeState.officeKey===officeKey
+            && _routeState.mode===mode
+            && _routeState.homeLat?.toFixed(4)===hLat.toFixed(4)
+            && _routeState.homeLng?.toFixed(4)===hLng.toFixed(4)) return;
+
         _routeState={status:'loading',oneWayMins:null,distanceKm:null,estimated:false,officeKey,mode,homeLat:hLat,homeLng:hLng};
         renderUI();
         const result=await fetchRoute(hLat,hLng,office.lat,office.lng,mode);
@@ -1123,7 +1137,7 @@ const offTarget = 60;
                 }
                 if(action==='clear-home'){
                     [LS.HOME_LAT,LS.HOME_LNG,LS.HOME_LABEL].forEach(k=>localStorage.removeItem(k));
-                    _routeState={status:'idle',oneWayMins:null,distanceKm:null,estimated:false,officeKey:null,mode:null};
+                    _routeState={status:'idle',oneWayMins:null,distanceKm:null,estimated:false,officeKey:null,mode:null,homeLat:null,homeLng:null};
                     renderUI(); injectBackButton(getTheme());
                 }
                 if(action==='retry-route'){
@@ -1168,12 +1182,6 @@ const offTarget = 60;
         let container=document.getElementById('ep13');
         if(!container){container=document.createElement('div');container.id='ep13';mainPanel.insertBefore(container,mainPanel.firstChild);}
 
-        /* ── BUG FIX: empty-month / new-month state ──────────────────
-           Previously checked summary.recorded && rawTotal, which are
-           both 0 at the start of a month, causing infinite "Loading…".
-           Now we check isSummaryReady() to confirm the DOM has loaded,
-           then render an "empty month" card instead of spinning forever.
-        ──────────────────────────────────────────────────────────────── */
         if(!isSummaryReady()){
             container.innerHTML=`<div class="ep-hdr"><div class="ep-hdr-logo">${icon('timer',16)}</div><div class="ep-hdr-title">eDays Analyzer Pro</div><div class="ep-hdr-date"><span class="ep-pulse"></span> Loading…</div></div>`;
             return;
@@ -1202,9 +1210,7 @@ const offTarget = 60;
                     <div class="ep-empty-title">New month — no entries yet</div>
                     <div class="ep-empty-sub">Start logging time in eDays and the dashboard will populate automatically. Commute Forecaster and Schedule Planner are still available below.</div>
                 </div>`;
-            // Still render commute/schedule section even with no hours
-            const commuteHtml=buildCommutePanel({T,ds,days:detailedDays});
-            container.innerHTML+=commuteHtml;
+            container.innerHTML+=buildCommutePanel({T,ds,days:detailedDays});
             bindInteractions(container);
             return;
         }
@@ -1276,7 +1282,7 @@ const offTarget = 60;
             <div class="ep-buf-top">${icon(bi,20,bCol)}<span class="ep-buf-val ${bc}">${fmt(ds.bufferMinutes)}</span><span class="ep-buf-sub">${ds.bufferMinutes>=0?'ahead of':'behind'} daily target<br>vs past days</span></div>
             <div class="ep-chip-grid">
                 <div class="ep-chip"><div class="ep-chip-val">${ds.workableDays}</div><div class="ep-chip-lbl">Workable</div></div>
-                <div class="ep-chip"><div class="ep-chip-val" style="color:#3b82f6">${ds.soFar}</div><div class="ep-chip-lbl">So Far</div></div>
+                <div class="ep-chip"><div class="ep-chip-val" style="color:#3b82f6">${ds.officeStreak}</div><div class="ep-chip-lbl">Office Streak</div></div>
                 <div class="ep-chip"><div class="ep-chip-val" style="color:#a855f7">${ds.daysLeft}</div><div class="ep-chip-lbl">Days Left</div></div>
                 <div class="ep-chip"><div class="ep-chip-val" style="color:#f59e0b">${ds.workedDays}</div><div class="ep-chip-lbl">Worked</div></div>
             </div>
@@ -1320,8 +1326,7 @@ const offTarget = 60;
         </div>`;
 
         /* Commute panel */
-        const detailedDays=getDetailedDayData();
-        html+=buildCommutePanel({T,ds,days:detailedDays});
+        html+=buildCommutePanel({T,ds,days:getDetailedDayData()});
 
         container.innerHTML=html;
         bindInteractions(container);
@@ -1333,17 +1338,25 @@ const offTarget = 60;
     const BACK_BTN_ID='ep-back-chip';
     const injectBackButton = T => {
         document.getElementById(BACK_BTN_ID)?.remove();
-        const chip=document.querySelector('.today_chip');
-        const cont=chip?.closest('.tt_day_container');
+        const chip = document.querySelector('.today_chip');
+        const cont = chip?.closest('.tt_day_container');
         if(!cont) return;
-        const btn=document.createElement('span');
-        btn.id=BACK_BTN_ID; btn.role='button'; btn.tabIndex=0;
-        btn.innerHTML=`<span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;color:currentColor;">${ICONS.arrow_up}</span> Back to analyzer`;
-        btn.style.cssText=`display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500;cursor:pointer;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;padding:4px 10px;border-radius:7px;border:1px solid ${T.border};background:${T.surface};color:${T.muted};margin-bottom:6px;user-select:none;white-space:nowrap;`;
-        btn.addEventListener('click',e=>{e.preventDefault();jumpToAnalyzer();});
-        btn.addEventListener('mouseenter',()=>{btn.style.background=T.isDark?'rgba(255,255,255,0.1)':'rgba(0,0,0,0.06)';btn.style.color=T.text;});
-        btn.addEventListener('mouseleave',()=>{btn.style.background=T.surface;btn.style.color=T.muted;});
-        cont.insertBefore(btn,cont.firstChild);
+        const btn = document.createElement('span');
+        btn.id = BACK_BTN_ID; btn.role = 'button'; btn.tabIndex = 0;
+        btn.innerHTML = `<span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;color:currentColor;">${ICONS.arrow_up}</span> Back to analyzer`;
+        btn.style.cssText = `display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500;cursor:pointer;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;padding:4px 10px;border-radius:7px;border:1px solid ${T.border};background:${T.surface};color:${T.muted};margin-bottom:6px;user-select:none;white-space:nowrap;transition:background .15s,color .15s,border-color .15s;`;
+        btn.addEventListener('click', e => { e.preventDefault(); jumpToAnalyzer(); });
+        btn.addEventListener('mouseenter', () => {
+            btn.style.setProperty('background', T.isDark ? '#2e2e2e' : '#ebebeb', 'important');
+            btn.style.setProperty('color', T.isDark ? '#e8e8e8' : '#111827', 'important');
+            btn.style.setProperty('border-color', T.isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.15)', 'important');
+        });
+        btn.addEventListener('mouseleave', () => {
+            btn.style.setProperty('background', T.surface, 'important');
+            btn.style.setProperty('color', T.muted, 'important');
+            btn.style.setProperty('border-color', T.border, 'important');
+        });
+        cont.insertBefore(btn, cont.firstChild);
     };
 
     /* ═══════════════════════════════════════════════════════════════
