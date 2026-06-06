@@ -15,7 +15,7 @@
 
 **A Tampermonkey userscript that overlays a live analytics dashboard on top of eDays — showing office attendance, time vs rota, buffer, and day counts at a glance.**
 
-[![Version](https://img.shields.io/badge/version-15.5-6366f1?style=flat-square&labelColor=0f0f0f)](https://github.com/blankode/edays-percentages-overview)
+[![Version](https://img.shields.io/badge/version-17.2-6366f1?style=flat-square&labelColor=0f0f0f)](https://github.com/blankode/edays-percentages-overview)
 [![Platform](https://img.shields.io/badge/platform-Tampermonkey-f59e0b?style=flat-square&labelColor=0f0f0f)](https://www.tampermonkey.net/)
 [![License](https://img.shields.io/badge/license-MIT-22c55e?style=flat-square&labelColor=0f0f0f)](LICENSE)
 [![Site](https://img.shields.io/badge/works%20on-e--days.com-3b82f6?style=flat-square&labelColor=0f0f0f)](https://e-days.com)
@@ -150,6 +150,7 @@ Tested on `*.e-days.com` monthly timesheet view.
 
 | Version | Changes |
 |---|---| 
+| **17.2** | Cleaned up code, replaced SO FAR with OFFICE STREAK; fixed back to analyzer button bg when in dark mode; fixed anchor points for analyzer/today |
 | **17.1** | Fixed infinite loading on empty/new months; added manual address text input for home location alongside GPS detection |
 | **17.0** | Completed implementation of commute forecaster with real traffic data based on location; included all Company offices |
 | **16.0** | Implemented commute forecaster for Timisoara UBC1 Office; fixed mouse hover issues with the span elements |
