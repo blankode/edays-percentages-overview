@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      17.2
+// @version      17.3
 // @match        https://*.e-days.com/*
 // @grant        GM_xmlhttpRequest
 // @connect      router.project-osrm.org
@@ -232,8 +232,9 @@ const offTarget = 60;
     /* ═══════════════════════════════════════════════════════════════
        SCROLL HELPERS
     ═══════════════════════════════════════════════════════════════ */
-    const jumpToToday    = () => { const c = document.querySelector('.today_chip'); if(c) { const d = c.closest('.tt_day_container'); if(d) { d.id = 'ep-today-anchor'; location.hash = 'ep-today-anchor'; } } };
-    const jumpToAnalyzer = () => { location.hash = 'ep13'; };
+    const getScrollParent = el => { let p = el.parentElement; while(p) { const { overflow, overflowY } = getComputedStyle(p); if(/(auto|scroll)/.test(overflow + overflowY)) return p; p = p.parentElement; } return window; };
+    const jumpToToday = () => { const c = document.querySelector('.today_chip'); if(c) { const d = c.closest('.tt_day_container'); if(d) { const sp = getScrollParent(d); const offset = 80; if(sp === window) { const y = d.getBoundingClientRect().top + window.scrollY - offset; window.scrollTo({ top: y, behavior:'smooth' }); } else { const y = d.getBoundingClientRect().top - sp.getBoundingClientRect().top + sp.scrollTop - offset; sp.scrollTo({ top: y, behavior:'smooth' }); } } } };
+    const jumpToAnalyzer = () => { const el = document.getElementById('ep13'); if(el) el.scrollIntoView({ behavior:'smooth', block:'start' }); };
 
     /* ═══════════════════════════════════════════════════════════════
        OSRM via GM_xmlhttpRequest  (bypasses page CSP)
