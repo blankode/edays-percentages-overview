@@ -1,11 +1,8 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      17.3
+// @version      17.4
 // @match        https://*.e-days.com/*
-// @grant        GM_xmlhttpRequest
-// @connect      router.project-osrm.org
-// @connect      nominatim.openstreetmap.org
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // ==/UserScript==
@@ -17,153 +14,12 @@ const offTarget = 60;
     'use strict';
 
     /* ═══════════════════════════════════════════════════════════════
-       OFFICE REGISTRY
-    ═══════════════════════════════════════════════════════════════ */
-    const OFFICES = {
-        timisoara: {
-            label: 'Timișoara · UBC1',
-            city: 'Timișoara, Romania',
-            country: 'RO',
-            lat: 45.7537, lng: 21.2257,
-            address: 'Piața Consiliul Europei 2A, Clădirea UBC1, Timișoara',
-            modes: ['car', 'bike', 'walk'],
-        },
-        munich: {
-            label: 'München · Aschauer Str.',
-            city: 'München, Germany',
-            country: 'DE',
-            lat: 48.0966, lng: 11.6176,
-            address: 'Aschauer Straße 30, 81549 München',
-            modes: ['car', 'bike', 'walk'],
-        },
-        frankfurt: {
-            label: 'Frankfurt · Hahnstraße',
-            city: 'Frankfurt, Germany',
-            country: 'DE',
-            lat: 50.0795, lng: 8.6437,
-            address: 'Hahnstraße 68-70, 60528 Frankfurt am Main',
-            modes: ['car', 'bike', 'walk'],
-        },
-        erfurt: {
-            label: 'Erfurt · Europaplatz',
-            city: 'Erfurt, Germany',
-            country: 'DE',
-            lat: 50.9727, lng: 11.0310,
-            address: 'Europaplatz 1, 99091 Erfurt',
-            modes: ['car', 'bike', 'walk'],
-        },
-        vienna: {
-            label: 'Wien · Schönbrunner Schlossstr.',
-            city: 'Wien, Austria',
-            country: 'AT',
-            lat: 48.1858, lng: 16.3254,
-            address: 'Schönbrunner Schloßstraße 2, 1120 Wien',
-            modes: ['car', 'bike', 'walk'],
-        },
-        paris: {
-            label: 'Paris · Rue de Trévise',
-            city: 'Paris, France',
-            country: 'FR',
-            lat: 48.8745, lng: 2.3462,
-            address: '32 rue de Trévise, 75009 Paris',
-            modes: ['car', 'bike', 'walk'],
-        },
-        venice: {
-            label: 'Venezia · Santa Croce',
-            city: 'Venezia, Italy',
-            country: 'IT',
-            lat: 45.4408, lng: 12.3192,
-            address: 'Santa Croce 207, 30135 Venezia',
-            modes: ['walk'],
-        },
-        lisbon: {
-            label: 'Lisbon · Praça da Armada',
-            city: 'Lisbon, Portugal',
-            country: 'PT',
-            lat: 38.7075, lng: -9.1531,
-            address: 'Praça da Armada 7D, 1350-259 Lisboa',
-            modes: ['car', 'bike', 'walk'],
-        },
-        madrid: {
-            label: 'Madrid · Cedaceros',
-            city: 'Madrid, Spain',
-            country: 'ES',
-            lat: 40.4162, lng: -3.6997,
-            address: 'C/ Cedaceros 10, 4ª Izq., 28014 Madrid',
-            modes: ['car', 'bike', 'walk'],
-        },
-        wallisellen: {
-            label: 'Wallisellen · Richtistrasse',
-            city: 'Wallisellen, Switzerland',
-            country: 'CH',
-            lat: 47.4103, lng: 8.5979,
-            address: 'Richtistrasse 7, 8304 Wallisellen',
-            modes: ['car', 'bike', 'walk'],
-        },
-        newbury: {
-            label: 'Newbury · Greenham Business Park',
-            city: 'Newbury, UK',
-            country: 'GB',
-            lat: 51.3771, lng: -1.2719,
-            address: '2 Communications Road, Greenham Business Park, RG19 6AB',
-            modes: ['car', 'bike', 'walk'],
-        },
-        secaucus: {
-            label: 'Secaucus NJ · HQ North America',
-            city: 'Secaucus, NJ, USA',
-            country: 'US',
-            lat: 40.7895, lng: -74.0566,
-            address: '300 Lighting Way Suite 315, Secaucus NJ 07094',
-            modes: ['car'],
-        },
-        hingham: {
-            label: 'Hingham MA · Massachusetts',
-            city: 'Hingham, MA, USA',
-            country: 'US',
-            lat: 42.2415, lng: -70.8898,
-            address: '350 Lincoln Street Suite 2400, Hingham MA 02043',
-            modes: ['car'],
-        },
-        burlington: {
-            label: 'Burlington VT · Vermont',
-            city: 'Burlington, VT, USA',
-            country: 'US',
-            lat: 44.4759, lng: -73.2121,
-            address: '3 Main Street Suite 213, Burlington VT 05401',
-            modes: ['car', 'bike', 'walk'],
-        },
-    };
-
-    /* OSRM profile names per mode */
-    const OSRM_PROFILE = { car: 'driving', bike: 'cycling', walk: 'foot' };
-
-    /* Road/path tortuosity factors & speeds used for fallback estimation */
-    const MODE_ESTIMATE = {
-        car:  { speedKmh: 35, factor: 1.35 },
-        bike: { speedKmh: 16, factor: 1.20 },
-        walk: { speedKmh: 5,  factor: 1.15 },
-    };
-
-    /* Visual config per mode */
-    const TRANSPORT_MODES = {
-        car:  { label: 'Drive', icon: 'car',  color: '#f97316', grad: 'linear-gradient(135deg,#f97316,#ef4444)', bg: '#92400e' },
-        bike: { label: 'Cycle', icon: 'bike', color: '#22c55e', grad: 'linear-gradient(135deg,#22c55e,#16a34a)', bg: '#14532d' },
-        walk: { label: 'Walk',  icon: 'walk', color: '#3b82f6', grad: 'linear-gradient(135deg,#3b82f6,#6366f1)', bg: '#1e3a8a' },
-    };
-
-    /* ═══════════════════════════════════════════════════════════════
        LOCALSTORAGE KEYS
     ═══════════════════════════════════════════════════════════════ */
     const LS = {
         THEME:        'ep-theme-override',
         TODAY_BUF:    'ep-today-buffer',
-        COMMUTE_OPEN: 'ep-commute-open',
-        OFFICE:       'ep-office-key',
-        MODE:         'ep-commute-mode',
-        HOME_LAT:     'ep-home-lat',
-        HOME_LNG:     'ep-home-lng',
-        HOME_LABEL:   'ep-home-label',
-        ROUTE_CACHE:  'ep-route-cache-v2',
+        PLANNER_OPEN: 'ep-planner-open',
     };
 
     /* ═══════════════════════════════════════════════════════════════
@@ -216,103 +72,12 @@ const offTarget = 60;
     const parseTime = value => { const m=(value||'').match(/(-?\d+):(\d{2})/); if(!m) return 0; const mins=Math.abs(parseInt(m[1]))*60+parseInt(m[2]); return parseInt(m[1])<0?-mins:mins; };
     const clamp = (v,lo,hi) => Math.max(lo,Math.min(hi,v));
 
-    /* Haversine straight-line distance in km */
-    const haversineKm = (lat1,lng1,lat2,lng2) => {
-        const R=6371, dLat=(lat2-lat1)*Math.PI/180, dLng=(lng2-lng1)*Math.PI/180;
-        const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
-        return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
-    };
-
-    /* Estimated travel minutes when OSRM unavailable */
-    const estimateMins = (distKm, mode) => {
-        const cfg = MODE_ESTIMATE[mode]||MODE_ESTIMATE.car;
-        return Math.round((distKm * cfg.factor / cfg.speedKmh) * 60);
-    };
-
     /* ═══════════════════════════════════════════════════════════════
        SCROLL HELPERS
     ═══════════════════════════════════════════════════════════════ */
     const getScrollParent = el => { let p = el.parentElement; while(p) { const { overflow, overflowY } = getComputedStyle(p); if(/(auto|scroll)/.test(overflow + overflowY)) return p; p = p.parentElement; } return window; };
     const jumpToToday = () => { const c = document.querySelector('.today_chip'); if(c) { const d = c.closest('.tt_day_container'); if(d) { const sp = getScrollParent(d); const offset = 80; if(sp === window) { const y = d.getBoundingClientRect().top + window.scrollY - offset; window.scrollTo({ top: y, behavior:'smooth' }); } else { const y = d.getBoundingClientRect().top - sp.getBoundingClientRect().top + sp.scrollTop - offset; sp.scrollTo({ top: y, behavior:'smooth' }); } } } };
     const jumpToAnalyzer = () => { const el = document.getElementById('ep13'); if(el) el.scrollIntoView({ behavior:'smooth', block:'start' }); };
-
-    /* ═══════════════════════════════════════════════════════════════
-       OSRM via GM_xmlhttpRequest  (bypasses page CSP)
-    ═══════════════════════════════════════════════════════════════ */
-    const CACHE_TTL = 6*60*60*1000;
-
-    const getRouteCache = () => { try { return JSON.parse(localStorage.getItem(LS.ROUTE_CACHE)||'{}'); } catch { return {}; } };
-    const setRouteCache = c => { try { localStorage.setItem(LS.ROUTE_CACHE,JSON.stringify(c)); } catch {} };
-
-    const gmFetch = (url) => new Promise((resolve,reject) => {
-        if (typeof GM_xmlhttpRequest === 'undefined') { reject(new Error('GM_xmlhttpRequest unavailable')); return; }
-        GM_xmlhttpRequest({
-            method: 'GET', url,
-            timeout: 10000,
-            onload:  r => { try { resolve(JSON.parse(r.responseText)); } catch(e) { reject(e); } },
-            onerror: e => reject(e),
-            ontimeout: () => reject(new Error('timeout')),
-        });
-    });
-
-    const fetchRoute = async (homeLat, homeLng, officeLat, officeLng, mode) => {
-        const profile = OSRM_PROFILE[mode]||'driving';
-        const cacheKey = `${profile}|${homeLat.toFixed(4)},${homeLng.toFixed(4)}|${officeLat.toFixed(4)},${officeLng.toFixed(4)}`;
-        const cache = getRouteCache();
-        const hit = cache[cacheKey];
-        if (hit && (Date.now()-hit.ts)<CACHE_TTL) return { ...hit, estimated: !!hit.estimated };
-
-        const straight = haversineKm(homeLat,homeLng,officeLat,officeLng);
-
-        try {
-            const url = `https://router.project-osrm.org/route/v1/${profile}/` +
-                `${homeLng.toFixed(6)},${homeLat.toFixed(6)};${officeLng.toFixed(6)},${officeLat.toFixed(6)}` +
-                `?overview=false`;
-            const data = await gmFetch(url);
-            if (data.code==='Ok' && data.routes?.length) {
-                const r = data.routes[0];
-                const mins = Math.round(r.duration/60);
-                const distanceKm = Math.round((r.distance/1000)*10)/10;
-                const result = { mins, distanceKm, estimated:false, ts:Date.now() };
-                cache[cacheKey] = result;
-                setRouteCache(cache);
-                return result;
-            }
-        } catch(_) { /* fall through to estimate */ }
-
-        const distanceKm = Math.round(straight*10)/10;
-        const mins = estimateMins(straight, mode);
-        const result = { mins, distanceKm, estimated:true, ts:Date.now() };
-        cache[cacheKey] = result;
-        setRouteCache(cache);
-        return result;
-    };
-
-    const reverseGeocode = (lat, lng) => new Promise(resolve => {
-        const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`;
-        try {
-            gmFetch(url).then(j => {
-                const a = j.address||{};
-                const suburb = a.suburb||a.neighbourhood||a.village||'';
-                const city   = a.city||a.town||a.municipality||'';
-                resolve([suburb,city].filter(Boolean).join(', ') || `${lat.toFixed(3)},${lng.toFixed(3)}`);
-            }).catch(()=>resolve(`${lat.toFixed(3)},${lng.toFixed(3)}`));
-        } catch { resolve(`${lat.toFixed(3)},${lng.toFixed(3)}`); }
-    });
-
-    /* Geocode a free-text address string via Nominatim */
-    const geocodeAddress = (query) => new Promise(resolve => {
-        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
-        try {
-            gmFetch(url).then(results => {
-                if (results && results.length) {
-                    resolve({ lat: parseFloat(results[0].lat), lng: parseFloat(results[0].lon), label: results[0].display_name.split(',').slice(0,3).join(',').trim() });
-                } else {
-                    resolve(null);
-                }
-            }).catch(() => resolve(null));
-        } catch { resolve(null); }
-    });
 
     /* ═══════════════════════════════════════════════════════════════
        PERIOD / DAY HELPERS
@@ -350,20 +115,8 @@ const offTarget = 60;
         moon:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1z"/></svg>`,
         arrow_down:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 12l-1.41-1.41L13 16.17V4h-2v12.17l-5.58-5.59L4 12l8 8 8-8z"/></svg>`,
         arrow_up:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z"/></svg>`,
-        car:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/></svg>`,
-        bike:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 5.5c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zM5 12c-2.8 0-5 2.2-5 5s2.2 5 5 5 5-2.2 5-5-2.2-5-5-5zm0 8.5c-1.9 0-3.5-1.6-3.5-3.5s1.6-3.5 3.5-3.5 3.5 1.6 3.5 3.5-1.6 3.5-3.5 3.5zm5.8-10l2.4-2.4.8.8c1.3 1.3 3 2.1 5.1 2.1V9c-1.5 0-2.7-.6-3.6-1.5l-1.9-1.9c-.5-.4-1-.6-1.6-.6s-1.1.2-1.4.6L7.8 8.4C7.3 8.8 7 9.4 7 10c0 .6.3 1.2.8 1.6l3.2 2.4V18h2v-5l-3.2-2.5.8-.8zM19 12c-2.8 0-5 2.2-5 5s2.2 5 5 5 5-2.2 5-5-2.2-5-5-5zm0 8.5c-1.9 0-3.5-1.6-3.5-3.5s1.6-3.5 3.5-3.5 3.5 1.6 3.5 3.5-1.6 3.5-3.5 3.5z"/></svg>`,
-        walk:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M13.49 5.48c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm-3.6 13.9l1-4.4 2.1 2v6h2v-7.5l-2.1-2 .6-3c1.3 1.5 3.3 2.5 5.5 2.5v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1l-5.2 2.2v4.7h2v-3.4l1.8-.7-1.6 8.1-4.9-1-.4 2 7 1.4z"/></svg>`,
         chevron_down:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>`,
         chevron_up:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6 1.41 1.41z"/></svg>`,
-        map_pin:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>`,
-        lightbulb:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7z"/></svg>`,
-        home:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>`,
-        pin_drop:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18 8c0-3.31-2.69-6-6-6S6 4.69 6 8c0 4.5 6 11 6 11s6-6.5 6-11zm-8 0c0-1.1.9-2 2-2s2 .9 2 2-.9 2-2 2-2-.9-2-2zM5 20v2h14v-2H5z"/></svg>`,
-        refresh:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>`,
-        info:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>`,
-        globe:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>`,
-        edit:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>`,
-        search:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>`,
     };
     const icon = (name,size=14,color='#fff') =>
         `<span style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;color:${color};flex-shrink:0;">${ICONS[name]||''}</span>`;
@@ -553,7 +306,7 @@ const offTarget = 60;
     /* ═══════════════════════════════════════════════════════════════
        STYLES
     ═══════════════════════════════════════════════════════════════ */
-    const STYLE_ID='edays-pro-v17-styles';
+    const STYLE_ID='edays-pro-v18-styles';
     const injectStyles = T => {
         let s=document.getElementById(STYLE_ID);
         if(!s){s=document.createElement('style');s.id=STYLE_ID;document.head.appendChild(s);}
@@ -629,60 +382,14 @@ const offTarget = 60;
         #ep13 .ep-empty-icon{width:44px;height:44px;background:${T.surface};border:1px solid ${T.border};border-radius:12px;display:flex;align-items:center;justify-content:center;}
         #ep13 .ep-empty-title{font-size:15px;font-weight:700;color:${T.text};}
         #ep13 .ep-empty-sub{font-size:13px;color:${T.muted};line-height:1.5;max-width:340px;}
-        /* COMMUTE */
-        #ep13 .ep-commute-toggle{margin-top:8px;display:flex;align-items:center;gap:8px;padding:8px 14px;background:${T.surface};border:1px solid ${T.border};border-radius:10px;cursor:pointer;user-select:none;transition:background .15s;}
-        #ep13 .ep-commute-toggle:hover{background:${T.isDark?'rgba(255,255,255,0.06)':'rgba(0,0,0,0.04)'};}
-        #ep13 .ep-commute-toggle-label{flex:1;font-size:12px;font-weight:600;letter-spacing:0.8px;text-transform:uppercase;color:${T.muted};}
-        #ep13 .ep-commute-toggle-sub{font-size:11px;font-weight:400;color:${T.muted};opacity:.7;letter-spacing:0;text-transform:none;}
-        #ep13 .ep-commute-panel{overflow:hidden;max-height:0;opacity:0;transition:max-height .35s ease,opacity .25s ease,margin-top .25s ease;margin-top:0;}
-        #ep13 .ep-commute-panel.open{max-height:3000px;opacity:1;margin-top:8px;}
-        #ep13 .ep-commute-inner{background:${T.surface};border:1px solid ${T.border};border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:14px;}
-        #ep13 .ep-office-selector{display:flex;flex-direction:column;gap:6px;}
-        #ep13 .ep-office-select-label{font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:${T.muted};}
-        #ep13 select.ep-office-select{width:100%;padding:7px 10px;border-radius:7px;border:1px solid ${T.border};background:${T.bg};color:${T.text};font-size:13px;font-weight:500;outline:none;cursor:pointer;font-family:inherit;appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23888'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center;background-size:16px;padding-right:28px;}
-        #ep13 select.ep-office-select:focus{border-color:#3b82f6;}
-        #ep13 .ep-office-address{font-size:11px;color:${T.muted};display:flex;align-items:center;gap:4px;}
-        #ep13 .ep-home-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
-        #ep13 .ep-home-coords{font-size:11px;color:${T.muted};font-family:monospace;}
-        #ep13 .ep-locate-btn{display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:7px;cursor:pointer;border:1px solid ${T.border};background:${T.chipBg};font-size:12px;font-weight:500;color:${T.muted};user-select:none;transition:all .15s;}
-        #ep13 .ep-locate-btn:hover{color:${T.text};border-color:${T.isDark?'rgba(255,255,255,0.2)':'rgba(0,0,0,0.18)'};}
-        #ep13 .ep-locate-btn.loading{opacity:.6;pointer-events:none;}
-        /* Manual address input */
-        #ep13 .ep-addr-form{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;}
-        #ep13 input.ep-addr-input{flex:1;min-width:160px;padding:6px 10px;border-radius:7px;border:1px solid ${T.border};background:${T.bg};color:${T.text};font-size:12px;font-family:inherit;outline:none;}
-        #ep13 input.ep-addr-input:focus{border-color:#3b82f6;}
-        #ep13 input.ep-addr-input::placeholder{color:${T.muted};}
-        #ep13 .ep-addr-submit{display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border-radius:7px;cursor:pointer;border:1px solid rgba(59,130,246,.4);background:rgba(59,130,246,.12);font-size:12px;font-weight:600;color:#3b82f6;user-select:none;transition:all .15s;white-space:nowrap;}
-        #ep13 .ep-addr-submit:hover{background:rgba(59,130,246,.22);}
-        #ep13 .ep-addr-submit.loading{opacity:.6;pointer-events:none;}
-        #ep13 .ep-addr-error{font-size:11px;color:#ef4444;display:flex;align-items:center;gap:4px;margin-top:3px;}
-        #ep13 .ep-cmute-controls{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;}
-        #ep13 .ep-cmute-ctrl-group{display:flex;flex-direction:column;gap:5px;}
-        #ep13 .ep-cmute-ctrl-label{font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:${T.muted};}
-        #ep13 .ep-mode-btns{display:flex;gap:5px;}
-        #ep13 .ep-mode-btn{display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:7px;cursor:pointer;border:1px solid ${T.border};background:${T.chipBg};font-size:12px;font-weight:500;color:${T.muted};transition:all .15s;user-select:none;}
-        #ep13 .ep-mode-btn:hover{color:${T.text};}
-        #ep13 .ep-mode-btn.active{font-weight:600;color:#fff;}
-        #ep13 .ep-mode-btn.disabled{opacity:.3;pointer-events:none;}
-        #ep13 .ep-route-strip{display:flex;align-items:center;gap:10px;padding:9px 12px;background:${T.isDark?'rgba(59,130,246,0.07)':'rgba(59,130,246,0.05)'};border:1px solid ${T.isDark?'rgba(59,130,246,0.15)':'rgba(59,130,246,0.12)'};border-radius:8px;font-size:12px;flex-wrap:wrap;}
-        #ep13 .ep-route-val{font-size:18px;font-weight:800;letter-spacing:-0.5px;line-height:1;}
-        #ep13 .ep-route-divider{width:1px;height:28px;background:${T.border};}
-        #ep13 .ep-route-fetching{font-size:12px;color:${T.muted};display:flex;align-items:center;gap:6px;}
-        @keyframes ep-spin{to{transform:rotate(360deg);}}
-        #ep13 .ep-spin{animation:ep-spin 1s linear infinite;display:inline-flex;}
-        #ep13 .ep-cmute-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
-        #ep13 .ep-cmute-stat{background:${T.chipBg};border:1px solid ${T.border};border-radius:8px;padding:9px 10px;text-align:center;}
-        #ep13 .ep-cmute-stat-val{font-size:18px;font-weight:700;line-height:1;}
-        #ep13 .ep-cmute-stat-lbl{font-size:10px;color:${T.muted};text-transform:uppercase;letter-spacing:.8px;margin-top:3px;}
-        #ep13 .ep-cmute-compare{display:flex;flex-direction:column;gap:7px;}
-        #ep13 .ep-cmute-cmp-row{display:flex;align-items:center;gap:8px;}
-        #ep13 .ep-cmute-cmp-label{font-size:12px;font-weight:600;min-width:44px;}
-        #ep13 .ep-cmute-cmp-bar-wrap{flex:1;height:6px;background:${T.barTrack};border-radius:4px;overflow:hidden;}
-        #ep13 .ep-cmute-cmp-bar{height:100%;border-radius:4px;transition:width .4s ease;}
-        #ep13 .ep-cmute-cmp-time{font-size:12px;color:${T.muted};min-width:50px;text-align:right;font-weight:500;}
-        #ep13 .ep-cmute-insight{display:flex;align-items:flex-start;gap:8px;padding:10px 12px;background:${T.isDark?'rgba(59,130,246,0.08)':'rgba(59,130,246,0.06)'};border:1px solid ${T.isDark?'rgba(59,130,246,0.18)':'rgba(59,130,246,0.14)'};border-radius:8px;font-size:12px;color:${T.text};line-height:1.55;}
-        #ep13 .ep-cmute-insight strong{color:#3b82f6;}
-        #ep13 .ep-estimated-badge{display:inline-flex;align-items:center;gap:3px;font-size:10px;color:#f59e0b;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.25);border-radius:4px;padding:2px 6px;white-space:nowrap;}
+        /* OFFICE PLANNER */
+        #ep13 .ep-planner-toggle{margin-top:8px;display:flex;align-items:center;gap:8px;padding:8px 14px;background:${T.surface};border:1px solid ${T.border};border-radius:10px;cursor:pointer;user-select:none;transition:background .15s;}
+        #ep13 .ep-planner-toggle:hover{background:${T.isDark?'rgba(255,255,255,0.06)':'rgba(0,0,0,0.04)'};}
+        #ep13 .ep-planner-toggle-label{flex:1;font-size:12px;font-weight:600;letter-spacing:0.8px;text-transform:uppercase;color:${T.muted};}
+        #ep13 .ep-planner-toggle-sub{font-size:11px;font-weight:400;color:${T.muted};opacity:.7;letter-spacing:0;text-transform:none;}
+        #ep13 .ep-planner-panel{overflow:hidden;max-height:0;opacity:0;transition:max-height .35s ease,opacity .25s ease,margin-top .25s ease;margin-top:0;}
+        #ep13 .ep-planner-panel.open{max-height:3000px;opacity:1;margin-top:8px;}
+        #ep13 .ep-planner-inner{background:${T.surface};border:1px solid ${T.border};border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:14px;}
         /* SCHEDULE */
         #ep13 .ep-sched-section{display:flex;flex-direction:column;gap:10px;}
         #ep13 .ep-sched-hdr{display:flex;align-items:center;gap:6px;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:${T.muted};}
@@ -720,6 +427,9 @@ const offTarget = 60;
         #ep13 .ep-hours-prog-track{height:6px;background:${T.barTrack};border-radius:6px;overflow:hidden;display:flex;}
         #ep13 .ep-hours-prog-done{height:100%;background:linear-gradient(90deg,#22c55e,#84cc16);}
         #ep13 .ep-hours-prog-plan{height:100%;background:linear-gradient(90deg,#3b82f6,#6366f1);}
+        #ep13 .ep-sched-stat{background:${T.chipBg};border:1px solid ${T.border};border-radius:8px;padding:9px 10px;text-align:center;}
+        #ep13 .ep-sched-stat-val{font-size:18px;font-weight:700;line-height:1;}
+        #ep13 .ep-sched-stat-lbl{font-size:10px;color:${T.muted};text-transform:uppercase;letter-spacing:.8px;margin-top:3px;}
         html { scroll-behavior: smooth; }
         #ep-today-anchor { scroll-margin-top: 75px; }
         #ep13 { scroll-margin-top: 75px; }
@@ -736,11 +446,6 @@ const offTarget = 60;
         'No Activity':     {icon:'block', grad:'linear-gradient(135deg,#374151,#111827)',bg:'#374151'},
     };
     const FALLBACK_CFG = {icon:'timer',grad:'linear-gradient(135deg,#64748b,#334155)',bg:'#475569'};
-
-    /* ═══════════════════════════════════════════════════════════════
-       ROUTE STATE
-    ═══════════════════════════════════════════════════════════════ */
-    let _routeState = { status:'idle', oneWayMins:null, distanceKm:null, estimated:false, officeKey:null, mode:null, homeLat:null, homeLng:null };
 
     /* ═══════════════════════════════════════════════════════════════
        SCHEDULE SECTION HTML
@@ -839,192 +544,37 @@ const offTarget = 60;
 
         // Summary chips
         html+=`<div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <div class="ep-cmute-stat" style="flex:1;min-width:70px;"><div class="ep-cmute-stat-val" style="color:#22c55e;">${alreadyDoneOfficeHours}h</div><div class="ep-cmute-stat-lbl">Done ✓</div></div>
-            <div class="ep-cmute-stat" style="flex:1;min-width:70px;"><div class="ep-cmute-stat-val" style="color:#3b82f6;">${plannedTotalH}h</div><div class="ep-cmute-stat-lbl">Planned</div></div>
-            <div class="ep-cmute-stat" style="flex:1;min-width:70px;"><div class="ep-cmute-stat-val" style="color:#a855f7;">${wfhH}h</div><div class="ep-cmute-stat-lbl">WFH/Flex</div></div>
-            <div class="ep-cmute-stat" style="flex:1;min-width:70px;"><div class="ep-cmute-stat-val" style="color:${pctOffice>=offTarget?'#22c55e':'#f59e0b'};">${pctOffice}%</div><div class="ep-cmute-stat-lbl">vs target</div></div>
+            <div class="ep-sched-stat" style="flex:1;min-width:70px;"><div class="ep-sched-stat-val" style="color:#22c55e;">${alreadyDoneOfficeHours}h</div><div class="ep-sched-stat-lbl">Done ✓</div></div>
+            <div class="ep-sched-stat" style="flex:1;min-width:70px;"><div class="ep-sched-stat-val" style="color:#3b82f6;">${plannedTotalH}h</div><div class="ep-sched-stat-lbl">Planned</div></div>
+            <div class="ep-sched-stat" style="flex:1;min-width:70px;"><div class="ep-sched-stat-val" style="color:#a855f7;">${wfhH}h</div><div class="ep-sched-stat-lbl">WFH/Flex</div></div>
+            <div class="ep-sched-stat" style="flex:1;min-width:70px;"><div class="ep-sched-stat-val" style="color:${pctOffice>=offTarget?'#22c55e':'#f59e0b'};">${pctOffice}%</div><div class="ep-sched-stat-lbl">vs target</div></div>
         </div></div>`;
         return html;
     };
 
     /* ═══════════════════════════════════════════════════════════════
-       COMMUTE PANEL HTML
+       OFFICE PLANNER PANEL HTML
     ═══════════════════════════════════════════════════════════════ */
-    const buildCommutePanel = ({T,ds,days}) => {
-        const isOpen=localStorage.getItem(LS.COMMUTE_OPEN)==='true';
-        const officeKey=localStorage.getItem(LS.OFFICE)||'timisoara';
-        const office=OFFICES[officeKey]||OFFICES.timisoara;
-        const mode=localStorage.getItem(LS.MODE)||office.modes[0]||'car';
-        const modeCfg=TRANSPORT_MODES[mode];
-        const homeLat=parseFloat(localStorage.getItem(LS.HOME_LAT)||'0');
-        const homeLng=parseFloat(localStorage.getItem(LS.HOME_LNG)||'0');
-        const homeLabel=localStorage.getItem(LS.HOME_LABEL)||'';
-        const hasHome=!!(homeLat&&homeLng);
-
+    const buildOfficePlannerPanel = ({T,ds,days}) => {
+        const isOpen=localStorage.getItem(LS.PLANNER_OPEN)==='true';
         const officeHoursNeeded=Math.round((ds.realRota*(offTarget/100))/60);
         const alreadyDoneOfficeHours=Math.round(
             days.filter(d=>d.hasOffice&&(d.isPast||d.isToday)).reduce((s,d)=>s+d.officeMins,0)/60
         );
-        const stillNeeded=Math.max(0,officeHoursNeeded-alreadyDoneOfficeHours);
-        const officeDaysInMonth=Math.ceil(officeHoursNeeded/8);
-        const workableDays=days.filter(d=>d.isWorkable).length;
-        const wfhDays=Math.max(0,workableDays-officeDaysInMonth);
 
-        const rs=_routeState;
-        const routeReady=rs.status==='ok'&&rs.oneWayMins!=null;
-        const routeLoading=rs.status==='loading';
-        const roundTripMins=routeReady?rs.oneWayMins*2:null;
-        const monthlyCommuteMins=routeReady?roundTripMins*officeDaysInMonth:null;
-
-        /* Toggle header */
         let html=`
-        <div class="ep-commute-toggle" data-action="commute-toggle" role="button" tabindex="0">
-            ${iconBadge('map_pin','linear-gradient(135deg,#f97316,#a855f7)',26)}
-            <span class="ep-commute-toggle-label">Commute Forecaster
-                <span class="ep-commute-toggle-sub"> · ${office.city}</span>
+        <div class="ep-planner-toggle" data-action="planner-toggle" role="button" tabindex="0">
+            ${iconBadge('calendar','linear-gradient(135deg,#3b82f6,#a855f7)',26)}
+            <span class="ep-planner-toggle-label">Office Planner
+                <span class="ep-planner-toggle-sub"> · ${officeHoursNeeded}h needed this month</span>
             </span>
             ${icon(isOpen?'chevron_up':'chevron_down',14,T.muted)}
         </div>
-        <div class="ep-commute-panel${isOpen?' open':''}" id="ep-commute-panel">
-        <div class="ep-commute-inner">`;
+        <div class="ep-planner-panel${isOpen?' open':''}" id="ep-planner-panel">
+        <div class="ep-planner-inner">`;
 
-        /* Office selector */
-        html+=`<div class="ep-office-selector">
-            <div class="ep-office-select-label">${icon('globe',11,T.muted)} Office Location</div>
-            <select class="ep-office-select" id="ep-office-select">`;
-        const byCountry={};
-        Object.entries(OFFICES).forEach(([k,o])=>{if(!byCountry[o.country])byCountry[o.country]=[];byCountry[o.country].push({k,...o});});
-        const CL={RO:'🇷🇴 Romania',DE:'🇩🇪 Germany',AT:'🇦🇹 Austria',FR:'🇫🇷 France',IT:'🇮🇹 Italy',PT:'🇵🇹 Portugal',ES:'🇪🇸 Spain',CH:'🇨🇭 Switzerland',GB:'🇬🇧 United Kingdom',US:'🇺🇸 United States'};
-        ['RO','DE','AT','FR','IT','PT','ES','CH','GB','US'].forEach(cc=>{
-            if(!byCountry[cc]) return;
-            html+=`<optgroup label="${CL[cc]||cc}">`;
-            byCountry[cc].forEach(o=>html+=`<option value="${o.k}"${o.k===officeKey?' selected':''}>${o.label}</option>`);
-            html+=`</optgroup>`;
-        });
-        html+=`</select>
-            <div class="ep-office-address">${icon('map_pin',11,T.muted)} ${office.address}</div>
-        </div>`;
-
-        /* Home location */
-        html+=`<div class="ep-cmute-ctrl-group">
-            <div class="ep-cmute-ctrl-label">${icon('home',11,T.muted)} Your home location</div>
-            <div class="ep-home-row">
-                ${hasHome
-                    ? `<span class="ep-home-coords">${homeLabel||`${homeLat.toFixed(4)}, ${homeLng.toFixed(4)}`}</span>`
-                    : `<span style="font-size:12px;color:${T.muted};">Not set</span>`}
-                <span class="ep-locate-btn${routeLoading?' loading':''}" data-action="locate-home" id="ep-locate-btn">
-                    ${icon('pin_drop',12,T.muted)} ${hasHome?'GPS update':'Detect GPS'}
-                </span>
-                ${hasHome?`<span class="ep-locate-btn" data-action="clear-home" style="padding:5px 8px;" title="Clear">${icon('block',12,T.muted)}</span>`:''}
-            </div>
-            <div class="ep-addr-form">
-                <input class="ep-addr-input" id="ep-addr-input" type="text" placeholder="Or type address: e.g. Calea Șagului 100, Timișoara" autocomplete="off" spellcheck="false">
-                <span class="ep-addr-submit" data-action="geocode-address" id="ep-addr-submit">
-                    ${icon('search',12,'#3b82f6')} Search
-                </span>
-            </div>
-            <div id="ep-addr-error" style="display:none;" class="ep-addr-error">${icon('warning',11,'#ef4444')} <span id="ep-addr-error-msg"></span></div>
-        </div>`;
-
-        /* Transport mode */
-        html+=`<div class="ep-cmute-ctrl-group">
-            <div class="ep-cmute-ctrl-label">Transport mode</div>
-            <div class="ep-mode-btns">`;
-        Object.entries(TRANSPORT_MODES).forEach(([k,cfg])=>{
-            const avail=office.modes.includes(k);
-            const active=k===mode&&avail;
-            html+=`<span class="ep-mode-btn${active?' active':''}${!avail?' disabled':''}"
-                style="${active?`background:${cfg.grad};border-color:transparent;`:''}"
-                data-action="commute-mode" data-mode="${k}">
-                ${icon(cfg.icon,13,active?'#fff':T.muted)} ${cfg.label}
-            </span>`;
-        });
-        html+=`</div>`;
-        if(officeKey==='venice') html+=`<div class="ep-office-address" style="margin-top:4px;">${icon('info',11,'#f59e0b')} Venice: walking only (no cars/bikes on the island)</div>`;
-        html+=`</div>`;
-
-        /* Route strip */
-        html+=`<div class="ep-route-strip">`;
-        if(!hasHome){
-            html+=`<span class="ep-route-fetching">${icon('info',13,'#f59e0b')} Set your home location above to calculate real commute times</span>`;
-        } else if(routeLoading){
-            html+=`<span class="ep-route-fetching"><span class="ep-spin">${icon('refresh',13,'#3b82f6')}</span> Fetching route via OSRM…</span>`;
-        } else if(rs.status==='error'){
-            html+=`<span class="ep-route-fetching">${icon('warning',13,'#ef4444')} Route fetch failed. <span data-action="retry-route" style="color:#3b82f6;cursor:pointer;text-decoration:underline;margin-left:4px;">Retry</span></span>`;
-        } else if(routeReady){
-            const estBadge=rs.estimated?`<span class="ep-estimated-badge">${icon('info',10,'#f59e0b')} estimated</span>`:'';
-            html+=`
-                <div style="display:flex;flex-direction:column;">
-                    <span style="font-size:10px;color:${T.muted};text-transform:uppercase;letter-spacing:.8px;">${modeCfg.label} · one-way</span>
-                    <span class="ep-route-val" style="color:${modeCfg.color};">${rs.oneWayMins}m</span>
-                </div>
-                <div class="ep-route-divider"></div>
-                <div style="display:flex;flex-direction:column;">
-                    <span style="font-size:10px;color:${T.muted};text-transform:uppercase;letter-spacing:.8px;">Round-trip / day</span>
-                    <span class="ep-route-val" style="color:${modeCfg.color};">${rs.oneWayMins*2}m</span>
-                </div>
-                <div class="ep-route-divider"></div>
-                <div style="display:flex;flex-direction:column;">
-                    <span style="font-size:10px;color:${T.muted};text-transform:uppercase;letter-spacing:.8px;">Distance</span>
-                    <span class="ep-route-val" style="color:${T.text};">${rs.distanceKm} km</span>
-                </div>
-                <div style="margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:3px;">
-                    ${estBadge}
-                    ${!rs.estimated?`<span style="font-size:10px;color:${T.muted};">via OSRM · OSM</span>`:''}
-                </div>`;
-        } else {
-            html+=`<span class="ep-route-fetching">${icon('info',13,T.muted)} Route not yet loaded</span>`;
-        }
-        html+=`</div>`;
-
-        /* Stats + comparison (only when route ready) */
-        if(routeReady){
-            html+=`<div class="ep-cmute-stats">
-                <div class="ep-cmute-stat"><div class="ep-cmute-stat-val" style="color:${modeCfg.color};">${officeDaysInMonth}d</div><div class="ep-cmute-stat-lbl">Office Days</div></div>
-                <div class="ep-cmute-stat"><div class="ep-cmute-stat-val" style="color:${modeCfg.color};">${fmt(monthlyCommuteMins)}</div><div class="ep-cmute-stat-lbl">Monthly Commute</div></div>
-                <div class="ep-cmute-stat"><div class="ep-cmute-stat-val" style="color:#a855f7;">${wfhDays}d</div><div class="ep-cmute-stat-lbl">WFH Days</div></div>
-                <div class="ep-cmute-stat"><div class="ep-cmute-stat-val" style="color:#22c55e;">${fmt(wfhDays*roundTripMins)}</div><div class="ep-cmute-stat-lbl">Time Saved</div></div>
-            </div>`;
-
-            const cache=getRouteCache();
-            const allModes=office.modes.map(k=>{
-                const prof=OSRM_PROFILE[k]||'driving';
-                const ck=`${prof}|${homeLat.toFixed(4)},${homeLng.toFixed(4)}|${office.lat.toFixed(4)},${office.lng.toFixed(4)}`;
-                const hit=cache[ck];
-                const mins=hit?hit.mins:(k===mode?rs.oneWayMins:null);
-                return {k,cfg:TRANSPORT_MODES[k],oneWayMins:mins,estimated:hit?hit.estimated:rs.estimated};
-            }).filter(m=>m.oneWayMins!=null&&m.oneWayMins>0);
-
-            if(allModes.length>1){
-                const maxM=Math.max(...allModes.map(m=>m.oneWayMins*2*officeDaysInMonth));
-                html+=`<div><div class="ep-cmute-ctrl-label" style="margin-bottom:8px;">All-mode comparison · monthly commute</div>
-                    <div class="ep-cmute-compare">`;
-                allModes.forEach(({k,cfg,oneWayMins})=>{
-                    const monthly=oneWayMins*2*officeDaysInMonth;
-                    const bp=maxM>0?(monthly/maxM)*100:0;
-                    const isAct=k===mode;
-                    html+=`<div class="ep-cmute-cmp-row">
-                        ${icon(cfg.icon,14,cfg.color)}
-                        <div class="ep-cmute-cmp-label" style="color:${isAct?cfg.color:T.text}">${cfg.label}</div>
-                        <div class="ep-cmute-cmp-bar-wrap"><div class="ep-cmute-cmp-bar" style="width:${bp.toFixed(1)}%;background:${cfg.grad};${isAct?'':'opacity:.5;'}"></div></div>
-                        <div class="ep-cmute-cmp-time">${fmt(monthly)}</div>
-                    </div>`;
-                });
-                html+=`</div></div>`;
-            }
-
-            const wfhSaved=(wfhDays*roundTripMins/60).toFixed(1);
-            html+=`<div class="ep-cmute-insight">
-                ${icon('lightbulb',14,'#3b82f6')}
-                <div>Your <strong>${rs.distanceKm} km</strong> commute by ${modeCfg.label.toLowerCase()} takes <strong>${rs.oneWayMins}m</strong> each way${rs.estimated?' (estimated)':''}.
-                With <strong>${officeDaysInMonth} office days</strong> this month, you'll spend <strong>${fmt(monthlyCommuteMins)}</strong> commuting.
-                ${wfhDays>0?`Working from home <strong>${wfhDays} days</strong> saves approximately <strong>${wfhSaved}h</strong> vs a full office month.`:''}
-                Cluster office days mid-week (Tue–Thu) to reduce context-switching.</div>
-            </div>`;
-        }
-
-        html+=`<div class="ep-divider"></div>`;
         html+=buildScheduleSection({T,days,officeHoursNeeded,alreadyDoneOfficeHours});
+
         html+=`</div></div>`;
         return html;
     };
@@ -1032,36 +582,9 @@ const offTarget = 60;
     /* ═══════════════════════════════════════════════════════════════
        INTERACTIONS
     ═══════════════════════════════════════════════════════════════ */
-    const triggerRouteRefresh = async (force=false) => {
-        const hLat=parseFloat(localStorage.getItem(LS.HOME_LAT)||'0');
-        const hLng=parseFloat(localStorage.getItem(LS.HOME_LNG)||'0');
-        if(!hLat||!hLng) return;
-        const officeKey=localStorage.getItem(LS.OFFICE)||'timisoara';
-        const office=OFFICES[officeKey]||OFFICES.timisoara;
-        const mode=localStorage.getItem(LS.MODE)||office.modes[0]||'car';
-
-        /* Skip if nothing changed and we already have a good result */
-        if(!force
-            && _routeState.status==='ok'
-            && _routeState.officeKey===officeKey
-            && _routeState.mode===mode
-            && _routeState.homeLat?.toFixed(4)===hLat.toFixed(4)
-            && _routeState.homeLng?.toFixed(4)===hLng.toFixed(4)) return;
-
-        _routeState={status:'loading',oneWayMins:null,distanceKm:null,estimated:false,officeKey,mode,homeLat:hLat,homeLng:hLng};
-        renderUI();
-        const result=await fetchRoute(hLat,hLng,office.lat,office.lng,mode);
-        if(result){
-            _routeState={status:'ok',oneWayMins:result.mins,distanceKm:result.distanceKm,estimated:result.estimated||false,officeKey,mode,homeLat:hLat,homeLng:hLng};
-        } else {
-            _routeState={..._routeState,status:'error'};
-        }
-        renderUI(); injectBackButton(getTheme());
-    };
-
     const bindInteractions = container => {
         container.querySelectorAll('[data-action]').forEach(el=>{
-            el.addEventListener('click', async e=>{
+            el.addEventListener('click', e=>{
                 e.preventDefault();
                 const action=el.dataset.action;
                 if(action==='jump-today')    jumpToToday();
@@ -1075,101 +598,12 @@ const offTarget = 60;
                     localStorage.setItem(LS.TODAY_BUF,String(localStorage.getItem(LS.TODAY_BUF)!=='true'));
                     renderUI(); injectBackButton(getTheme());
                 }
-                if(action==='commute-toggle'){
-                    localStorage.setItem(LS.COMMUTE_OPEN,String(localStorage.getItem(LS.COMMUTE_OPEN)!=='true'));
+                if(action==='planner-toggle'){
+                    localStorage.setItem(LS.PLANNER_OPEN,String(localStorage.getItem(LS.PLANNER_OPEN)!=='true'));
                     renderUI(); injectBackButton(getTheme());
-                }
-                if(action==='commute-mode'){
-                    const newMode=el.dataset.mode;
-                    const ok=localStorage.getItem(LS.OFFICE)||'timisoara';
-                    if(!OFFICES[ok]?.modes.includes(newMode)) return;
-                    localStorage.setItem(LS.MODE,newMode);
-                    await triggerRouteRefresh(true);
-                    renderUI(); injectBackButton(getTheme());
-                }
-                if(action==='locate-home'){
-                    const btn=document.getElementById('ep-locate-btn');
-                    if(btn){btn.classList.add('loading');btn.innerHTML=`<span class="ep-spin">${icon('refresh',12,'#3b82f6')}</span> Locating…`;}
-                    if(!navigator.geolocation){
-                        alert('Geolocation is not supported by this browser.'); return;
-                    }
-                    navigator.geolocation.getCurrentPosition(
-                        async pos=>{
-                            const lat=pos.coords.latitude, lng=pos.coords.longitude;
-                            localStorage.setItem(LS.HOME_LAT,lat);
-                            localStorage.setItem(LS.HOME_LNG,lng);
-                            const label=await reverseGeocode(lat,lng);
-                            localStorage.setItem(LS.HOME_LABEL,label);
-                            await triggerRouteRefresh(true);
-                            renderUI(); injectBackButton(getTheme());
-                        },
-                        err=>{
-                            console.warn('Geolocation error:',err.code,err.message);
-                            let msg='Could not detect location.';
-                            if(err.code===1) msg='Location access denied. Please allow location in your browser settings.';
-                            if(err.code===2) msg='Location unavailable. Try again.';
-                            if(err.code===3) msg='Location request timed out. Try again.';
-                            alert(msg);
-                            renderUI(); injectBackButton(getTheme());
-                        },
-                        {enableHighAccuracy:false,timeout:12000,maximumAge:60000}
-                    );
-                }
-                if(action==='geocode-address'){
-                    const input=document.getElementById('ep-addr-input');
-                    const errEl=document.getElementById('ep-addr-error');
-                    const errMsg=document.getElementById('ep-addr-error-msg');
-                    const submitBtn=document.getElementById('ep-addr-submit');
-                    const query=input?.value?.trim();
-                    if(!query) return;
-                    if(errEl) errEl.style.display='none';
-                    if(submitBtn){submitBtn.classList.add('loading');submitBtn.innerHTML=`<span class="ep-spin">${icon('refresh',12,'#3b82f6')}</span> Searching…`;}
-                    const result=await geocodeAddress(query);
-                    if(result){
-                        localStorage.setItem(LS.HOME_LAT,result.lat);
-                        localStorage.setItem(LS.HOME_LNG,result.lng);
-                        localStorage.setItem(LS.HOME_LABEL,result.label);
-                        await triggerRouteRefresh(true);
-                        renderUI(); injectBackButton(getTheme());
-                    } else {
-                        if(submitBtn){submitBtn.classList.remove('loading');submitBtn.innerHTML=`${icon('search',12,'#3b82f6')} Search`;}
-                        if(errEl&&errMsg){errMsg.textContent='Address not found. Try a more specific query.';errEl.style.display='flex';}
-                    }
-                }
-                if(action==='clear-home'){
-                    [LS.HOME_LAT,LS.HOME_LNG,LS.HOME_LABEL].forEach(k=>localStorage.removeItem(k));
-                    _routeState={status:'idle',oneWayMins:null,distanceKm:null,estimated:false,officeKey:null,mode:null,homeLat:null,homeLng:null};
-                    renderUI(); injectBackButton(getTheme());
-                }
-                if(action==='retry-route'){
-                    await triggerRouteRefresh(true);
                 }
             });
         });
-
-        /* Allow pressing Enter in the address field to trigger search */
-        const addrInput=container.querySelector('#ep-addr-input');
-        if(addrInput){
-            addrInput.addEventListener('keydown', e=>{
-                if(e.key==='Enter'){
-                    e.preventDefault();
-                    container.querySelector('[data-action="geocode-address"]')?.click();
-                }
-            });
-        }
-
-        const sel=container.querySelector('#ep-office-select');
-        if(sel){
-            sel.addEventListener('change', async ()=>{
-                const newKey=sel.value;
-                localStorage.setItem(LS.OFFICE,newKey);
-                const newOffice=OFFICES[newKey];
-                const curMode=localStorage.getItem(LS.MODE)||'car';
-                if(!newOffice.modes.includes(curMode)) localStorage.setItem(LS.MODE,newOffice.modes[0]||'car');
-                await triggerRouteRefresh(true);
-                renderUI(); injectBackButton(getTheme());
-            });
-        }
     };
 
     /* ═══════════════════════════════════════════════════════════════
@@ -1209,9 +643,9 @@ const offTarget = 60;
                 <div class="ep-empty">
                     <div class="ep-empty-icon">${icon('calendar',22,T.muted)}</div>
                     <div class="ep-empty-title">New month — no entries yet</div>
-                    <div class="ep-empty-sub">Start logging time in eDays and the dashboard will populate automatically. Commute Forecaster and Schedule Planner are still available below.</div>
+                    <div class="ep-empty-sub">Start logging time in eDays and the dashboard will populate automatically. The Office Planner is still available below.</div>
                 </div>`;
-            container.innerHTML+=buildCommutePanel({T,ds,days:detailedDays});
+            container.innerHTML+=buildOfficePlannerPanel({T,ds,days:detailedDays});
             bindInteractions(container);
             return;
         }
@@ -1326,8 +760,8 @@ const offTarget = 60;
             </div>
         </div>`;
 
-        /* Commute panel */
-        html+=buildCommutePanel({T,ds,days:getDetailedDayData()});
+        /* Office Planner panel */
+        html+=buildOfficePlannerPanel({T,ds,days:getDetailedDayData()});
 
         container.innerHTML=html;
         bindInteractions(container);
@@ -1369,9 +803,6 @@ const offTarget = 60;
                 clearInterval(tick);
                 renderUI();
                 injectBackButton(getTheme());
-                const hLat=parseFloat(localStorage.getItem(LS.HOME_LAT)||'0');
-                const hLng=parseFloat(localStorage.getItem(LS.HOME_LNG)||'0');
-                if(hLat&&hLng) triggerRouteRefresh();
 
                 let debounce=null;
                 const observer=new MutationObserver(mutations=>{
