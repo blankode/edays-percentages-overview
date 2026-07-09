@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      17.4
+// @version      17.5
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
@@ -71,6 +71,7 @@ const offTarget = 60;
     const fmt = (mins) => { const sign=mins<0?'-':''; const abs=Math.abs(mins); const h=Math.floor(abs/60); const m=abs%60; return m===0?`${sign}${h}h`:`${sign}${h}h ${String(m).padStart(2,'0')}m`; };
     const parseTime = value => { const m=(value||'').match(/(-?\d+):(\d{2})/); if(!m) return 0; const mins=Math.abs(parseInt(m[1]))*60+parseInt(m[2]); return parseInt(m[1])<0?-mins:mins; };
     const clamp = (v,lo,hi) => Math.max(lo,Math.min(hi,v));
+    const formatClock = date => date.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hour12:false });
 
     /* ═══════════════════════════════════════════════════════════════
        SCROLL HELPERS
@@ -430,6 +431,8 @@ const offTarget = 60;
         #ep13 .ep-sched-stat{background:${T.chipBg};border:1px solid ${T.border};border-radius:8px;padding:9px 10px;text-align:center;}
         #ep13 .ep-sched-stat-val{font-size:18px;font-weight:700;line-height:1;}
         #ep13 .ep-sched-stat-lbl{font-size:10px;color:${T.muted};text-transform:uppercase;letter-spacing:.8px;margin-top:3px;}
+        #ep-back-chip.ep-btn{display:inline-flex!important;align-items:center!important;gap:5px!important;font-size:12px!important;font-weight:500!important;border-radius:7px!important;cursor:pointer!important;border:1px solid ${T.border}!important;background:${T.surface}!important;color:${T.muted}!important;transition:background .15s,color .15s,border-color .15s!important;user-select:none!important;white-space:nowrap!important;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif!important;padding:4px 10px!important;margin-bottom:6px!important;}
+        #ep-back-chip.ep-btn:hover{background:${T.isDark?'#2e2e2e':'#ebebeb'}!important;color:${T.text}!important;border-color:${T.isDark?'rgba(255,255,255,0.18)':'rgba(0,0,0,0.15)'}!important;}
         html { scroll-behavior: smooth; }
         #ep-today-anchor { scroll-margin-top: 75px; }
         #ep13 { scroll-margin-top: 75px; }
@@ -740,6 +743,8 @@ const offTarget = 60;
         const effTarget=todayBufOn?Math.max(0,480-ds.bufferMinutes):480;
         const todayPct=effTarget>0?Math.min(100,(todayWorked/effTarget)*100):0;
         const todayDone=todayWorked>=effTarget;
+        const todayRemaining=Math.max(0,effTarget-todayWorked);
+        const leaveAt=new Date(Date.now()+todayRemaining*60000);
         html+=`<div class="ep-today-strip">
             <div class="ep-today-label">${iconBadge('timer','#1d4ed8',26)}<span class="ep-today-label-text">Today</span></div>
             <div class="ep-today-centre">
@@ -747,7 +752,7 @@ const offTarget = 60;
                     <span class="ep-today-done">${fmt(todayWorked)}</span>
                     <span class="ep-today-sep">/</span>
                     <span class="ep-today-total">${fmt(effTarget)}</span>
-                    ${todayDone?`<span class="ep-today-rem done">${icon('check',12,'#22c55e')} Day complete!</span>`:`<span class="ep-today-rem">${icon('timer',12,T.muted)} ${fmt(Math.max(0,effTarget-todayWorked))} left</span>`}
+                    ${todayDone?`<span class="ep-today-rem done">${icon('check',12,'#22c55e')} Day complete!</span>`:`<span class="ep-today-rem">${icon('timer',12,T.muted)} ${fmt(todayRemaining)} left - leave at ${formatClock(leaveAt)}</span>`}
                 </div>
                 <div class="ep-today-track"><div class="ep-today-fill" style="width:${todayPct.toFixed(1)}%;background:${todayDone?'#22c55e':'#3b82f6'};"></div></div>
             </div>
@@ -778,19 +783,9 @@ const offTarget = 60;
         if(!cont) return;
         const btn = document.createElement('span');
         btn.id = BACK_BTN_ID; btn.role = 'button'; btn.tabIndex = 0;
+        btn.className = 'ep-btn ep-btn-label';
         btn.innerHTML = `<span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;color:currentColor;">${ICONS.arrow_up}</span> Back to analyzer`;
-        btn.style.cssText = `display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500;cursor:pointer;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;padding:4px 10px;border-radius:7px;border:1px solid ${T.border};background:${T.surface};color:${T.muted};margin-bottom:6px;user-select:none;white-space:nowrap;transition:background .15s,color .15s,border-color .15s;`;
         btn.addEventListener('click', e => { e.preventDefault(); jumpToAnalyzer(); });
-        btn.addEventListener('mouseenter', () => {
-            btn.style.setProperty('background', T.isDark ? '#2e2e2e' : '#ebebeb', 'important');
-            btn.style.setProperty('color', T.isDark ? '#e8e8e8' : '#111827', 'important');
-            btn.style.setProperty('border-color', T.isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.15)', 'important');
-        });
-        btn.addEventListener('mouseleave', () => {
-            btn.style.setProperty('background', T.surface, 'important');
-            btn.style.setProperty('color', T.muted, 'important');
-            btn.style.setProperty('border-color', T.border, 'important');
-        });
         cont.insertBefore(btn, cont.firstChild);
     };
 
