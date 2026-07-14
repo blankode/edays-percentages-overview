@@ -10,15 +10,15 @@
 /* ══ Set Office Target (% of rota hours) ══ */
 const offTarget = 60;
 
-(function () {
+(function() {
     'use strict';
 
     /* ═══════════════════════════════════════════════════════════════
        LOCALSTORAGE KEYS
     ═══════════════════════════════════════════════════════════════ */
     const LS = {
-        THEME:        'ep-theme-override',
-        TODAY_BUF:    'ep-today-buffer',
+        THEME: 'ep-theme-override',
+        TODAY_BUF: 'ep-today-buffer',
         PLANNER_OPEN: 'ep-planner-open',
     };
 
@@ -37,99 +37,215 @@ const offTarget = 60;
             const bg = getComputedStyle(el).backgroundColor;
             const m = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
             if (!m) continue;
-            const [,r,g,b] = m.map(Number);
-            if (r===0&&g===0&&b===0) continue;
-            return 0.299*r + 0.587*g + 0.114*b;
+            const [, r, g, b] = m.map(Number);
+            if (r === 0 && g === 0 && b === 0) continue;
+            return 0.299 * r + 0.587 * g + 0.114 * b;
         }
         return 255;
     };
     const buildTheme = () => {
         const isDark = getPageBrightness() < 100;
         return isDark ? {
-            isDark, bg:'#181818', surface:'#242424', border:'rgba(255,255,255,0.08)',
-            text:'#e8e8e8', muted:'#888888', faint:'rgba(255,255,255,0.04)',
-            barTrack:'rgba(255,255,255,0.07)', chipBg:'rgba(255,255,255,0.03)',
-            shadow:'0 4px 24px rgba(0,0,0,0.4)', ringTrack:'rgba(255,255,255,0.12)',
+            isDark,
+            bg: '#181818',
+            surface: '#242424',
+            border: 'rgba(255,255,255,0.08)',
+            text: '#e8e8e8',
+            muted: '#888888',
+            faint: 'rgba(255,255,255,0.04)',
+            barTrack: 'rgba(255,255,255,0.07)',
+            chipBg: 'rgba(255,255,255,0.03)',
+            shadow: '0 4px 24px rgba(0,0,0,0.4)',
+            ringTrack: 'rgba(255,255,255,0.12)',
         } : {
-            isDark, bg:'#ffffff', surface:'#f7f7f7', border:'rgba(0,0,0,0.08)',
-            text:'#111827', muted:'#6b7280', faint:'rgba(0,0,0,0.03)',
-            barTrack:'rgba(0,0,0,0.07)', chipBg:'rgba(0,0,0,0.03)',
-            shadow:'0 2px 12px rgba(0,0,0,0.10)', ringTrack:'rgba(0,0,0,0.12)',
+            isDark,
+            bg: '#ffffff',
+            surface: '#f7f7f7',
+            border: 'rgba(0,0,0,0.08)',
+            text: '#111827',
+            muted: '#6b7280',
+            faint: 'rgba(0,0,0,0.03)',
+            barTrack: 'rgba(0,0,0,0.07)',
+            chipBg: 'rgba(0,0,0,0.03)',
+            shadow: '0 2px 12px rgba(0,0,0,0.10)',
+            ringTrack: 'rgba(0,0,0,0.12)',
         };
     };
     let themeOverride = localStorage.getItem(LS.THEME) || null;
     const getTheme = () => {
-        if (themeOverride==='dark')  return { isDark:true,  bg:'#181818', surface:'#242424', border:'rgba(255,255,255,0.08)', text:'#e8e8e8', muted:'#888888', faint:'rgba(255,255,255,0.04)', barTrack:'rgba(255,255,255,0.07)', chipBg:'rgba(255,255,255,0.03)', shadow:'0 4px 24px rgba(0,0,0,0.4)', ringTrack:'rgba(255,255,255,0.12)' };
-        if (themeOverride==='light') return { isDark:false, bg:'#ffffff', surface:'#f7f7f7', border:'rgba(0,0,0,0.08)', text:'#111827', muted:'#6b7280', faint:'rgba(0,0,0,0.03)', barTrack:'rgba(0,0,0,0.07)', chipBg:'rgba(0,0,0,0.03)', shadow:'0 2px 12px rgba(0,0,0,0.10)', ringTrack:'rgba(0,0,0,0.12)' };
+        if (themeOverride === 'dark') return {
+            isDark: true,
+            bg: '#181818',
+            surface: '#242424',
+            border: 'rgba(255,255,255,0.08)',
+            text: '#e8e8e8',
+            muted: '#888888',
+            faint: 'rgba(255,255,255,0.04)',
+            barTrack: 'rgba(255,255,255,0.07)',
+            chipBg: 'rgba(255,255,255,0.03)',
+            shadow: '0 4px 24px rgba(0,0,0,0.4)',
+            ringTrack: 'rgba(255,255,255,0.12)'
+        };
+        if (themeOverride === 'light') return {
+            isDark: false,
+            bg: '#ffffff',
+            surface: '#f7f7f7',
+            border: 'rgba(0,0,0,0.08)',
+            text: '#111827',
+            muted: '#6b7280',
+            faint: 'rgba(0,0,0,0.03)',
+            barTrack: 'rgba(0,0,0,0.07)',
+            chipBg: 'rgba(0,0,0,0.03)',
+            shadow: '0 2px 12px rgba(0,0,0,0.10)',
+            ringTrack: 'rgba(0,0,0,0.12)'
+        };
         return buildTheme();
     };
 
     /* ═══════════════════════════════════════════════════════════════
        UTILITIES
     ═══════════════════════════════════════════════════════════════ */
-    const timeToMinutes = t => { if(!t) return 0; const [h,m]=t.split(':').map(Number); return h*60+(m||0); };
-    const fmt = (mins) => { const sign=mins<0?'-':''; const abs=Math.abs(mins); const h=Math.floor(abs/60); const m=abs%60; return m===0?`${sign}${h}h`:`${sign}${h}h ${String(m).padStart(2,'0')}m`; };
-    const parseTime = value => { const m=(value||'').match(/(-?\d+):(\d{2})/); if(!m) return 0; const mins=Math.abs(parseInt(m[1]))*60+parseInt(m[2]); return parseInt(m[1])<0?-mins:mins; };
-    const clamp = (v,lo,hi) => Math.max(lo,Math.min(hi,v));
-    const formatClock = date => date.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hour12:false });
+    const timeToMinutes = t => {
+        if (!t) return 0;
+        const [h, m] = t.split(':').map(Number);
+        return h * 60 + (m || 0);
+    };
+    const fmt = (mins) => {
+        const sign = mins < 0 ? '-' : '';
+        const abs = Math.abs(mins);
+        const h = Math.floor(abs / 60);
+        const m = abs % 60;
+        return m === 0 ? `${sign}${h}h` : `${sign}${h}h ${String(m).padStart(2,'0')}m`;
+    };
+    const parseTime = value => {
+        const m = (value || '').match(/(-?\d+):(\d{2})/);
+        if (!m) return 0;
+        const mins = Math.abs(parseInt(m[1])) * 60 + parseInt(m[2]);
+        return parseInt(m[1]) < 0 ? -mins : mins;
+    };
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    const formatClock = date => date.toLocaleTimeString('en-GB', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+    });
 
     /* ═══════════════════════════════════════════════════════════════
        SCROLL HELPERS
     ═══════════════════════════════════════════════════════════════ */
-    const getScrollParent = el => { let p = el.parentElement; while(p) { const { overflow, overflowY } = getComputedStyle(p); if(/(auto|scroll)/.test(overflow + overflowY)) return p; p = p.parentElement; } return window; };
-    const jumpToToday = () => { const c = document.querySelector('.today_chip'); if(c) { const d = c.closest('.tt_day_container'); if(d) { const sp = getScrollParent(d); const offset = 80; if(sp === window) { const y = d.getBoundingClientRect().top + window.scrollY - offset; window.scrollTo({ top: y, behavior:'smooth' }); } else { const y = d.getBoundingClientRect().top - sp.getBoundingClientRect().top + sp.scrollTop - offset; sp.scrollTo({ top: y, behavior:'smooth' }); } } } };
-    const jumpToAnalyzer = () => { const el = document.getElementById('ep13'); if(el) el.scrollIntoView({ behavior:'smooth', block:'start' }); };
+    const getScrollParent = el => {
+        let p = el.parentElement;
+        while (p) {
+            const {
+                overflow,
+                overflowY
+            } = getComputedStyle(p);
+            if (/(auto|scroll)/.test(overflow + overflowY)) return p;
+            p = p.parentElement;
+        }
+        return window;
+    };
+    const jumpToToday = () => {
+        const c = document.querySelector('.today_chip');
+        if (c) {
+            const d = c.closest('.tt_day_container');
+            if (d) {
+                const sp = getScrollParent(d);
+                const offset = 80;
+                if (sp === window) {
+                    const y = d.getBoundingClientRect().top + window.scrollY - offset;
+                    window.scrollTo({
+                        top: y,
+                        behavior: 'smooth'
+                    });
+                } else {
+                    const y = d.getBoundingClientRect().top - sp.getBoundingClientRect().top + sp.scrollTop - offset;
+                    sp.scrollTo({
+                        top: y,
+                        behavior: 'smooth'
+                    });
+                }
+            }
+        }
+    };
+    const jumpToAnalyzer = () => {
+        const el = document.getElementById('ep13');
+        if (el) el.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start'
+        });
+    };
 
     /* ═══════════════════════════════════════════════════════════════
        PERIOD / DAY HELPERS
     ═══════════════════════════════════════════════════════════════ */
-    const getDayTotalMinutes = dayEl => timeToMinutes(dayEl.querySelector('.duration_hours')?.innerText?.trim()||'');
+    const getDayTotalMinutes = dayEl => timeToMinutes(dayEl.querySelector('.duration_hours')?.innerText?.trim() || '');
     const getPeriodMinutes = periodEl => {
         const inputs = periodEl.querySelectorAll('input[type="time"]');
-        let sv=inputs[0]?.value||'', ev=inputs[1]?.value||'';
-        if (!sv) { const lbl=periodEl.querySelector('label.hiddenLabel')?.innerText||''; const m=lbl.match(/(\d{2}:\d{2})\s+to\s+(\d{2}:\d{2})?/); if(m){sv=m[1]||'';ev=m[2]||'';} }
+        let sv = inputs[0]?.value || '',
+            ev = inputs[1]?.value || '';
+        if (!sv) {
+            const lbl = periodEl.querySelector('label.hiddenLabel')?.innerText || '';
+            const m = lbl.match(/(\d{2}:\d{2})\s+to\s+(\d{2}:\d{2})?/);
+            if (m) {
+                sv = m[1] || '';
+                ev = m[2] || '';
+            }
+        }
         if (!sv) return 0;
-        if (!ev) { const n=new Date(); ev=`${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}`; }
-        const d=timeToMinutes(ev)-timeToMinutes(sv);
-        return d>0?d:0;
+        if (!ev) {
+            const n = new Date();
+            ev = `${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}`;
+        }
+        const d = timeToMinutes(ev) - timeToMinutes(sv);
+        return d > 0 ? d : 0;
     };
 
     /* ═══════════════════════════════════════════════════════════════
        ICONS
     ═══════════════════════════════════════════════════════════════ */
     const ICONS = {
-        office:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 21h18v-2H3v2zm0-4h18v-2H3v2zm0-4h18v-2H3v2zm0-4h18V7H3v2zm0-6v2h18V3H3z"/></svg>`,
-        laptop:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 18c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z"/></svg>`,
-        flight:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>`,
-        block:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-4H7l5-8v4h4l-5 8z"/></svg>`,
-        timer:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M15 1H9v2h6V1zm-4 13h2V8h-2v6zm8.03-6.61l1.42-1.42c-.43-.51-.9-.99-1.41-1.41l-1.42 1.42C16.07 4.74 14.12 4 12 4c-4.97 0-9 4.03-9 9s4.02 9 9 9 9-4.03 9-9c0-2.12-.74-4.07-1.97-5.61zM12 20c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg>`,
-        trending_up:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 6l2.29 2.29-4.88 4.88-4-4L2 16.59 3.41 18l6-6 4 4 6.3-6.29L22 12V6z"/></svg>`,
-        trending_down:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 18l2.29-2.29-4.88-4.88-4 4L2 7.41 3.41 6l6 6 4-4 6.3 6.29L22 12v6z"/></svg>`,
-        trending_flat:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M22 12l-4-4v3H3v2h15v3z"/></svg>`,
-        check:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>`,
-        warning:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>`,
-        calendar:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17 12h-5v5h5v-5zM16 1v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-1V1h-2zm3 18H5V8h14v11z"/></svg>`,
-        today:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7z"/></svg>`,
-        flag:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>`,
-        savings:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.5 2C6.81 2 3 5.81 3 10.5S6.81 19 11.5 19h.5v3c4.86-2.34 8-7 8-11.5C20 5.81 16.19 2 11.5 2zm1 14.5h-2v-2h2v2zm0-4h-2c0-3.25 3-3 3-5 0-1.1-.9-2-2-2s-2 .9-2 2h-2c0-2.21 1.79-4 4-4s4 1.79 4 4c0 2.5-3 2.75-3 5z"/></svg>`,
-        sun:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.79 1.42-1.41zM4 10.5H1v2h3v-2zm9-9.95h-2V3.5h2V.55zm7.45 3.91l-1.41-1.41-1.79 1.79 1.41 1.41 1.79-1.79zm-3.21 13.7l1.79 1.8 1.41-1.41-1.8-1.79-1.4 1.4zM20 10.5v2h3v-2h-3zm-8-5c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm-1 16.95h2V19.5h-2v2.95zm-7.45-3.91l1.41 1.41 1.79-1.8-1.41-1.41-1.79 1.8z"/></svg>`,
-        moon:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1z"/></svg>`,
-        arrow_down:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 12l-1.41-1.41L13 16.17V4h-2v12.17l-5.58-5.59L4 12l8 8 8-8z"/></svg>`,
-        arrow_up:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z"/></svg>`,
-        chevron_down:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>`,
-        chevron_up:`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6 1.41 1.41z"/></svg>`,
+        office: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 21h18v-2H3v2zm0-4h18v-2H3v2zm0-4h18v-2H3v2zm0-4h18V7H3v2zm0-6v2h18V3H3z"/></svg>`,
+        laptop: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 18c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z"/></svg>`,
+        flight: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>`,
+        block: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-4H7l5-8v4h4l-5 8z"/></svg>`,
+        timer: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M15 1H9v2h6V1zm-4 13h2V8h-2v6zm8.03-6.61l1.42-1.42c-.43-.51-.9-.99-1.41-1.41l-1.42 1.42C16.07 4.74 14.12 4 12 4c-4.97 0-9 4.03-9 9s4.02 9 9 9 9-4.03 9-9c0-2.12-.74-4.07-1.97-5.61zM12 20c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg>`,
+        trending_up: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 6l2.29 2.29-4.88 4.88-4-4L2 16.59 3.41 18l6-6 4 4 6.3-6.29L22 12V6z"/></svg>`,
+        trending_down: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 18l2.29-2.29-4.88-4.88-4 4L2 7.41 3.41 6l6 6 4-4 6.3 6.29L22 12v6z"/></svg>`,
+        trending_flat: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M22 12l-4-4v3H3v2h15v3z"/></svg>`,
+        check: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>`,
+        warning: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>`,
+        calendar: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17 12h-5v5h5v-5zM16 1v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-1V1h-2zm3 18H5V8h14v11z"/></svg>`,
+        today: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7z"/></svg>`,
+        flag: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>`,
+        savings: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.5 2C6.81 2 3 5.81 3 10.5S6.81 19 11.5 19h.5v3c4.86-2.34 8-7 8-11.5C20 5.81 16.19 2 11.5 2zm1 14.5h-2v-2h2v2zm0-4h-2c0-3.25 3-3 3-5 0-1.1-.9-2-2-2s-2 .9-2 2h-2c0-2.21 1.79-4 4-4s4 1.79 4 4c0 2.5-3 2.75-3 5z"/></svg>`,
+        sun: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.79 1.42-1.41zM4 10.5H1v2h3v-2zm9-9.95h-2V3.5h2V.55zm7.45 3.91l-1.41-1.41-1.79 1.79 1.41 1.41 1.79-1.79zm-3.21 13.7l1.79 1.8 1.41-1.41-1.8-1.79-1.4 1.4zM20 10.5v2h3v-2h-3zm-8-5c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm-1 16.95h2V19.5h-2v2.95zm-7.45-3.91l1.41 1.41 1.79-1.8-1.41-1.41-1.79 1.8z"/></svg>`,
+        moon: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1z"/></svg>`,
+        arrow_down: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 12l-1.41-1.41L13 16.17V4h-2v12.17l-5.58-5.59L4 12l8 8 8-8z"/></svg>`,
+        arrow_up: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z"/></svg>`,
+        chevron_down: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>`,
+        chevron_up: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6 1.41 1.41z"/></svg>`,
     };
-    const icon = (name,size=14,color='#fff') =>
+    const icon = (name, size = 14, color = '#fff') =>
         `<span style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;color:${color};flex-shrink:0;">${ICONS[name]||''}</span>`;
-    const iconBadge = (name,bg,size=28) =>
+    const iconBadge = (name, bg, size = 28) =>
         `<span style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;background:${bg};border-radius:7px;flex-shrink:0;color:#fff;">${ICONS[name]||''}</span>`;
 
     /* ═══════════════════════════════════════════════════════════════
        OFFICE TARGET COLOR / RING
     ═══════════════════════════════════════════════════════════════ */
-    const getOffColor = p => p>=100?'#22c55e':p>=85?'#84cc16':p>=65?'#eab308':p>=45?'#f97316':'#ef4444';
-    const ring = ({r=54,pct,color,sw=6,trackColor}) => {
-        const circ=2*Math.PI*r, dash=clamp(pct,0,100)/100*circ, cx=r+sw+1, sz=cx*2;
+    const getOffColor = p => p >= 100 ? '#22c55e' : p >= 85 ? '#84cc16' : p >= 65 ? '#eab308' : p >= 45 ? '#f97316' : '#ef4444';
+    const ring = ({
+        r = 54,
+        pct,
+        color,
+        sw = 6,
+        trackColor
+    }) => {
+        const circ = 2 * Math.PI * r,
+            dash = clamp(pct, 0, 100) / 100 * circ,
+            cx = r + sw + 1,
+            sz = cx * 2;
         return `<svg viewBox="0 0 ${sz} ${sz}" style="transform:rotate(-90deg);">
             <circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="${trackColor}" stroke-width="${sw}"/>
             <circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="${color}" stroke-width="${sw}"
@@ -141,15 +257,23 @@ const offTarget = 60;
        DATA GATHERING
     ═══════════════════════════════════════════════════════════════ */
     const getSummaryData = () => {
-        const d={recorded:0,rota:0,absences:0,holidays:0,difference:0};
-        document.querySelectorAll('.desktop_summary .summary_block').forEach(block=>{
-            const spans=block.querySelectorAll('span'); if(spans.length<2) return;
-            const mins=parseTime(spans[0].innerText.trim()), lbl=spans[1].innerText.trim();
-            if(lbl.includes('Time recorded')) d.recorded=mins;
-            if(lbl.includes('Rota'))          d.rota=Math.abs(mins);
-            if(lbl.includes('Absences'))      d.absences=Math.abs(mins);
-            if(lbl.includes('Public holidays')) d.holidays=Math.abs(mins);
-            if(lbl.includes('Difference'))    d.difference=mins;
+        const d = {
+            recorded: 0,
+            rota: 0,
+            absences: 0,
+            holidays: 0,
+            difference: 0
+        };
+        document.querySelectorAll('.desktop_summary .summary_block').forEach(block => {
+            const spans = block.querySelectorAll('span');
+            if (spans.length < 2) return;
+            const mins = parseTime(spans[0].innerText.trim()),
+                lbl = spans[1].innerText.trim();
+            if (lbl.includes('Time recorded')) d.recorded = mins;
+            if (lbl.includes('Rota')) d.rota = Math.abs(mins);
+            if (lbl.includes('Absences')) d.absences = Math.abs(mins);
+            if (lbl.includes('Public holidays')) d.holidays = Math.abs(mins);
+            if (lbl.includes('Difference')) d.difference = mins;
         });
         return d;
     };
@@ -161,144 +285,230 @@ const offTarget = 60;
     };
 
     const getActivityData = () => {
-        const actMap={'Office':0,'Mobile Working':0,'Business Travel':0,'No Activity':0};
-        let rawTotal=0, workedDays=0;
-        document.querySelectorAll('.tt_day_container').forEach(day=>{
-            let worked=false;
-            day.querySelectorAll('.tt_period_container').forEach(p=>{
-                const dur=getPeriodMinutes(p); if(dur<=0) return;
-                worked=true;
-                const act=p.querySelector('.chosen-single span')?.innerText.trim()||'No Activity';
-                if(!(act in actMap)) actMap[act]=0;
-                actMap[act]+=dur; rawTotal+=dur;
+        const actMap = {
+            'Office': 0,
+            'Mobile Working': 0,
+            'Business Travel': 0,
+            'No Activity': 0
+        };
+        let rawTotal = 0,
+            workedDays = 0;
+        document.querySelectorAll('.tt_day_container').forEach(day => {
+            let worked = false;
+            day.querySelectorAll('.tt_period_container').forEach(p => {
+                const dur = getPeriodMinutes(p);
+                if (dur <= 0) return;
+                worked = true;
+                const act = p.querySelector('.chosen-single span')?.innerText.trim() || 'No Activity';
+                if (!(act in actMap)) actMap[act] = 0;
+                actMap[act] += dur;
+                rawTotal += dur;
             });
-            if(worked) workedDays++;
+            if (worked) workedDays++;
         });
-        return {actMap,rawTotal,workedDays};
+        return {
+            actMap,
+            rawTotal,
+            workedDays
+        };
     };
 
     const getDayStats = summary => {
-        const realRota=summary.rota-summary.absences-summary.holidays;
-        const allDays=[...document.querySelectorAll('.tt_day_container')];
-        const isHalfDay=d=>{const t=d.querySelector('.absence_detail_text')?.innerText?.trim()||'';return t==='Vacation: AM'||t==='Vacation: PM';};
-        const workableDays=allDays.filter(d=>{
-            const t=d.querySelector('.timesheet_day_text')?.innerText?.trim()||'';
-            if(t.startsWith('Saturday')||t.startsWith('Sunday')) return false;
-            if(d.querySelector('.absence_detail_text')&&!isHalfDay(d)) return false;
+        const realRota = summary.rota - summary.absences - summary.holidays;
+        const allDays = [...document.querySelectorAll('.tt_day_container')];
+        const isHalfDay = d => {
+            const t = d.querySelector('.absence_detail_text')?.innerText?.trim() || '';
+            return t === 'Vacation: AM' || t === 'Vacation: PM';
+        };
+        const workableDays = allDays.filter(d => {
+            const t = d.querySelector('.timesheet_day_text')?.innerText?.trim() || '';
+            if (t.startsWith('Saturday') || t.startsWith('Sunday')) return false;
+            if (d.querySelector('.absence_detail_text') && !isHalfDay(d)) return false;
             return true;
         }).length;
-        const workedDays=allDays.filter(d=>{
-            const t=d.querySelector('.timesheet_day_text')?.innerText?.trim()||'';
-            if(t.startsWith('Saturday')||t.startsWith('Sunday')) return false;
-            return getDayTotalMinutes(d)>0;
+        const workedDays = allDays.filter(d => {
+            const t = d.querySelector('.timesheet_day_text')?.innerText?.trim() || '';
+            if (t.startsWith('Saturday') || t.startsWith('Sunday')) return false;
+            return getDayTotalMinutes(d) > 0;
         }).length;
-        const progressPct=realRota>0?(summary.recorded/realRota)*100:0;
-        const daysLeft=Math.round(Math.max(0,realRota-summary.recorded)/480);
-        const todayIdx=allDays.findIndex(d=>d.querySelector('.today_chip'));
+        const progressPct = realRota > 0 ? (summary.recorded / realRota) * 100 : 0;
+        const daysLeft = Math.round(Math.max(0, realRota - summary.recorded) / 480);
+        const todayIdx = allDays.findIndex(d => d.querySelector('.today_chip'));
 
         /* Office streak: longest consecutive run of days with Office time, up to and including today */
-        let officeStreak=0, curStreak=0;
-        allDays.forEach((day,idx)=>{
-            if(todayIdx!==-1&&idx>todayIdx) return; // only past + today
-            const t=day.querySelector('.timesheet_day_text')?.innerText?.trim()||'';
-            if(t.startsWith('Saturday')||t.startsWith('Sunday')) return; // skip weekends (don't break streak)
-            const hasOfficeToday=[...day.querySelectorAll('.tt_period_container')].some(p=>{
-                const dur=getPeriodMinutes(p); if(dur<=0) return false;
-                return p.querySelector('.chosen-single span')?.innerText.trim()==='Office';
+        let officeStreak = 0,
+            curStreak = 0;
+        allDays.forEach((day, idx) => {
+            if (todayIdx !== -1 && idx > todayIdx) return; // only past + today
+            const t = day.querySelector('.timesheet_day_text')?.innerText?.trim() || '';
+            if (t.startsWith('Saturday') || t.startsWith('Sunday')) return; // skip weekends (don't break streak)
+            const hasOfficeToday = [...day.querySelectorAll('.tt_period_container')].some(p => {
+                const dur = getPeriodMinutes(p);
+                if (dur <= 0) return false;
+                return p.querySelector('.chosen-single span')?.innerText.trim() === 'Office';
             });
-            if(hasOfficeToday){ curStreak++; officeStreak=Math.max(officeStreak,curStreak); }
-            else { curStreak=0; }
+            if (hasOfficeToday) {
+                curStreak++;
+                officeStreak = Math.max(officeStreak, curStreak);
+            } else {
+                curStreak = 0;
+            }
         });
         let bufferMinutes;
-        if(todayIdx===-1){bufferMinutes=summary.difference;}
-        else{
-            bufferMinutes=0;
-            allDays.forEach((day,idx)=>{
-                if(day.querySelector('.absence_detail_text')?.innerText) return;
-                const m=getDayTotalMinutes(day); if(m<=0) return;
-                if(idx<todayIdx){bufferMinutes+=m-480;}
-                else if(m>480){bufferMinutes+=m-480;}
+        if (todayIdx === -1) {
+            bufferMinutes = summary.difference;
+        } else {
+            bufferMinutes = 0;
+            allDays.forEach((day, idx) => {
+                if (day.querySelector('.absence_detail_text')?.innerText) return;
+                const m = getDayTotalMinutes(day);
+                if (m <= 0) return;
+                if (idx < todayIdx) {
+                    bufferMinutes += m - 480;
+                } else if (m > 480) {
+                    bufferMinutes += m - 480;
+                }
             });
         }
-        return {workableDays,officeStreak,daysLeft,workedDays,progressPct,bufferMinutes,realRota};
+        return {
+            workableDays,
+            officeStreak,
+            daysLeft,
+            workedDays,
+            progressPct,
+            bufferMinutes,
+            realRota
+        };
     };
 
     const getTodayMinutes = () => {
-        const el=[...document.querySelectorAll('.tt_day_container')].find(d=>d.querySelector('.today_chip'));
-        if(!el) return 0;
-        let t=0; el.querySelectorAll('.tt_period_container').forEach(p=>t+=getPeriodMinutes(p));
+        const el = [...document.querySelectorAll('.tt_day_container')].find(d => d.querySelector('.today_chip'));
+        if (!el) return 0;
+        let t = 0;
+        el.querySelectorAll('.tt_period_container').forEach(p => t += getPeriodMinutes(p));
         return t;
     };
     const hasTodayOnPage = () => !!document.querySelector('.today_chip');
 
     const getDetailedDayData = () => {
-        const todayIdx=[...document.querySelectorAll('.tt_day_container')].findIndex(d=>d.querySelector('.today_chip'));
-        return [...document.querySelectorAll('.tt_day_container')].map((day,idx)=>{
-            const label=day.querySelector('.timesheet_day_text')?.innerText?.trim()||'';
-            const parts=label.split(' ');
-            const dayName=parts[0]||'';
+        const todayIdx = [...document.querySelectorAll('.tt_day_container')].findIndex(d => d.querySelector('.today_chip'));
+        return [...document.querySelectorAll('.tt_day_container')].map((day, idx) => {
+            const label = day.querySelector('.timesheet_day_text')?.innerText?.trim() || '';
+            const parts = label.split(' ');
+            const dayName = parts[0] || '';
 
-            let dateNum=0;
-            for(let i=1;i<parts.length;i++){
-                const n=parseInt(parts[i],10);
-                if(!isNaN(n)&&n>=1&&n<=31){dateNum=n;break;}
+            let dateNum = 0;
+            for (let i = 1; i < parts.length; i++) {
+                const n = parseInt(parts[i], 10);
+                if (!isNaN(n) && n >= 1 && n <= 31) {
+                    dateNum = n;
+                    break;
+                }
             }
-            if(!dateNum){
-                const txt=day.querySelector('[class*="date"]')?.innerText||'';
-                const m=txt.match(/\d+/); if(m) dateNum=parseInt(m[0],10);
+            if (!dateNum) {
+                const txt = day.querySelector('[class*="date"]')?.innerText || '';
+                const m = txt.match(/\d+/);
+                if (m) dateNum = parseInt(m[0], 10);
             }
 
-            const DOW_MAP={Sunday:0,Monday:1,Tuesday:2,Wednesday:3,Thursday:4,Friday:5,Saturday:6};
-            const dayOfWeek=DOW_MAP[dayName]??-1;
-            const isWeekend=dayOfWeek===0||dayOfWeek===6;
-            const absenceText=day.querySelector('.absence_detail_text')?.innerText?.trim()||'';
-            const isHalfDay=absenceText==='Vacation: AM'||absenceText==='Vacation: PM';
-            const isAbsent=!!absenceText&&!isHalfDay;
-            const isHoliday=absenceText.toLowerCase().includes('holiday');
-            const isToday=idx===todayIdx;
-            const isPast=todayIdx!==-1?idx<todayIdx:false;
-            const isFuture=todayIdx!==-1?idx>todayIdx:true;
-            const totalMins=getDayTotalMinutes(day);
-            let officeMins=0,wfhMins=0,hasOffice=false,hasWFH=false;
-            day.querySelectorAll('.tt_period_container').forEach(p=>{
-                const dur=getPeriodMinutes(p); if(dur<=0) return;
-                const act=p.querySelector('.chosen-single span')?.innerText.trim()||'';
-                if(act==='Office'){officeMins+=dur;hasOffice=true;}
-                if(act==='Mobile Working'){wfhMins+=dur;hasWFH=true;}
+            const DOW_MAP = {
+                Sunday: 0,
+                Monday: 1,
+                Tuesday: 2,
+                Wednesday: 3,
+                Thursday: 4,
+                Friday: 5,
+                Saturday: 6
+            };
+            const dayOfWeek = DOW_MAP[dayName] ?? -1;
+            const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+            const absenceText = day.querySelector('.absence_detail_text')?.innerText?.trim() || '';
+            const isHalfDay = absenceText === 'Vacation: AM' || absenceText === 'Vacation: PM';
+            const isAbsent = !!absenceText && !isHalfDay;
+            const isHoliday = absenceText.toLowerCase().includes('holiday');
+            const isToday = idx === todayIdx;
+            const isPast = todayIdx !== -1 ? idx < todayIdx : false;
+            const isFuture = todayIdx !== -1 ? idx > todayIdx : true;
+            const totalMins = getDayTotalMinutes(day);
+            let officeMins = 0,
+                wfhMins = 0,
+                hasOffice = false,
+                hasWFH = false;
+            day.querySelectorAll('.tt_period_container').forEach(p => {
+                const dur = getPeriodMinutes(p);
+                if (dur <= 0) return;
+                const act = p.querySelector('.chosen-single span')?.innerText.trim() || '';
+                if (act === 'Office') {
+                    officeMins += dur;
+                    hasOffice = true;
+                }
+                if (act === 'Mobile Working') {
+                    wfhMins += dur;
+                    hasWFH = true;
+                }
             });
-            return {label,dayName,dateNum,dayOfWeek,isWeekend,isAbsent,isHoliday,isHalfDay,isToday,isPast,isFuture,totalMins,officeMins,wfhMins,hasOffice,hasWFH,isWorkable:!isWeekend&&!isAbsent&&!isHoliday,el:day};
+            return {
+                label,
+                dayName,
+                dateNum,
+                dayOfWeek,
+                isWeekend,
+                isAbsent,
+                isHoliday,
+                isHalfDay,
+                isToday,
+                isPast,
+                isFuture,
+                totalMins,
+                officeMins,
+                wfhMins,
+                hasOffice,
+                hasWFH,
+                isWorkable: !isWeekend && !isAbsent && !isHoliday,
+                el: day
+            };
         });
     };
 
     /* ═══════════════════════════════════════════════════════════════
        HOURS-BASED SCHEDULE PLANNER
     ═══════════════════════════════════════════════════════════════ */
-    const buildHoursSchedulePlan = ({days, officeHoursStillNeeded}) => {
-        if(officeHoursStillNeeded<=0) return new Map();
-        const future=days.filter(d=>(d.isFuture||d.isToday)&&d.isWorkable);
-        if(!future.length) return new Map();
-        let remaining=officeHoursStillNeeded;
-        const STANDARD_H=8;
-        const weekMap=new Map();
-        future.forEach(d=>{
-            const wk=Math.floor((d.dateNum-1)/7);
-            if(!weekMap.has(wk)) weekMap.set(wk,[]);
+    const buildHoursSchedulePlan = ({
+        days,
+        officeHoursStillNeeded
+    }) => {
+        if (officeHoursStillNeeded <= 0) return new Map();
+        const future = days.filter(d => (d.isFuture || d.isToday) && d.isWorkable);
+        if (!future.length) return new Map();
+        let remaining = officeHoursStillNeeded;
+        const STANDARD_H = 8;
+        const weekMap = new Map();
+        future.forEach(d => {
+            const wk = Math.floor((d.dateNum - 1) / 7);
+            if (!weekMap.has(wk)) weekMap.set(wk, []);
             weekMap.get(wk).push(d);
         });
-        const DOW_PREF={3:0,2:1,4:2,1:3,5:4};
-        weekMap.forEach(w=>w.sort((a,b)=>(DOW_PREF[a.dayOfWeek]??9)-(DOW_PREF[b.dayOfWeek]??9)));
-        const weeks=[...weekMap.entries()].sort((a,b)=>a[0]-b[0]);
-        const planned=new Map();
-        weeks.forEach(([,wdays],wi)=>{
-            if(remaining<=0) return;
-            const weeksLeft=weeks.length-wi;
-            const quota=Math.ceil(remaining/weeksLeft);
-            let assigned=0;
-            for(const d of wdays){
-                if(remaining<=0||assigned>=quota) break;
-                const h=Math.min(STANDARD_H,remaining,quota-assigned);
-                planned.set(d.dateNum,h);
-                assigned+=h; remaining-=h;
+        const DOW_PREF = {
+            3: 0,
+            2: 1,
+            4: 2,
+            1: 3,
+            5: 4
+        };
+        weekMap.forEach(w => w.sort((a, b) => (DOW_PREF[a.dayOfWeek] ?? 9) - (DOW_PREF[b.dayOfWeek] ?? 9)));
+        const weeks = [...weekMap.entries()].sort((a, b) => a[0] - b[0]);
+        const planned = new Map();
+        weeks.forEach(([, wdays], wi) => {
+            if (remaining <= 0) return;
+            const weeksLeft = weeks.length - wi;
+            const quota = Math.ceil(remaining / weeksLeft);
+            let assigned = 0;
+            for (const d of wdays) {
+                if (remaining <= 0 || assigned >= quota) break;
+                const h = Math.min(STANDARD_H, remaining, quota - assigned);
+                planned.set(d.dateNum, h);
+                assigned += h;
+                remaining -= h;
             }
         });
         return planned;
@@ -307,11 +517,15 @@ const offTarget = 60;
     /* ═══════════════════════════════════════════════════════════════
        STYLES
     ═══════════════════════════════════════════════════════════════ */
-    const STYLE_ID='edays-pro-v18-styles';
+    const STYLE_ID = 'edays-pro-v18-styles';
     const injectStyles = T => {
-        let s=document.getElementById(STYLE_ID);
-        if(!s){s=document.createElement('style');s.id=STYLE_ID;document.head.appendChild(s);}
-        s.textContent=`
+        let s = document.getElementById(STYLE_ID);
+        if (!s) {
+            s = document.createElement('style');
+            s.id = STYLE_ID;
+            document.head.appendChild(s);
+        }
+        s.textContent = `
         #ep13{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:${T.bg};border-radius:14px;padding:14px 16px 12px;margin:0 0 16px;color:${T.text};}
         #ep13 .ep-hdr{display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid ${T.border};}
         #ep13 .ep-hdr-logo{width:30px;height:30px;background:linear-gradient(135deg,#3b82f6,#a855f7);border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
@@ -443,29 +657,57 @@ const offTarget = 60;
        ACTIVITY CONFIG
     ═══════════════════════════════════════════════════════════════ */
     const ACT_CFG = {
-        'Office':          {icon:'office',grad:'linear-gradient(135deg,#3b82f6,#06b6d4)',bg:'#1d4ed8'},
-        'Mobile Working':  {icon:'laptop',grad:'linear-gradient(135deg,#ec4899,#f97316)',bg:'#9d174d'},
-        'Business Travel': {icon:'flight',grad:'linear-gradient(135deg,#a855f7,#7c3aed)',bg:'#6b21a8'},
-        'No Activity':     {icon:'block', grad:'linear-gradient(135deg,#374151,#111827)',bg:'#374151'},
+        'Office': {
+            icon: 'office',
+            grad: 'linear-gradient(135deg,#3b82f6,#06b6d4)',
+            bg: '#1d4ed8'
+        },
+        'Mobile Working': {
+            icon: 'laptop',
+            grad: 'linear-gradient(135deg,#ec4899,#f97316)',
+            bg: '#9d174d'
+        },
+        'Business Travel': {
+            icon: 'flight',
+            grad: 'linear-gradient(135deg,#a855f7,#7c3aed)',
+            bg: '#6b21a8'
+        },
+        'No Activity': {
+            icon: 'block',
+            grad: 'linear-gradient(135deg,#374151,#111827)',
+            bg: '#374151'
+        },
     };
-    const FALLBACK_CFG = {icon:'timer',grad:'linear-gradient(135deg,#64748b,#334155)',bg:'#475569'};
+    const FALLBACK_CFG = {
+        icon: 'timer',
+        grad: 'linear-gradient(135deg,#64748b,#334155)',
+        bg: '#475569'
+    };
 
     /* ═══════════════════════════════════════════════════════════════
        SCHEDULE SECTION HTML
     ═══════════════════════════════════════════════════════════════ */
-    const buildScheduleSection = ({T,days,officeHoursNeeded,alreadyDoneOfficeHours}) => {
-        const stillNeeded=Math.max(0,officeHoursNeeded-alreadyDoneOfficeHours);
-        const plannedMap=buildHoursSchedulePlan({days,officeHoursStillNeeded:stillNeeded});
-        const plannedTotalH=[...plannedMap.values()].reduce((a,b)=>a+b,0);
-        const totalWorkableDays=days.filter(d=>d.isWorkable).length;
-        const totalWorkableHours=totalWorkableDays*8;
-        const donePct=officeHoursNeeded>0?(alreadyDoneOfficeHours/officeHoursNeeded)*100:0;
-        const planPct=officeHoursNeeded>0?(plannedTotalH/officeHoursNeeded)*100:0;
-        const totalOfficeH=alreadyDoneOfficeHours+plannedTotalH;
-        const wfhH=Math.max(0,totalWorkableHours-totalOfficeH);
-        const pctOffice=totalWorkableHours>0?Math.round((totalOfficeH/totalWorkableHours)*100):0;
+    const buildScheduleSection = ({
+        T,
+        days,
+        officeHoursNeeded,
+        alreadyDoneOfficeHours
+    }) => {
+        const stillNeeded = Math.max(0, officeHoursNeeded - alreadyDoneOfficeHours);
+        const plannedMap = buildHoursSchedulePlan({
+            days,
+            officeHoursStillNeeded: stillNeeded
+        });
+        const plannedTotalH = [...plannedMap.values()].reduce((a, b) => a + b, 0);
+        const totalWorkableDays = days.filter(d => d.isWorkable).length;
+        const totalWorkableHours = totalWorkableDays * 8;
+        const donePct = officeHoursNeeded > 0 ? (alreadyDoneOfficeHours / officeHoursNeeded) * 100 : 0;
+        const planPct = officeHoursNeeded > 0 ? (plannedTotalH / officeHoursNeeded) * 100 : 0;
+        const totalOfficeH = alreadyDoneOfficeHours + plannedTotalH;
+        const wfhH = Math.max(0, totalWorkableHours - totalOfficeH);
+        const pctOffice = totalWorkableHours > 0 ? Math.round((totalOfficeH / totalWorkableHours) * 100) : 0;
 
-        let html=`<div class="ep-sched-section">
+        let html = `<div class="ep-sched-section">
             <div class="ep-sched-hdr">${icon('calendar',12,T.muted)}
                 Office Schedule &nbsp;·&nbsp; <strong style="color:${T.text}">${officeHoursNeeded}h needed</strong> &nbsp;·&nbsp; ${alreadyDoneOfficeHours}h done &nbsp;·&nbsp; ${stillNeeded}h remaining
             </div>
@@ -484,69 +726,88 @@ const offTarget = 60;
             </div>`;
 
         // Calendar
-        html+=`<div class="ep-cal-grid">`;
-        ['M','T','W','T','F','S','S'].forEach(d=>html+=`<div class="ep-cal-dow">${d}</div>`);
-        const firstDow=days[0]?.dayOfWeek??1;
-        const colOffset=firstDow===0?6:firstDow-1;
-        for(let i=0;i<colOffset;i++) html+=`<div class="ep-cal-day ep-cal-empty"></div>`;
+        html += `<div class="ep-cal-grid">`;
+        ['M', 'T', 'W', 'T', 'F', 'S', 'S'].forEach(d => html += `<div class="ep-cal-dow">${d}</div>`);
+        const firstDow = days[0]?.dayOfWeek ?? 1;
+        const colOffset = firstDow === 0 ? 6 : firstDow - 1;
+        for (let i = 0; i < colOffset; i++) html += `<div class="ep-cal-day ep-cal-empty"></div>`;
 
-        days.forEach(d=>{
-            if(!d.dateNum){html+=`<div class="ep-cal-day ep-cal-empty"></div>`;return;}
-            let cls='ep-cal-day ';
-            let hrsLbl='';
-            if(d.isWeekend)                cls+='ep-cal-weekend';
-            else if(d.isAbsent||d.isHoliday) cls+='ep-cal-absent';
-            else if(d.hasOffice){
-                cls+='ep-cal-done-off';
-                hrsLbl=`<span class="ep-cal-hrs">${d.officeMins>=60?Math.round(d.officeMins/60)+'h':d.officeMins+'m'}</span>`;
+        days.forEach(d => {
+            if (!d.dateNum) {
+                html += `<div class="ep-cal-day ep-cal-empty"></div>`;
+                return;
             }
-            else if(d.hasWFH&&(d.isPast||d.isToday)) cls+='ep-cal-done-wfh';
-            else if(d.isPast||d.isToday)              cls+='ep-cal-done-any';
-            else if(plannedMap.has(d.dateNum)){
-                cls+='ep-cal-plan-off';
-                hrsLbl=`<span class="ep-cal-hrs">${plannedMap.get(d.dateNum)}h</span>`;
-            }
-            else cls+='ep-cal-plan-wfh';
-            if(d.isToday) cls+=' ep-cal-today';
-            html+=`<div class="${cls}" title="${d.label}">${d.dateNum}${hrsLbl}</div>`;
+            let cls = 'ep-cal-day ';
+            let hrsLbl = '';
+            if (d.isWeekend) cls += 'ep-cal-weekend';
+            else if (d.isAbsent || d.isHoliday) cls += 'ep-cal-absent';
+            else if (d.hasOffice) {
+                cls += 'ep-cal-done-off';
+                hrsLbl = `<span class="ep-cal-hrs">${d.officeMins>=60?Math.round(d.officeMins/60)+'h':d.officeMins+'m'}</span>`;
+            } else if (d.hasWFH && (d.isPast || d.isToday)) cls += 'ep-cal-done-wfh';
+            else if (d.isPast || d.isToday) cls += 'ep-cal-done-any';
+            else if (plannedMap.has(d.dateNum)) {
+                cls += 'ep-cal-plan-off';
+                hrsLbl = `<span class="ep-cal-hrs">${plannedMap.get(d.dateNum)}h</span>`;
+            } else cls += 'ep-cal-plan-wfh';
+            if (d.isToday) cls += ' ep-cal-today';
+            html += `<div class="${cls}" title="${d.label}">${d.dateNum}${hrsLbl}</div>`;
         });
-        html+=`</div>`;
+        html += `</div>`;
 
         // Week rows
-        const weekBuckets=new Map();
-        days.forEach(d=>{
-            if(d.isWeekend||!d.dateNum) return;
-            const wk=Math.floor((d.dateNum-1)/7);
-            if(!weekBuckets.has(wk)) weekBuckets.set(wk,[]);
+        const weekBuckets = new Map();
+        days.forEach(d => {
+            if (d.isWeekend || !d.dateNum) return;
+            const wk = Math.floor((d.dateNum - 1) / 7);
+            if (!weekBuckets.has(wk)) weekBuckets.set(wk, []);
             weekBuckets.get(wk).push(d);
         });
-        const DNAMES={1:'Mon',2:'Tue',3:'Wed',4:'Thu',5:'Fri'};
-        html+=`<div class="ep-week-rows">`;
-        let wn=0;
-        weekBuckets.forEach(wdays=>{
+        const DNAMES = {
+            1: 'Mon',
+            2: 'Tue',
+            3: 'Wed',
+            4: 'Thu',
+            5: 'Fri'
+        };
+        html += `<div class="ep-week-rows">`;
+        let wn = 0;
+        weekBuckets.forEach(wdays => {
             wn++;
-            const offDoneH=wdays.reduce((s,d)=>s+(d.officeMins||0),0)/60;
-            const plannedH=wdays.reduce((s,d)=>s+(plannedMap.get(d.dateNum)||0),0);
-            const slotMap=new Map(wdays.map(d=>[d.dayOfWeek,d]));
-            html+=`<div class="ep-week-row"><div class="ep-week-label">W${wn}</div><div class="ep-week-days">`;
-            [1,2,3,4,5].forEach(dow=>{
-                const d=slotMap.get(dow);
-                if(!d){html+=`<div class="ep-week-day-pill ep-wp-off">—</div>`;return;}
-                let cls='ep-week-day-pill ';
-                let sub='';
-                if(d.isAbsent||d.isHoliday){cls+='ep-wp-absent';}
-                else if(d.hasOffice){cls+='ep-wp-done';sub=`<span class="ep-pill-sub">${Math.round(d.officeMins/60)}h</span>`;}
-                else if(plannedMap.has(d.dateNum)){cls+='ep-wp-office';sub=`<span class="ep-pill-sub">${plannedMap.get(d.dateNum)}h</span>`;}
-                else if(d.hasWFH){cls+='ep-wp-wfh';sub=`<span class="ep-pill-sub">WFH</span>`;}
-                else{cls+='ep-wp-wfh';}
-                html+=`<div class="${cls}" title="${d.label}">${DNAMES[dow]}${sub}</div>`;
+            const offDoneH = wdays.reduce((s, d) => s + (d.officeMins || 0), 0) / 60;
+            const plannedH = wdays.reduce((s, d) => s + (plannedMap.get(d.dateNum) || 0), 0);
+            const slotMap = new Map(wdays.map(d => [d.dayOfWeek, d]));
+            html += `<div class="ep-week-row"><div class="ep-week-label">W${wn}</div><div class="ep-week-days">`;
+            [1, 2, 3, 4, 5].forEach(dow => {
+                const d = slotMap.get(dow);
+                if (!d) {
+                    html += `<div class="ep-week-day-pill ep-wp-off">—</div>`;
+                    return;
+                }
+                let cls = 'ep-week-day-pill ';
+                let sub = '';
+                if (d.isAbsent || d.isHoliday) {
+                    cls += 'ep-wp-absent';
+                } else if (d.hasOffice) {
+                    cls += 'ep-wp-done';
+                    sub = `<span class="ep-pill-sub">${Math.round(d.officeMins/60)}h</span>`;
+                } else if (plannedMap.has(d.dateNum)) {
+                    cls += 'ep-wp-office';
+                    sub = `<span class="ep-pill-sub">${plannedMap.get(d.dateNum)}h</span>`;
+                } else if (d.hasWFH) {
+                    cls += 'ep-wp-wfh';
+                    sub = `<span class="ep-pill-sub">WFH</span>`;
+                } else {
+                    cls += 'ep-wp-wfh';
+                }
+                html += `<div class="${cls}" title="${d.label}">${DNAMES[dow]}${sub}</div>`;
             });
-            html+=`</div><div class="ep-week-row-summary"><span>${Math.round(offDoneH*10)/10+plannedH}h</span> office</div></div>`;
+            html += `</div><div class="ep-week-row-summary"><span>${Math.round(offDoneH*10)/10+plannedH}h</span> office</div></div>`;
         });
-        html+=`</div>`;
+        html += `</div>`;
 
         // Summary chips
-        html+=`<div style="display:flex;gap:8px;flex-wrap:wrap;">
+        html += `<div style="display:flex;gap:8px;flex-wrap:wrap;">
             <div class="ep-sched-stat" style="flex:1;min-width:70px;"><div class="ep-sched-stat-val" style="color:#22c55e;">${alreadyDoneOfficeHours}h</div><div class="ep-sched-stat-lbl">Done ✓</div></div>
             <div class="ep-sched-stat" style="flex:1;min-width:70px;"><div class="ep-sched-stat-val" style="color:#3b82f6;">${plannedTotalH}h</div><div class="ep-sched-stat-lbl">Planned</div></div>
             <div class="ep-sched-stat" style="flex:1;min-width:70px;"><div class="ep-sched-stat-val" style="color:#a855f7;">${wfhH}h</div><div class="ep-sched-stat-lbl">WFH/Flex</div></div>
@@ -558,14 +819,18 @@ const offTarget = 60;
     /* ═══════════════════════════════════════════════════════════════
        OFFICE PLANNER PANEL HTML
     ═══════════════════════════════════════════════════════════════ */
-    const buildOfficePlannerPanel = ({T,ds,days}) => {
-        const isOpen=localStorage.getItem(LS.PLANNER_OPEN)==='true';
-        const officeHoursNeeded=Math.round((ds.realRota*(offTarget/100))/60);
-        const alreadyDoneOfficeHours=Math.round(
-            days.filter(d=>d.hasOffice&&(d.isPast||d.isToday)).reduce((s,d)=>s+d.officeMins,0)/60
+    const buildOfficePlannerPanel = ({
+        T,
+        ds,
+        days
+    }) => {
+        const isOpen = localStorage.getItem(LS.PLANNER_OPEN) === 'true';
+        const officeHoursNeeded = Math.round((ds.realRota * (offTarget / 100)) / 60);
+        const alreadyDoneOfficeHours = Math.round(
+            days.filter(d => d.hasOffice && (d.isPast || d.isToday)).reduce((s, d) => s + d.officeMins, 0) / 60
         );
 
-        let html=`
+        let html = `
         <div class="ep-planner-toggle" data-action="planner-toggle" role="button" tabindex="0">
             ${iconBadge('calendar','linear-gradient(135deg,#3b82f6,#a855f7)',26)}
             <span class="ep-planner-toggle-label">Office Planner
@@ -576,9 +841,14 @@ const offTarget = 60;
         <div class="ep-planner-panel${isOpen?' open':''}" id="ep-planner-panel">
         <div class="ep-planner-inner">`;
 
-        html+=buildScheduleSection({T,days,officeHoursNeeded,alreadyDoneOfficeHours});
+        html += buildScheduleSection({
+            T,
+            days,
+            officeHoursNeeded,
+            alreadyDoneOfficeHours
+        });
 
-        html+=`</div></div>`;
+        html += `</div></div>`;
         return html;
     };
 
@@ -586,24 +856,27 @@ const offTarget = 60;
        INTERACTIONS
     ═══════════════════════════════════════════════════════════════ */
     const bindInteractions = container => {
-        container.querySelectorAll('[data-action]').forEach(el=>{
-            el.addEventListener('click', e=>{
+        container.querySelectorAll('[data-action]').forEach(el => {
+            el.addEventListener('click', e => {
                 e.preventDefault();
-                const action=el.dataset.action;
-                if(action==='jump-today')    jumpToToday();
-                if(action==='jump-analyzer') jumpToAnalyzer();
-                if(action==='theme-toggle'){
-                    themeOverride=el.dataset.theme;
-                    localStorage.setItem(LS.THEME,themeOverride);
-                    renderUI(); injectBackButton(getTheme());
+                const action = el.dataset.action;
+                if (action === 'jump-today') jumpToToday();
+                if (action === 'jump-analyzer') jumpToAnalyzer();
+                if (action === 'theme-toggle') {
+                    themeOverride = el.dataset.theme;
+                    localStorage.setItem(LS.THEME, themeOverride);
+                    renderUI();
+                    injectBackButton(getTheme());
                 }
-                if(action==='buf-toggle'){
-                    localStorage.setItem(LS.TODAY_BUF,String(localStorage.getItem(LS.TODAY_BUF)!=='true'));
-                    renderUI(); injectBackButton(getTheme());
+                if (action === 'buf-toggle') {
+                    localStorage.setItem(LS.TODAY_BUF, String(localStorage.getItem(LS.TODAY_BUF) !== 'true'));
+                    renderUI();
+                    injectBackButton(getTheme());
                 }
-                if(action==='planner-toggle'){
-                    localStorage.setItem(LS.PLANNER_OPEN,String(localStorage.getItem(LS.PLANNER_OPEN)!=='true'));
-                    renderUI(); injectBackButton(getTheme());
+                if (action === 'planner-toggle') {
+                    localStorage.setItem(LS.PLANNER_OPEN, String(localStorage.getItem(LS.PLANNER_OPEN) !== 'true'));
+                    renderUI();
+                    injectBackButton(getTheme());
                 }
             });
         });
@@ -613,28 +886,40 @@ const offTarget = 60;
        MAIN RENDER
     ═══════════════════════════════════════════════════════════════ */
     const renderUI = () => {
-        const T=getTheme();
+        const T = getTheme();
         injectStyles(T);
-        const mainPanel=document.getElementById('mainTimesheetPanel');
-        if(!mainPanel) return;
-        let container=document.getElementById('ep13');
-        if(!container){container=document.createElement('div');container.id='ep13';mainPanel.insertBefore(container,mainPanel.firstChild);}
+        const mainPanel = document.getElementById('mainTimesheetPanel');
+        if (!mainPanel) return;
+        let container = document.getElementById('ep13');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'ep13';
+            mainPanel.insertBefore(container, mainPanel.firstChild);
+        }
 
-        if(!isSummaryReady()){
-            container.innerHTML=`<div class="ep-hdr"><div class="ep-hdr-logo">${icon('timer',16)}</div><div class="ep-hdr-title">eDays Analyzer Pro</div><div class="ep-hdr-date"><span class="ep-pulse"></span> Loading…</div></div>`;
+        if (!isSummaryReady()) {
+            container.innerHTML = `<div class="ep-hdr"><div class="ep-hdr-logo">${icon('timer',16)}</div><div class="ep-hdr-title">eDays Analyzer Pro</div><div class="ep-hdr-date"><span class="ep-pulse"></span> Loading…</div></div>`;
             return;
         }
 
-        const summary=getSummaryData();
-        const {actMap,rawTotal,workedDays}=getActivityData();
-        const dateStr=new Date().toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}).toUpperCase();
+        const summary = getSummaryData();
+        const {
+            actMap,
+            rawTotal,
+            workedDays
+        } = getActivityData();
+        const dateStr = new Date().toLocaleDateString('en-GB', {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric'
+        }).toUpperCase();
 
         /* Empty month: panel is ready but nothing logged yet */
-        if(!summary.recorded && !rawTotal){
-            const ds=getDayStats(summary);
-            const detailedDays=getDetailedDayData();
-            const nextTheme=T.isDark?'light':'dark';
-            container.innerHTML=`
+        if (!summary.recorded && !rawTotal) {
+            const ds = getDayStats(summary);
+            const detailedDays = getDetailedDayData();
+            const nextTheme = T.isDark ? 'light' : 'dark';
+            container.innerHTML = `
                 <div class="ep-hdr">
                     <div class="ep-hdr-logo">${icon('timer',16)}</div>
                     <div class="ep-hdr-title">eDays Analyzer Pro</div>
@@ -648,26 +933,33 @@ const offTarget = 60;
                     <div class="ep-empty-title">New month — no entries yet</div>
                     <div class="ep-empty-sub">Start logging time in eDays and the dashboard will populate automatically. The Office Planner is still available below.</div>
                 </div>`;
-            container.innerHTML+=buildOfficePlannerPanel({T,ds,days:detailedDays});
+            container.innerHTML += buildOfficePlannerPanel({
+                T,
+                ds,
+                days: detailedDays
+            });
             bindInteractions(container);
             return;
         }
 
-        const realRota=summary.rota-summary.absences-summary.holidays;
-        const factor=summary.recorded/rawTotal;
-        const acts=Object.entries(actMap).map(([n,m])=>({name:n,adj:Math.floor(m*factor)})).filter(a=>a.adj>0).sort((a,b)=>b.adj-a.adj);
-        const totalActMins=acts.reduce((s,a)=>s+a.adj,0);
-        const officeMins=(acts.find(a=>a.name==='Office')?.adj)||0;
-        const targetMins=realRota*(offTarget/100);
-        const officePct=targetMins>0?(officeMins/targetMins)*100:0;
-        const officeActPct=realRota>0?(officeMins/realRota)*100:0;
-        const rotaPct=realRota>0?(summary.recorded/realRota)*100:0;
-        const ds=getDayStats(summary);
-        const offColor=getOffColor(officePct);
-        const rotaColor=rotaPct>=100?'#22c55e':rotaPct>=80?'#3b82f6':'#f59e0b';
-        const nextTheme=T.isDark?'light':'dark';
+        const realRota = summary.rota - summary.absences - summary.holidays;
+        const factor = summary.recorded / rawTotal;
+        const acts = Object.entries(actMap).map(([n, m]) => ({
+            name: n,
+            adj: Math.floor(m * factor)
+        })).filter(a => a.adj > 0).sort((a, b) => b.adj - a.adj);
+        const totalActMins = acts.reduce((s, a) => s + a.adj, 0);
+        const officeMins = (acts.find(a => a.name === 'Office')?.adj) || 0;
+        const targetMins = realRota * (offTarget / 100);
+        const officePct = targetMins > 0 ? (officeMins / targetMins) * 100 : 0;
+        const officeActPct = realRota > 0 ? (officeMins / realRota) * 100 : 0;
+        const rotaPct = realRota > 0 ? (summary.recorded / realRota) * 100 : 0;
+        const ds = getDayStats(summary);
+        const offColor = getOffColor(officePct);
+        const rotaColor = rotaPct >= 100 ? '#22c55e' : rotaPct >= 80 ? '#3b82f6' : '#f59e0b';
+        const nextTheme = T.isDark ? 'light' : 'dark';
 
-        let html=`<div class="ep-hdr">
+        let html = `<div class="ep-hdr">
             <div class="ep-hdr-logo">${icon('timer',16)}</div>
             <div class="ep-hdr-title">eDays Analyzer Pro</div>
             <div class="ep-hdr-right">
@@ -679,29 +971,75 @@ const offTarget = 60;
         </div><div class="ep-grid">`;
 
         /* Card 1 */
-        const totalActPct=realRota>0?(totalActMins/realRota)*100:0;
-        html+=`<div class="ep-card"><div class="ep-card-title">Activity Breakdown</div>`;
-        acts.forEach(({name,adj})=>{
-            const cfg=ACT_CFG[name]||FALLBACK_CFG;
-            const pct=realRota>0?(adj/realRota)*100:0;
-            html+=`<div class="ep-act-row">${iconBadge(cfg.icon,cfg.bg,26)}<div class="ep-act-info"><div class="ep-act-name">${name}</div><div class="ep-act-meta">${fmt(adj)} · ${pct.toFixed(1)}%</div><div class="ep-bar"><div class="ep-bar-fill" style="width:${clamp(pct,0,100)}%;background:${cfg.grad};"></div></div></div></div>`;
+        const totalActPct = realRota > 0 ? (totalActMins / realRota) * 100 : 0;
+        html += `<div class="ep-card"><div class="ep-card-title">Activity Breakdown</div>`;
+        acts.forEach(({
+            name,
+            adj
+        }) => {
+            const cfg = ACT_CFG[name] || FALLBACK_CFG;
+            const pct = realRota > 0 ? (adj / realRota) * 100 : 0;
+            html += `<div class="ep-act-row">${iconBadge(cfg.icon,cfg.bg,26)}<div class="ep-act-info"><div class="ep-act-name">${name}</div><div class="ep-act-meta">${fmt(adj)} · ${pct.toFixed(1)}%</div><div class="ep-bar"><div class="ep-bar-fill" style="width:${clamp(pct,0,100)}%;background:${cfg.grad};"></div></div></div></div>`;
         });
-        html+=`<div class="ep-divider"></div><div class="ep-total-row"><span class="ep-total-label">Total logged</span><span class="ep-total-val">${fmt(totalActMins)} (${totalActPct.toFixed(1)}%)</span></div><div class="ep-bar"><div class="ep-bar-fill" style="width:${clamp(totalActPct,0,100)}%;background:linear-gradient(90deg,#3b82f6,#a855f7);"></div></div></div>`;
+        html += `<div class="ep-divider"></div><div class="ep-total-row"><span class="ep-total-label">Total logged</span><span class="ep-total-val">${fmt(totalActMins)} (${totalActPct.toFixed(1)}%)</span></div><div class="ep-bar"><div class="ep-bar-fill" style="width:${clamp(totalActPct,0,100)}%;background:linear-gradient(90deg,#3b82f6,#a855f7);"></div></div></div>`;
 
         /* Card 2 */
-        const offRemH=Math.floor(Math.max(0,targetMins-officeMins)/60), offRemM=Math.max(0,targetMins-officeMins)%60;
-        html+=`<div class="ep-card ep-ring-card"><div class="ep-card-title">Office Target · ${offTarget}%</div>
-            <div class="ep-ring-wrap">${ring({r:54,pct:officePct,color:offColor,sw:6,trackColor:T.ringTrack})}
-                <div class="ep-ring-center"><span class="ep-ring-pct" style="color:${offColor}">${officePct.toFixed(0)}%</span><span class="ep-ring-lbl">of target</span></div>
-            </div>
-            <div class="ep-stat-row"><span class="ep-stat-k">Actual</span><span class="ep-stat-v">${officeActPct.toFixed(1)}% of rota</span></div>
-            <div class="ep-stat-row"><span class="ep-stat-k">Logged</span><span class="ep-stat-v">${fmt(officeMins)}</span></div>
-            <div class="ep-stat-row"><span class="ep-stat-k">Target</span><span class="ep-stat-v">${fmt(targetMins)}</span></div>
-            ${officePct<100?`<div class="ep-hint">${icon('today',12,T.muted)}<span>${offRemH}h${offRemM?' '+offRemM+'m':''} to hit ${offTarget}%</span></div>`:`<div class="ep-hint" style="color:#22c55e">${icon('check',12,'#22c55e')}<span>Office target met!</span></div>`}
-        </div>`;
+        const offRemDays = Math.ceil(
+            Math.max(0, targetMins - officeMins) / 480
+        );
+
+        html += `<div class="ep-card ep-ring-card">
+    <div class="ep-card-title">Office Target · ${offTarget}%</div>
+
+    <div class="ep-ring-wrap">
+        ${ring({
+            r: 54,
+            pct: officePct,
+            color: offColor,
+            sw: 6,
+            trackColor: T.ringTrack
+        })}
+
+        <div class="ep-ring-center">
+            <span class="ep-ring-pct" style="color:${offColor}">
+                ${officePct.toFixed(0)}%
+            </span>
+            <span class="ep-ring-lbl">of target</span>
+        </div>
+    </div>
+
+    <div class="ep-stat-row">
+        <span class="ep-stat-k">Actual</span>
+        <span class="ep-stat-v">${officeActPct.toFixed(1)}% of rota</span>
+    </div>
+
+    <div class="ep-stat-row">
+        <span class="ep-stat-k">Logged</span>
+        <span class="ep-stat-v">${fmt(officeMins)}</span>
+    </div>
+
+    <div class="ep-stat-row">
+        <span class="ep-stat-k">Target</span>
+        <span class="ep-stat-v">${fmt(targetMins)}</span>
+    </div>
+
+    ${
+        officePct < 100
+            ? `<div class="ep-hint">
+                ${icon('today', 12, T.muted)}
+                <span>
+                    ${offRemDays} office day${offRemDays === 1 ? '' : 's'} to hit ${offTarget}%
+                </span>
+            </div>`
+        : `<div class="ep-hint" style="color:#22c55e">
+                ${icon('check', 12, '#22c55e')}
+                <span>Office target met!</span>
+            </div>`
+    }
+</div>`;
 
         /* Card 3 */
-        html+=`<div class="ep-card ep-ring-card"><div class="ep-card-title">Time vs Rota</div>
+        html += `<div class="ep-card ep-ring-card"><div class="ep-card-title">Time vs Rota</div>
             <div class="ep-ring-wrap">${ring({r:54,pct:rotaPct,color:rotaColor,sw:6,trackColor:T.ringTrack})}
                 <div class="ep-ring-center"><span class="ep-ring-pct" style="color:${rotaColor}">${rotaPct.toFixed(0)}%</span><span class="ep-ring-lbl">rota</span></div>
             </div>
@@ -713,10 +1051,10 @@ const offTarget = 60;
         </div>`;
 
         /* Card 4 */
-        const bc=ds.bufferMinutes>0?'pos':ds.bufferMinutes<0?'neg':'zer';
-        const bi=ds.bufferMinutes>0?'trending_up':ds.bufferMinutes<0?'trending_down':'trending_flat';
-        const bCol=ds.bufferMinutes>0?'#22c55e':ds.bufferMinutes<0?'#ef4444':T.muted;
-        html+=`<div class="ep-card"><div class="ep-card-title">Buffer &amp; Outlook</div>
+        const bc = ds.bufferMinutes > 0 ? 'pos' : ds.bufferMinutes < 0 ? 'neg' : 'zer';
+        const bi = ds.bufferMinutes > 0 ? 'trending_up' : ds.bufferMinutes < 0 ? 'trending_down' : 'trending_flat';
+        const bCol = ds.bufferMinutes > 0 ? '#22c55e' : ds.bufferMinutes < 0 ? '#ef4444' : T.muted;
+        html += `<div class="ep-card"><div class="ep-card-title">Buffer &amp; Outlook</div>
             <div class="ep-buf-top">${icon(bi,20,bCol)}<span class="ep-buf-val ${bc}">${fmt(ds.bufferMinutes)}</span><span class="ep-buf-sub">${ds.bufferMinutes>=0?'ahead of':'behind'} daily target<br>vs past days</span></div>
             <div class="ep-chip-grid">
                 <div class="ep-chip"><div class="ep-chip-val">${ds.workableDays}</div><div class="ep-chip-lbl">Workable</div></div>
@@ -735,17 +1073,17 @@ const offTarget = 60;
             </div>
         </div>`;
 
-        html+=`</div>`; // close grid
+        html += `</div>`; // close grid
 
         /* Today strip */
-        const todayBufOn=localStorage.getItem(LS.TODAY_BUF)==='true';
-        const todayWorked=getTodayMinutes();
-        const effTarget=todayBufOn?Math.max(0,480-ds.bufferMinutes):480;
-        const todayPct=effTarget>0?Math.min(100,(todayWorked/effTarget)*100):0;
-        const todayDone=todayWorked>=effTarget;
-        const todayRemaining=Math.max(0,effTarget-todayWorked);
-        const leaveAt=new Date(Date.now()+todayRemaining*60000);
-        html+=`<div class="ep-today-strip">
+        const todayBufOn = localStorage.getItem(LS.TODAY_BUF) === 'true';
+        const todayWorked = getTodayMinutes();
+        const effTarget = todayBufOn ? Math.max(0, 480 - ds.bufferMinutes) : 480;
+        const todayPct = effTarget > 0 ? Math.min(100, (todayWorked / effTarget) * 100) : 0;
+        const todayDone = todayWorked >= effTarget;
+        const todayRemaining = Math.max(0, effTarget - todayWorked);
+        const leaveAt = new Date(Date.now() + todayRemaining * 60000);
+        html += `<div class="ep-today-strip">
             <div class="ep-today-label">${iconBadge('timer','#1d4ed8',26)}<span class="ep-today-label-text">Today</span></div>
             <div class="ep-today-centre">
                 <div class="ep-today-nums-row">
@@ -766,26 +1104,35 @@ const offTarget = 60;
         </div>`;
 
         /* Office Planner panel */
-        html+=buildOfficePlannerPanel({T,ds,days:getDetailedDayData()});
+        html += buildOfficePlannerPanel({
+            T,
+            ds,
+            days: getDetailedDayData()
+        });
 
-        container.innerHTML=html;
+        container.innerHTML = html;
         bindInteractions(container);
     };
 
     /* ═══════════════════════════════════════════════════════════════
        BACK BUTTON
     ═══════════════════════════════════════════════════════════════ */
-    const BACK_BTN_ID='ep-back-chip';
+    const BACK_BTN_ID = 'ep-back-chip';
     const injectBackButton = T => {
         document.getElementById(BACK_BTN_ID)?.remove();
         const chip = document.querySelector('.today_chip');
         const cont = chip?.closest('.tt_day_container');
-        if(!cont) return;
+        if (!cont) return;
         const btn = document.createElement('span');
-        btn.id = BACK_BTN_ID; btn.role = 'button'; btn.tabIndex = 0;
+        btn.id = BACK_BTN_ID;
+        btn.role = 'button';
+        btn.tabIndex = 0;
         btn.className = 'ep-btn ep-btn-label';
         btn.innerHTML = `<span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;color:currentColor;">${ICONS.arrow_up}</span> Back to analyzer`;
-        btn.addEventListener('click', e => { e.preventDefault(); jumpToAnalyzer(); });
+        btn.addEventListener('click', e => {
+            e.preventDefault();
+            jumpToAnalyzer();
+        });
         cont.insertBefore(btn, cont.firstChild);
     };
 
@@ -793,25 +1140,32 @@ const offTarget = 60;
        BOOT
     ═══════════════════════════════════════════════════════════════ */
     const boot = () => {
-        const tick=setInterval(()=>{
-            if(document.querySelector('.tt_day_container')&&document.querySelector('.desktop_summary')){
+        const tick = setInterval(() => {
+            if (document.querySelector('.tt_day_container') && document.querySelector('.desktop_summary')) {
                 clearInterval(tick);
                 renderUI();
                 injectBackButton(getTheme());
 
-                let debounce=null;
-                const observer=new MutationObserver(mutations=>{
-                    const ep=document.getElementById('ep13');
-                    const bb=document.getElementById(BACK_BTN_ID);
-                    if(mutations.every(m=>(ep&&(ep.contains(m.target)||ep===m.target))||(bb&&(bb.contains(m.target)||bb===m.target)))) return;
+                let debounce = null;
+                const observer = new MutationObserver(mutations => {
+                    const ep = document.getElementById('ep13');
+                    const bb = document.getElementById(BACK_BTN_ID);
+                    if (mutations.every(m => (ep && (ep.contains(m.target) || ep === m.target)) || (bb && (bb.contains(m.target) || bb === m.target)))) return;
                     clearTimeout(debounce);
-                    debounce=setTimeout(()=>{renderUI();if(!document.getElementById(BACK_BTN_ID))injectBackButton(getTheme());},600);
+                    debounce = setTimeout(() => {
+                        renderUI();
+                        if (!document.getElementById(BACK_BTN_ID)) injectBackButton(getTheme());
+                    }, 600);
                 });
-                const panel=document.getElementById('mainTimesheetPanel');
-                if(panel) observer.observe(panel,{childList:true,subtree:true,characterData:true});
-                setInterval(renderUI,30000);
+                const panel = document.getElementById('mainTimesheetPanel');
+                if (panel) observer.observe(panel, {
+                    childList: true,
+                    subtree: true,
+                    characterData: true
+                });
+                setInterval(renderUI, 30000);
             }
-        },800);
+        }, 800);
     };
 
     boot();
