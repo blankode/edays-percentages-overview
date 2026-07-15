@@ -984,9 +984,9 @@ const offTarget = 60;
         html += `<div class="ep-divider"></div><div class="ep-total-row"><span class="ep-total-label">Total logged</span><span class="ep-total-val">${fmt(totalActMins)} (${totalActPct.toFixed(1)}%)</span></div><div class="ep-bar"><div class="ep-bar-fill" style="width:${clamp(totalActPct,0,100)}%;background:linear-gradient(90deg,#3b82f6,#a855f7);"></div></div></div>`;
 
         /* Card 2 */
-        const offRemDays = Math.ceil(
-            Math.max(0, targetMins - officeMins) / 480
-        );
+        const offRemMins = Math.max(0, Math.ceil(targetMins - officeMins));
+        const offRemDays = Math.ceil(offRemMins / 480);
+        const offRemTime = `${Math.floor(offRemMins / 60)}h ${String(offRemMins % 60).padStart(2, '0')}m`;
 
         html += `<div class="ep-card ep-ring-card">
     <div class="ep-card-title">Office Target · ${offTarget}%</div>
@@ -1028,7 +1028,7 @@ const offTarget = 60;
             ? `<div class="ep-hint">
                 ${icon('today', 12, T.muted)}
                 <span>
-                    ${offRemDays} office day${offRemDays === 1 ? '' : 's'} to hit ${offTarget}%
+                    ${offRemDays} office day${offRemDays === 1 ? '' : 's'} (${offRemTime}) to hit ${offTarget}%
                 </span>
             </div>`
         : `<div class="ep-hint" style="color:#22c55e">
