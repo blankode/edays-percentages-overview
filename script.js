@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      17.5
+// @version      17.6
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
@@ -354,6 +354,14 @@ const offTarget = 60;
                 curStreak = 0;
             }
         });
+
+        /* Real average daily rota target (minutes), derived from the actual month data instead
+           of assuming a flat 480min/day. A flat assumption drifts by a few minutes across the
+           month whenever the true daily rota isn't exactly 8h, and that drift only becomes
+           visible once compared against the real end-of-month Difference (which is always
+           computed correctly by eDays itself). */
+        const avgDailyMinutes = workableDays > 0 ? realRota / workableDays : 480;
+
         let bufferMinutes;
         if (todayIdx === -1) {
             bufferMinutes = summary.difference;
@@ -364,11 +372,12 @@ const offTarget = 60;
                 const m = getDayTotalMinutes(day);
                 if (m <= 0) return;
                 if (idx < todayIdx) {
-                    bufferMinutes += m - 480;
-                } else if (m > 480) {
-                    bufferMinutes += m - 480;
+                    bufferMinutes += m - avgDailyMinutes;
+                } else if (m > avgDailyMinutes) {
+                    bufferMinutes += m - avgDailyMinutes;
                 }
             });
+            bufferMinutes = Math.round(bufferMinutes);
         }
         return {
             workableDays,
@@ -392,7 +401,7 @@ const offTarget = 60;
 
     const getDetailedDayData = () => {
         const todayIdx = [...document.querySelectorAll('.tt_day_container')].findIndex(d => d.querySelector('.today_chip'));
-        return [...document.querySelectorAll('.tt_day_container')].map((day, idx) => {
+        const days = [...document.querySelectorAll('.tt_day_container')].map((day, idx) => {
             const label = day.querySelector('.timesheet_day_text')?.innerText?.trim() || '';
             const parts = label.split(' ');
             const dayName = parts[0] || '';
@@ -465,9 +474,23 @@ const offTarget = 60;
                 hasOffice,
                 hasWFH,
                 isWorkable: !isWeekend && !isAbsent && !isHoliday,
+                weekIndex: 0, // assigned below
                 el: day
             };
         });
+
+        /* Chronological Mon–Sun week index, based on DOM order rather than raw date-of-month
+           numbers. Grouping by date-of-month (e.g. Math.floor((dateNum-1)/7)) collides at month
+           boundaries — day 31 of one month and day 1 of the next both map to low bucket indices,
+           scrambling week rows / calendar order in the planner. Position-based grouping is immune
+           to that since the day containers are already in true chronological order. */
+        let weekIdx = 0;
+        days.forEach((d, i) => {
+            if (i > 0 && d.dayOfWeek === 1 && days[i - 1].dayOfWeek !== 1) weekIdx++;
+            d.weekIndex = weekIdx;
+        });
+
+        return days;
     };
 
     /* ═══════════════════════════════════════════════════════════════
@@ -484,7 +507,7 @@ const offTarget = 60;
         const STANDARD_H = 8;
         const weekMap = new Map();
         future.forEach(d => {
-            const wk = Math.floor((d.dateNum - 1) / 7);
+            const wk = d.weekIndex;
             if (!weekMap.has(wk)) weekMap.set(wk, []);
             weekMap.get(wk).push(d);
         });
@@ -755,11 +778,11 @@ const offTarget = 60;
         });
         html += `</div>`;
 
-        // Week rows
+        // Week rows — grouped by chronological weekIndex (Mon–Sun), not raw date-of-month
         const weekBuckets = new Map();
         days.forEach(d => {
             if (d.isWeekend || !d.dateNum) return;
-            const wk = Math.floor((d.dateNum - 1) / 7);
+            const wk = d.weekIndex;
             if (!weekBuckets.has(wk)) weekBuckets.set(wk, []);
             weekBuckets.get(wk).push(d);
         });
