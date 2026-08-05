@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      17.6
+// @version      17.7
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
@@ -335,26 +335,6 @@ const offTarget = 60;
         const daysLeft = Math.round(Math.max(0, realRota - summary.recorded) / 480);
         const todayIdx = allDays.findIndex(d => d.querySelector('.today_chip'));
 
-        /* Office streak: longest consecutive run of days with Office time, up to and including today */
-        let officeStreak = 0,
-            curStreak = 0;
-        allDays.forEach((day, idx) => {
-            if (todayIdx !== -1 && idx > todayIdx) return; // only past + today
-            const t = day.querySelector('.timesheet_day_text')?.innerText?.trim() || '';
-            if (t.startsWith('Saturday') || t.startsWith('Sunday')) return; // skip weekends (don't break streak)
-            const hasOfficeToday = [...day.querySelectorAll('.tt_period_container')].some(p => {
-                const dur = getPeriodMinutes(p);
-                if (dur <= 0) return false;
-                return p.querySelector('.chosen-single span')?.innerText.trim() === 'Office';
-            });
-            if (hasOfficeToday) {
-                curStreak++;
-                officeStreak = Math.max(officeStreak, curStreak);
-            } else {
-                curStreak = 0;
-            }
-        });
-
         /* Real average daily rota target (minutes), derived from the actual month data instead
            of assuming a flat 480min/day. A flat assumption drifts by a few minutes across the
            month whenever the true daily rota isn't exactly 8h, and that drift only becomes
@@ -381,7 +361,6 @@ const offTarget = 60;
         }
         return {
             workableDays,
-            officeStreak,
             daysLeft,
             workedDays,
             progressPct,
@@ -1074,6 +1053,7 @@ const offTarget = 60;
         </div>`;
 
         /* Card 4 */
+        const wfhDaysAvailable = Math.max(0, ds.daysLeft - offRemDays);
         const bc = ds.bufferMinutes > 0 ? 'pos' : ds.bufferMinutes < 0 ? 'neg' : 'zer';
         const bi = ds.bufferMinutes > 0 ? 'trending_up' : ds.bufferMinutes < 0 ? 'trending_down' : 'trending_flat';
         const bCol = ds.bufferMinutes > 0 ? '#22c55e' : ds.bufferMinutes < 0 ? '#ef4444' : T.muted;
@@ -1081,9 +1061,9 @@ const offTarget = 60;
             <div class="ep-buf-top">${icon(bi,20,bCol)}<span class="ep-buf-val ${bc}">${fmt(ds.bufferMinutes)}</span><span class="ep-buf-sub">${ds.bufferMinutes>=0?'ahead of':'behind'} daily target<br>vs past days</span></div>
             <div class="ep-chip-grid">
                 <div class="ep-chip"><div class="ep-chip-val">${ds.workableDays}</div><div class="ep-chip-lbl">Workable</div></div>
-                <div class="ep-chip"><div class="ep-chip-val" style="color:#3b82f6">${ds.officeStreak}</div><div class="ep-chip-lbl">Office Streak</div></div>
+                <div class="ep-chip"><div class="ep-chip-val" style="color:#3b82f6">${offRemDays}</div><div class="ep-chip-lbl">Office Days Needed</div></div>
                 <div class="ep-chip"><div class="ep-chip-val" style="color:#a855f7">${ds.daysLeft}</div><div class="ep-chip-lbl">Days Left</div></div>
-                <div class="ep-chip"><div class="ep-chip-val" style="color:#f59e0b">${ds.workedDays}</div><div class="ep-chip-lbl">Worked</div></div>
+                <div class="ep-chip"><div class="ep-chip-val" style="color:#f59e0b">${wfhDaysAvailable}</div><div class="ep-chip-lbl">WFH Days Available</div></div>
             </div>
             <div class="ep-prog-wrap">
                 <div class="ep-prog-hdr"><span>Month progress</span><span>${ds.progressPct.toFixed(0)}%</span></div>
