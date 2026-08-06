@@ -1,11 +1,13 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      17.7
+// @version      17.8
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // ==/UserScript==
+
+// Changelog v17.8: Buttons now use blue styling in the light theme and orange styling in the dark theme.
 
 /* ══ Set Office Target (% of rota hours) ══ */
 const offTarget = 60;
@@ -536,11 +538,12 @@ const offTarget = 60;
         #ep13 .ep-hdr-date{font-size:13px;color:${T.muted};letter-spacing:0.5px;display:flex;align-items:center;gap:5px;}
         #ep13 .ep-pulse{width:6px;height:6px;border-radius:50%;background:#22c55e;animation:ep-pulse 3.5s ease-in-out infinite;}
         @keyframes ep-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.65)}}
-        #ep13 .ep-btn{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500;border-radius:7px;cursor:pointer;border:1px solid ${T.border};background:${T.surface};color:${T.muted};transition:background .15s,color .15s,border-color .15s;user-select:none;white-space:nowrap;}
-        #ep13 .ep-btn:hover{background:${T.isDark?'rgba(255,255,255,0.1)':'rgba(0,0,0,0.06)'};color:${T.text};border-color:${T.isDark?'rgba(255,255,255,0.18)':'rgba(0,0,0,0.15)'};}
+        #ep13 .ep-btn{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500;border-radius:7px;cursor:pointer;border:1px solid ${T.isDark?'#ea580c':'#1d4ed8'};background:${T.isDark?'#f97316':'#2563eb'};color:#fff;transition:background .15s,color .15s,border-color .15s;user-select:none;white-space:nowrap;}
+        #ep13 .ep-btn:hover{background:${T.isDark?'#ea580c':'#1d4ed8'};color:#fff;border-color:${T.isDark?'#c2410c':'#1e40af'};}
+        #ep13 .ep-btn > span{color:#fff!important;}
         #ep13 .ep-btn-icon{width:26px;height:26px;padding:0;justify-content:center;}
         #ep13 .ep-btn-label{padding:4px 10px;}
-        #ep13 .ep-btn-pill{padding:4px 10px;gap:6px;background:${T.chipBg};}
+        #ep13 .ep-btn-pill{padding:4px 10px;gap:6px;background:${T.isDark?'#f97316':'#2563eb'};}
         #ep13 .ep-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
         #ep13 .ep-card{background:${T.surface};border:1px solid ${T.border};border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px;min-width:0;}
         #ep13 .ep-card-title{font-size:11px;font-weight:700;letter-spacing:1.1px;text-transform:uppercase;color:${T.muted};}
@@ -647,8 +650,8 @@ const offTarget = 60;
         #ep13 .ep-sched-stat{background:${T.chipBg};border:1px solid ${T.border};border-radius:8px;padding:9px 10px;text-align:center;}
         #ep13 .ep-sched-stat-val{font-size:18px;font-weight:700;line-height:1;}
         #ep13 .ep-sched-stat-lbl{font-size:10px;color:${T.muted};text-transform:uppercase;letter-spacing:.8px;margin-top:3px;}
-        #ep-back-chip.ep-btn{display:inline-flex!important;align-items:center!important;gap:5px!important;font-size:12px!important;font-weight:500!important;border-radius:7px!important;cursor:pointer!important;border:1px solid ${T.border}!important;background:${T.surface}!important;color:${T.muted}!important;transition:background .15s,color .15s,border-color .15s!important;user-select:none!important;white-space:nowrap!important;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif!important;padding:4px 10px!important;margin-bottom:6px!important;}
-        #ep-back-chip.ep-btn:hover{background:${T.isDark?'#2e2e2e':'#ebebeb'}!important;color:${T.text}!important;border-color:${T.isDark?'rgba(255,255,255,0.18)':'rgba(0,0,0,0.15)'}!important;}
+        #ep-back-chip.ep-btn{display:inline-flex!important;align-items:center!important;gap:5px!important;font-size:12px!important;font-weight:500!important;border-radius:7px!important;cursor:pointer!important;border:1px solid ${T.isDark?'#ea580c':'#1d4ed8'}!important;background:${T.isDark?'#f97316':'#2563eb'}!important;color:#fff!important;transition:background .15s,color .15s,border-color .15s!important;user-select:none!important;white-space:nowrap!important;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif!important;padding:4px 10px!important;margin-bottom:6px!important;}
+        #ep-back-chip.ep-btn:hover{background:${T.isDark?'#ea580c':'#1d4ed8'}!important;color:#fff!important;border-color:${T.isDark?'#c2410c':'#1e40af'}!important;}
         html { scroll-behavior: smooth; }
         #ep-today-anchor { scroll-margin-top: 75px; }
         #ep13 { scroll-margin-top: 75px; }
