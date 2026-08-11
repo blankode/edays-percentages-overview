@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      17.8
+// @version      17.9
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // ==/UserScript==
 
+// Changelog v17.9: Fixed buffer calculation to use the true 8-hour daily target and prevent today's buffer from being double-counted.
 // Changelog v17.8: Buttons now use blue styling in the light theme and orange styling in the dark theme.
 
 /* ══ Set Office Target (% of rota hours) ══ */
@@ -337,29 +338,45 @@ const offTarget = 60;
         const daysLeft = Math.round(Math.max(0, realRota - summary.recorded) / 480);
         const todayIdx = allDays.findIndex(d => d.querySelector('.today_chip'));
 
-        /* Real average daily rota target (minutes), derived from the actual month data instead
-           of assuming a flat 480min/day. A flat assumption drifts by a few minutes across the
-           month whenever the true daily rota isn't exactly 8h, and that drift only becomes
-           visible once compared against the real end-of-month Difference (which is always
-           computed correctly by eDays itself). */
-        const avgDailyMinutes = workableDays > 0 ? realRota / workableDays : 480;
+        /* Buffer is measured against the actual standard working day: 8h / 480min.
+           Using realRota/workableDays here can produce an artificial daily target below 8h,
+           which makes normal 8-hour days incorrectly add buffer. */
+        const DAILY_TARGET = 480;
 
         let bufferMinutes;
+        let priorBufferMinutes;
         if (todayIdx === -1) {
+            // If today is not on this page, eDays' own Difference is the safest source of truth.
             bufferMinutes = summary.difference;
+            priorBufferMinutes = summary.difference;
         } else {
             bufferMinutes = 0;
+            priorBufferMinutes = 0;
+
             allDays.forEach((day, idx) => {
+                // Keep the existing behaviour of excluding absence / holiday rows from buffer.
                 if (day.querySelector('.absence_detail_text')?.innerText) return;
+
+                // Future days must never affect the current buffer.
+                if (idx > todayIdx) return;
+
                 const m = getDayTotalMinutes(day);
                 if (m <= 0) return;
+
                 if (idx < todayIdx) {
-                    bufferMinutes += m - avgDailyMinutes;
-                } else if (m > avgDailyMinutes) {
-                    bufferMinutes += m - avgDailyMinutes;
+                    // Completed past day: count the full +/- difference from 8 hours.
+                    const diff = m - DAILY_TARGET;
+                    bufferMinutes += diff;
+                    priorBufferMinutes += diff;
+                } else if (idx === todayIdx && m > DAILY_TARGET) {
+                    // Today only adds positive overtime once 8 hours has actually been exceeded.
+                    // We do not count today's shortfall while the day is still in progress.
+                    bufferMinutes += m - DAILY_TARGET;
                 }
             });
+
             bufferMinutes = Math.round(bufferMinutes);
+            priorBufferMinutes = Math.round(priorBufferMinutes);
         }
         return {
             workableDays,
@@ -367,6 +384,7 @@ const offTarget = 60;
             workedDays,
             progressPct,
             bufferMinutes,
+            priorBufferMinutes,
             realRota
         };
     };
@@ -1061,7 +1079,7 @@ const offTarget = 60;
         const bi = ds.bufferMinutes > 0 ? 'trending_up' : ds.bufferMinutes < 0 ? 'trending_down' : 'trending_flat';
         const bCol = ds.bufferMinutes > 0 ? '#22c55e' : ds.bufferMinutes < 0 ? '#ef4444' : T.muted;
         html += `<div class="ep-card"><div class="ep-card-title">Buffer &amp; Outlook</div>
-            <div class="ep-buf-top">${icon(bi,20,bCol)}<span class="ep-buf-val ${bc}">${fmt(ds.bufferMinutes)}</span><span class="ep-buf-sub">${ds.bufferMinutes>=0?'ahead of':'behind'} daily target<br>vs past days</span></div>
+            <div class="ep-buf-top">${icon(bi,20,bCol)}<span class="ep-buf-val ${bc}">${fmt(ds.bufferMinutes)}</span><span class="ep-buf-sub">${ds.bufferMinutes>=0?'ahead of':'behind'} 8h daily target<br>to date</span></div>
             <div class="ep-chip-grid">
                 <div class="ep-chip"><div class="ep-chip-val">${ds.workableDays}</div><div class="ep-chip-lbl">Workable</div></div>
                 <div class="ep-chip"><div class="ep-chip-val" style="color:#3b82f6">${offRemDays}</div><div class="ep-chip-lbl">Office Days Needed</div></div>
@@ -1084,7 +1102,7 @@ const offTarget = 60;
         /* Today strip */
         const todayBufOn = localStorage.getItem(LS.TODAY_BUF) === 'true';
         const todayWorked = getTodayMinutes();
-        const effTarget = todayBufOn ? Math.max(0, 480 - ds.bufferMinutes) : 480;
+        const effTarget = todayBufOn ? Math.max(0, 480 - ds.priorBufferMinutes) : 480;
         const todayPct = effTarget > 0 ? Math.min(100, (todayWorked / effTarget) * 100) : 0;
         const todayDone = todayWorked >= effTarget;
         const todayRemaining = Math.max(0, effTarget - todayWorked);
