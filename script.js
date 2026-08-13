@@ -1,12 +1,16 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      17.9
+// @version      18.0
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // ==/UserScript==
 
+// Changelog v18.0: Correct half-day AM/PM vacation handling across Today, buffer, remaining time, and Office Planner calculations.
+// Changelog v18.0: Day capacity is now 8h normally, 4h for AM/PM absences, and 0h for full absences/holidays/weekends.
+// Changelog v18.0: Planner uses unique full-date keys, respects remaining daily capacity, and no longer treats every future day as an 8h slot.
+// Changelog v18.0: Today leave-at time is shown only while a time period is actively open.
 // Changelog v17.9: Fixed buffer calculation to use the true 8-hour daily target and prevent today's buffer from being double-counted.
 // Changelog v17.8: Buttons now use blue styling in the light theme and orange styling in the dark theme.
 
@@ -113,18 +117,26 @@ const offTarget = 60;
         const [h, m] = t.split(':').map(Number);
         return h * 60 + (m || 0);
     };
+    const STANDARD_DAY_MINUTES = 480;
+    const HALF_DAY_MINUTES = STANDARD_DAY_MINUTES / 2;
+    const round1 = value => Math.round((value + Number.EPSILON) * 10) / 10;
+    const fmtHours = hours => {
+        const rounded = round1(hours);
+        return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+    };
     const fmt = (mins) => {
-        const sign = mins < 0 ? '-' : '';
-        const abs = Math.abs(mins);
+        const rounded = Math.round(mins || 0);
+        const sign = rounded < 0 ? '-' : '';
+        const abs = Math.abs(rounded);
         const h = Math.floor(abs / 60);
         const m = abs % 60;
         return m === 0 ? `${sign}${h}h` : `${sign}${h}h ${String(m).padStart(2,'0')}m`;
     };
     const parseTime = value => {
-        const m = (value || '').match(/(-?\d+):(\d{2})/);
+        const m = (value || '').match(/([+-]?)(\d+):(\d{2})/);
         if (!m) return 0;
-        const mins = Math.abs(parseInt(m[1])) * 60 + parseInt(m[2]);
-        return parseInt(m[1]) < 0 ? -mins : mins;
+        const mins = parseInt(m[2], 10) * 60 + parseInt(m[3], 10);
+        return m[1] === '-' ? -mins : mins;
     };
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
     const formatClock = date => date.toLocaleTimeString('en-GB', {
@@ -182,26 +194,101 @@ const offTarget = 60;
     /* ═══════════════════════════════════════════════════════════════
        PERIOD / DAY HELPERS
     ═══════════════════════════════════════════════════════════════ */
+    const getDayLabel = dayEl => dayEl.querySelector('.timesheet_day_text')?.innerText?.trim() || '';
     const getDayTotalMinutes = dayEl => timeToMinutes(dayEl.querySelector('.duration_hours')?.innerText?.trim() || '');
-    const getPeriodMinutes = periodEl => {
+
+    const getPeriodTimeValues = periodEl => {
         const inputs = periodEl.querySelectorAll('input[type="time"]');
-        let sv = inputs[0]?.value || '',
-            ev = inputs[1]?.value || '';
-        if (!sv) {
+        let start = inputs[0]?.value || '';
+        let end = inputs[1]?.value || '';
+
+        if (!start) {
             const lbl = periodEl.querySelector('label.hiddenLabel')?.innerText || '';
-            const m = lbl.match(/(\d{2}:\d{2})\s+to\s+(\d{2}:\d{2})?/);
+            const m = lbl.match(/(\d{1,2}:\d{2})\s+to(?:\s+(\d{1,2}:\d{2}))?/i);
             if (m) {
-                sv = m[1] || '';
-                ev = m[2] || '';
+                start = m[1] || '';
+                end = m[2] || '';
             }
         }
-        if (!sv) return 0;
-        if (!ev) {
+
+        return { start, end };
+    };
+
+    const isOpenPeriod = periodEl => {
+        const { start, end } = getPeriodTimeValues(periodEl);
+        return !!start && !end;
+    };
+
+    const getPeriodMinutes = (periodEl, allowOpen = false) => {
+        const { start, end } = getPeriodTimeValues(periodEl);
+        if (!start) return 0;
+
+        let effectiveEnd = end;
+        if (!effectiveEnd) {
+            if (!allowOpen) return 0;
             const n = new Date();
-            ev = `${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}`;
+            effectiveEnd = `${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}`;
         }
-        const d = timeToMinutes(ev) - timeToMinutes(sv);
+
+        const d = timeToMinutes(effectiveEnd) - timeToMinutes(start);
         return d > 0 ? d : 0;
+    };
+
+    const getAbsenceInfo = dayEl => {
+        const text = dayEl.querySelector('.absence_detail_text')?.innerText?.trim() || '';
+        const halfMatch = text.match(/:\s*(AM|PM)\s*$/i);
+        const halfDayPart = halfMatch ? halfMatch[1].toUpperCase() : null;
+        const isHalfDay = !!halfDayPart;
+        const isHoliday = /holiday/i.test(text);
+        const isFullAbsence = !!text && !isHalfDay;
+
+        return {
+            text,
+            isHalfDay,
+            halfDayPart,
+            isHoliday,
+            isFullAbsence
+        };
+    };
+
+    const getDayName = dayEl => (getDayLabel(dayEl).split(/\s+/)[0] || '').replace(/[^A-Za-z]/g, '');
+    const isWeekendDay = dayEl => {
+        const name = getDayName(dayEl);
+        return name === 'Saturday' || name === 'Sunday';
+    };
+
+    const getDayWorkTargetMinutes = dayEl => {
+        if (isWeekendDay(dayEl)) return 0;
+        const absence = getAbsenceInfo(dayEl);
+        if (absence.isHalfDay) return HALF_DAY_MINUTES;
+        if (absence.isFullAbsence || absence.isHoliday) return 0;
+        return STANDARD_DAY_MINUTES;
+    };
+
+    const parseDayDate = label => {
+        const m = (label || '').match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/);
+        if (!m) return null;
+        const day = Number(m[1]);
+        const month = Number(m[2]);
+        const year = Number(m[3]);
+        const date = new Date(year, month - 1, day);
+        if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
+        return date;
+    };
+
+    const getDateKey = (date, fallback) => {
+        if (!date) return fallback;
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+    };
+
+    const getLocalDayStamp = date => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+
+    const getLiveDayMinutes = dayEl => {
+        const saved = getDayTotalMinutes(dayEl);
+        if (!dayEl.querySelector('.today_chip')) return saved;
+        let live = 0;
+        dayEl.querySelectorAll('.tt_period_container').forEach(p => live += getPeriodMinutes(p, true));
+        return Math.max(saved, live);
     };
 
     /* ═══════════════════════════════════════════════════════════════
@@ -298,8 +385,9 @@ const offTarget = 60;
             workedDays = 0;
         document.querySelectorAll('.tt_day_container').forEach(day => {
             let worked = false;
+            const allowOpen = !!day.querySelector('.today_chip');
             day.querySelectorAll('.tt_period_container').forEach(p => {
-                const dur = getPeriodMinutes(p);
+                const dur = getPeriodMinutes(p, allowOpen);
                 if (dur <= 0) return;
                 worked = true;
                 const act = p.querySelector('.chosen-single span')?.innerText.trim() || 'No Activity';
@@ -316,101 +404,25 @@ const offTarget = 60;
         };
     };
 
-    const getDayStats = summary => {
-        const realRota = summary.rota - summary.absences - summary.holidays;
-        const allDays = [...document.querySelectorAll('.tt_day_container')];
-        const isHalfDay = d => {
-            const t = d.querySelector('.absence_detail_text')?.innerText?.trim() || '';
-            return t === 'Vacation: AM' || t === 'Vacation: PM';
-        };
-        const workableDays = allDays.filter(d => {
-            const t = d.querySelector('.timesheet_day_text')?.innerText?.trim() || '';
-            if (t.startsWith('Saturday') || t.startsWith('Sunday')) return false;
-            if (d.querySelector('.absence_detail_text') && !isHalfDay(d)) return false;
-            return true;
-        }).length;
-        const workedDays = allDays.filter(d => {
-            const t = d.querySelector('.timesheet_day_text')?.innerText?.trim() || '';
-            if (t.startsWith('Saturday') || t.startsWith('Sunday')) return false;
-            return getDayTotalMinutes(d) > 0;
-        }).length;
-        const progressPct = realRota > 0 ? (summary.recorded / realRota) * 100 : 0;
-        const daysLeft = Math.round(Math.max(0, realRota - summary.recorded) / 480);
-        const todayIdx = allDays.findIndex(d => d.querySelector('.today_chip'));
-
-        /* Buffer is measured against the actual standard working day: 8h / 480min.
-           Using realRota/workableDays here can produce an artificial daily target below 8h,
-           which makes normal 8-hour days incorrectly add buffer. */
-        const DAILY_TARGET = 480;
-
-        let bufferMinutes;
-        let priorBufferMinutes;
-        if (todayIdx === -1) {
-            // If today is not on this page, eDays' own Difference is the safest source of truth.
-            bufferMinutes = summary.difference;
-            priorBufferMinutes = summary.difference;
-        } else {
-            bufferMinutes = 0;
-            priorBufferMinutes = 0;
-
-            allDays.forEach((day, idx) => {
-                // Keep the existing behaviour of excluding absence / holiday rows from buffer.
-                if (day.querySelector('.absence_detail_text')?.innerText) return;
-
-                // Future days must never affect the current buffer.
-                if (idx > todayIdx) return;
-
-                const m = getDayTotalMinutes(day);
-                if (m <= 0) return;
-
-                if (idx < todayIdx) {
-                    // Completed past day: count the full +/- difference from 8 hours.
-                    const diff = m - DAILY_TARGET;
-                    bufferMinutes += diff;
-                    priorBufferMinutes += diff;
-                } else if (idx === todayIdx && m > DAILY_TARGET) {
-                    // Today only adds positive overtime once 8 hours has actually been exceeded.
-                    // We do not count today's shortfall while the day is still in progress.
-                    bufferMinutes += m - DAILY_TARGET;
-                }
-            });
-
-            bufferMinutes = Math.round(bufferMinutes);
-            priorBufferMinutes = Math.round(priorBufferMinutes);
-        }
-        return {
-            workableDays,
-            daysLeft,
-            workedDays,
-            progressPct,
-            bufferMinutes,
-            priorBufferMinutes,
-            realRota
-        };
-    };
-
-    const getTodayMinutes = () => {
-        const el = [...document.querySelectorAll('.tt_day_container')].find(d => d.querySelector('.today_chip'));
-        if (!el) return 0;
-        let t = 0;
-        el.querySelectorAll('.tt_period_container').forEach(p => t += getPeriodMinutes(p));
-        return t;
-    };
-    const hasTodayOnPage = () => !!document.querySelector('.today_chip');
-
     const getDetailedDayData = () => {
-        const todayIdx = [...document.querySelectorAll('.tt_day_container')].findIndex(d => d.querySelector('.today_chip'));
-        const days = [...document.querySelectorAll('.tt_day_container')].map((day, idx) => {
-            const label = day.querySelector('.timesheet_day_text')?.innerText?.trim() || '';
-            const parts = label.split(' ');
-            const dayName = parts[0] || '';
+        const allDayEls = [...document.querySelectorAll('.tt_day_container')];
+        const markerTodayIdx = allDayEls.findIndex(d => d.querySelector('.today_chip'));
+        const nowStamp = getLocalDayStamp(new Date());
 
-            let dateNum = 0;
-            for (let i = 1; i < parts.length; i++) {
-                const n = parseInt(parts[i], 10);
-                if (!isNaN(n) && n >= 1 && n <= 31) {
-                    dateNum = n;
-                    break;
+        const days = allDayEls.map((day, idx) => {
+            const label = getDayLabel(day);
+            const parts = label.split(/\s+/);
+            const dayName = (parts[0] || '').replace(/[^A-Za-z]/g, '');
+            const parsedDate = parseDayDate(label);
+
+            let dateNum = parsedDate?.getDate() || 0;
+            if (!dateNum) {
+                for (let i = 1; i < parts.length; i++) {
+                    const n = parseInt(parts[i], 10);
+                    if (!isNaN(n) && n >= 1 && n <= 31) {
+                        dateNum = n;
+                        break;
+                    }
                 }
             }
             if (!dateNum) {
@@ -428,22 +440,32 @@ const offTarget = 60;
                 Friday: 5,
                 Saturday: 6
             };
-            const dayOfWeek = DOW_MAP[dayName] ?? -1;
+            const dayOfWeek = parsedDate ? parsedDate.getDay() : (DOW_MAP[dayName] ?? -1);
             const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-            const absenceText = day.querySelector('.absence_detail_text')?.innerText?.trim() || '';
-            const isHalfDay = absenceText === 'Vacation: AM' || absenceText === 'Vacation: PM';
-            const isAbsent = !!absenceText && !isHalfDay;
-            const isHoliday = absenceText.toLowerCase().includes('holiday');
-            const isToday = idx === todayIdx;
-            const isPast = todayIdx !== -1 ? idx < todayIdx : false;
-            const isFuture = todayIdx !== -1 ? idx > todayIdx : true;
-            const totalMins = getDayTotalMinutes(day);
+            const absence = getAbsenceInfo(day);
+            const workTargetMins = getDayWorkTargetMinutes(day);
+
+            let isToday = !!day.querySelector('.today_chip');
+            let isPast = false;
+            let isFuture = false;
+            if (parsedDate) {
+                const stamp = getLocalDayStamp(parsedDate);
+                isToday = isToday || stamp === nowStamp;
+                isPast = stamp < nowStamp;
+                isFuture = stamp > nowStamp;
+            } else if (markerTodayIdx !== -1) {
+                isToday = idx === markerTodayIdx;
+                isPast = idx < markerTodayIdx;
+                isFuture = idx > markerTodayIdx;
+            }
+
+            const totalMins = getLiveDayMinutes(day);
             let officeMins = 0,
                 wfhMins = 0,
                 hasOffice = false,
                 hasWFH = false;
             day.querySelectorAll('.tt_period_container').forEach(p => {
-                const dur = getPeriodMinutes(p);
+                const dur = getPeriodMinutes(p, isToday);
                 if (dur <= 0) return;
                 const act = p.querySelector('.chosen-single span')?.innerText.trim() || '';
                 if (act === 'Office') {
@@ -455,15 +477,20 @@ const offTarget = 60;
                     hasWFH = true;
                 }
             });
+
             return {
+                key: getDateKey(parsedDate, `idx-${idx}`),
                 label,
+                date: parsedDate,
                 dayName,
                 dateNum,
                 dayOfWeek,
                 isWeekend,
-                isAbsent,
-                isHoliday,
-                isHalfDay,
+                absenceText: absence.text,
+                isAbsent: absence.isFullAbsence && !absence.isHoliday,
+                isHoliday: absence.isHoliday,
+                isHalfDay: absence.isHalfDay,
+                halfDayPart: absence.halfDayPart,
                 isToday,
                 isPast,
                 isFuture,
@@ -472,17 +499,15 @@ const offTarget = 60;
                 wfhMins,
                 hasOffice,
                 hasWFH,
-                isWorkable: !isWeekend && !isAbsent && !isHoliday,
-                weekIndex: 0, // assigned below
+                workTargetMins,
+                remainingWorkMins: Math.max(0, workTargetMins - totalMins),
+                isWorkable: workTargetMins > 0,
+                weekIndex: 0,
                 el: day
             };
         });
 
-        /* Chronological Mon–Sun week index, based on DOM order rather than raw date-of-month
-           numbers. Grouping by date-of-month (e.g. Math.floor((dateNum-1)/7)) collides at month
-           boundaries — day 31 of one month and day 1 of the next both map to low bucket indices,
-           scrambling week rows / calendar order in the planner. Position-based grouping is immune
-           to that since the day containers are already in true chronological order. */
+        /* Chronological Mon–Sun week index based on DOM order. */
         let weekIdx = 0;
         days.forEach((d, i) => {
             if (i > 0 && d.dayOfWeek === 1 && days[i - 1].dayOfWeek !== 1) weekIdx++;
@@ -492,6 +517,101 @@ const offTarget = 60;
         return days;
     };
 
+    const getDayStats = summary => {
+        const realRota = Math.max(0, summary.rota - summary.absences - summary.holidays);
+        const days = getDetailedDayData();
+        const workableDays = days.filter(d => d.isWorkable).length;
+        const workableMinutes = days.reduce((sum, d) => sum + d.workTargetMins, 0);
+        const workedDays = days.filter(d => !d.isWeekend && d.totalMins > 0).length;
+        const progressPct = realRota > 0 ? (summary.recorded / realRota) * 100 : 0;
+        const remainingMinutes = Math.max(0, realRota - summary.recorded);
+
+        // Keep the outlook in half-day (4h) increments so a 4h vacation day is represented correctly.
+        const daysLeft = remainingMinutes > 0
+            ? round1(Math.ceil(remainingMinutes / HALF_DAY_MINUTES) / 2)
+            : 0;
+
+        const hasToday = days.some(d => d.isToday);
+        let bufferMinutes;
+        let priorBufferMinutes;
+
+        if (!hasToday) {
+            // Outside the current period, use eDays' own Difference as the safest source of truth.
+            bufferMinutes = summary.difference;
+            priorBufferMinutes = summary.difference;
+        } else {
+            bufferMinutes = 0;
+            priorBufferMinutes = 0;
+
+            days.forEach(d => {
+                if (d.isFuture) return;
+
+                // Preserve the old behaviour for full absences/holidays: they do not create buffer.
+                // Half-day AM/PM absences are deliberately NOT skipped; their target is 4h.
+                if (d.isAbsent || d.isHoliday) return;
+
+                const target = d.workTargetMins;
+                const worked = d.totalMins;
+
+                if (d.isPast) {
+                    // Past weekdays: count the real +/- difference against that day's target.
+                    // Weekend target is 0, so weekend work becomes positive buffer instead of -6h, etc.
+                    const diff = worked - target;
+                    bufferMinutes += diff;
+                    priorBufferMinutes += diff;
+                } else if (d.isToday && worked > target) {
+                    // Today only contributes positive overtime. Its in-progress shortfall is not a deficit yet.
+                    bufferMinutes += worked - target;
+                }
+            });
+
+            bufferMinutes = Math.round(bufferMinutes);
+            priorBufferMinutes = Math.round(priorBufferMinutes);
+        }
+
+        return {
+            workableDays,
+            workableMinutes,
+            workableHours: round1(workableMinutes / 60),
+            daysLeft,
+            remainingMinutes,
+            workedDays,
+            progressPct,
+            bufferMinutes,
+            priorBufferMinutes,
+            realRota
+        };
+    };
+
+    const getTodayInfo = () => {
+        const el = [...document.querySelectorAll('.tt_day_container')].find(d => d.querySelector('.today_chip'));
+        if (!el) return null;
+
+        let workedMinutes = 0;
+        let isRunning = false;
+        el.querySelectorAll('.tt_period_container').forEach(p => {
+            workedMinutes += getPeriodMinutes(p, true);
+            if (isOpenPeriod(p)) isRunning = true;
+        });
+        workedMinutes = Math.max(workedMinutes, getDayTotalMinutes(el));
+
+        const absence = getAbsenceInfo(el);
+        return {
+            el,
+            workedMinutes,
+            targetMinutes: getDayWorkTargetMinutes(el),
+            absenceText: absence.text,
+            isHalfDay: absence.isHalfDay,
+            halfDayPart: absence.halfDayPart,
+            isHoliday: absence.isHoliday,
+            isFullAbsence: absence.isFullAbsence,
+            isRunning
+        };
+    };
+
+    const getTodayMinutes = () => getTodayInfo()?.workedMinutes || 0;
+    const hasTodayOnPage = () => !!document.querySelector('.today_chip');
+
     /* ═══════════════════════════════════════════════════════════════
        HOURS-BASED SCHEDULE PLANNER
     ═══════════════════════════════════════════════════════════════ */
@@ -500,16 +620,22 @@ const offTarget = 60;
         officeHoursStillNeeded
     }) => {
         if (officeHoursStillNeeded <= 0) return new Map();
-        const future = days.filter(d => (d.isFuture || d.isToday) && d.isWorkable);
+
+        const future = days.filter(d =>
+            (d.isFuture || d.isToday) &&
+            d.isWorkable &&
+            d.remainingWorkMins > 0
+        );
         if (!future.length) return new Map();
-        let remaining = officeHoursStillNeeded;
-        const STANDARD_H = 8;
+
+        let remaining = round1(officeHoursStillNeeded);
         const weekMap = new Map();
         future.forEach(d => {
             const wk = d.weekIndex;
             if (!weekMap.has(wk)) weekMap.set(wk, []);
             weekMap.get(wk).push(d);
         });
+
         const DOW_PREF = {
             3: 0,
             2: 1,
@@ -520,19 +646,26 @@ const offTarget = 60;
         weekMap.forEach(w => w.sort((a, b) => (DOW_PREF[a.dayOfWeek] ?? 9) - (DOW_PREF[b.dayOfWeek] ?? 9)));
         const weeks = [...weekMap.entries()].sort((a, b) => a[0] - b[0]);
         const planned = new Map();
+
         weeks.forEach(([, wdays], wi) => {
             if (remaining <= 0) return;
             const weeksLeft = weeks.length - wi;
-            const quota = Math.ceil(remaining / weeksLeft);
+            const quota = round1(Math.ceil((remaining / weeksLeft) * 10) / 10);
             let assigned = 0;
+
             for (const d of wdays) {
                 if (remaining <= 0 || assigned >= quota) break;
-                const h = Math.min(STANDARD_H, remaining, quota - assigned);
-                planned.set(d.dateNum, h);
-                assigned += h;
-                remaining -= h;
+                const capacityH = round1(d.remainingWorkMins / 60);
+                if (capacityH <= 0) continue;
+
+                const h = round1(Math.min(capacityH, remaining, quota - assigned));
+                if (h <= 0) continue;
+                planned.set(d.key, h);
+                assigned = round1(assigned + h);
+                remaining = round1(Math.max(0, remaining - h));
             }
         });
+
         return planned;
     };
 
@@ -716,35 +849,34 @@ const offTarget = 60;
         officeHoursNeeded,
         alreadyDoneOfficeHours
     }) => {
-        const stillNeeded = Math.max(0, officeHoursNeeded - alreadyDoneOfficeHours);
+        const stillNeeded = round1(Math.max(0, officeHoursNeeded - alreadyDoneOfficeHours));
         const plannedMap = buildHoursSchedulePlan({
             days,
             officeHoursStillNeeded: stillNeeded
         });
-        const plannedTotalH = [...plannedMap.values()].reduce((a, b) => a + b, 0);
-        const totalWorkableDays = days.filter(d => d.isWorkable).length;
-        const totalWorkableHours = totalWorkableDays * 8;
+        const plannedTotalH = round1([...plannedMap.values()].reduce((a, b) => a + b, 0));
+        const totalWorkableHours = round1(days.reduce((sum, d) => sum + d.workTargetMins, 0) / 60);
         const donePct = officeHoursNeeded > 0 ? (alreadyDoneOfficeHours / officeHoursNeeded) * 100 : 0;
         const planPct = officeHoursNeeded > 0 ? (plannedTotalH / officeHoursNeeded) * 100 : 0;
-        const totalOfficeH = alreadyDoneOfficeHours + plannedTotalH;
-        const wfhH = Math.max(0, totalWorkableHours - totalOfficeH);
+        const totalOfficeH = round1(alreadyDoneOfficeHours + plannedTotalH);
+        const nonOfficeH = round1(Math.max(0, totalWorkableHours - totalOfficeH));
         const pctOffice = totalWorkableHours > 0 ? Math.round((totalOfficeH / totalWorkableHours) * 100) : 0;
 
         let html = `<div class="ep-sched-section">
             <div class="ep-sched-hdr">${icon('calendar',12,T.muted)}
-                Office Schedule &nbsp;·&nbsp; <strong style="color:${T.text}">${officeHoursNeeded}h needed</strong> &nbsp;·&nbsp; ${alreadyDoneOfficeHours}h done &nbsp;·&nbsp; ${stillNeeded}h remaining
+                Office Schedule &nbsp;·&nbsp; <strong style="color:${T.text}">${fmtHours(officeHoursNeeded)}h needed</strong> &nbsp;·&nbsp; ${fmtHours(alreadyDoneOfficeHours)}h done &nbsp;·&nbsp; ${fmtHours(stillNeeded)}h remaining
             </div>
             <div class="ep-hours-progress">
-                <div class="ep-hours-prog-hdr"><span>Hours progress</span><span style="color:${T.text};font-weight:600;">${alreadyDoneOfficeHours}h / ${officeHoursNeeded}h</span></div>
+                <div class="ep-hours-prog-hdr"><span>Hours progress</span><span style="color:${T.text};font-weight:600;">${fmtHours(alreadyDoneOfficeHours)}h / ${fmtHours(officeHoursNeeded)}h</span></div>
                 <div class="ep-hours-prog-track">
                     <div class="ep-hours-prog-done" style="width:${clamp(donePct,0,100).toFixed(1)}%;"></div>
                     <div class="ep-hours-prog-plan" style="width:${clamp(Math.min(planPct,100-donePct),0,100).toFixed(1)}%;"></div>
                 </div>
                 <div class="ep-sched-legend">
-                    <span class="ep-sched-leg-item"><span class="ep-sched-leg-dot" style="background:#22c55e;"></span>Done (${alreadyDoneOfficeHours}h)</span>
-                    <span class="ep-sched-leg-item"><span class="ep-sched-leg-dot" style="background:#3b82f6;"></span>Planned (${plannedTotalH}h)</span>
+                    <span class="ep-sched-leg-item"><span class="ep-sched-leg-dot" style="background:#22c55e;"></span>Done (${fmtHours(alreadyDoneOfficeHours)}h)</span>
+                    <span class="ep-sched-leg-item"><span class="ep-sched-leg-dot" style="background:#3b82f6;"></span>Planned (${fmtHours(plannedTotalH)}h)</span>
                     <span class="ep-sched-leg-item"><span class="ep-sched-leg-dot" style="background:#a855f7;"></span>WFH done</span>
-                    <span class="ep-sched-leg-item"><span class="ep-sched-leg-dot" style="background:${T.isDark?'rgba(255,255,255,0.15)':'rgba(0,0,0,0.12)'};"></span>WFH/flex</span>
+                    <span class="ep-sched-leg-item"><span class="ep-sched-leg-dot" style="background:${T.isDark?'rgba(255,255,255,0.15)':'rgba(0,0,0,0.12)'};"></span>Non-office/flex</span>
                 </div>
             </div>`;
 
@@ -766,19 +898,23 @@ const offTarget = 60;
             else if (d.isAbsent || d.isHoliday) cls += 'ep-cal-absent';
             else if (d.hasOffice) {
                 cls += 'ep-cal-done-off';
-                hrsLbl = `<span class="ep-cal-hrs">${d.officeMins>=60?Math.round(d.officeMins/60)+'h':d.officeMins+'m'}</span>`;
+                const extraPlanH = plannedMap.get(d.key) || 0;
+                hrsLbl = `<span class="ep-cal-hrs">${fmtHours(d.officeMins/60)}h${extraPlanH>0?` +${fmtHours(extraPlanH)}h`:''}</span>`;
             } else if (d.hasWFH && (d.isPast || d.isToday)) cls += 'ep-cal-done-wfh';
             else if (d.isPast || d.isToday) cls += 'ep-cal-done-any';
-            else if (plannedMap.has(d.dateNum)) {
+            else if (plannedMap.has(d.key)) {
                 cls += 'ep-cal-plan-off';
-                hrsLbl = `<span class="ep-cal-hrs">${plannedMap.get(d.dateNum)}h</span>`;
+                hrsLbl = `<span class="ep-cal-hrs">${fmtHours(plannedMap.get(d.key))}h</span>`;
             } else cls += 'ep-cal-plan-wfh';
+
+            if (!hrsLbl && d.isHalfDay) hrsLbl = `<span class="ep-cal-hrs">${d.halfDayPart} vac</span>`;
             if (d.isToday) cls += ' ep-cal-today';
-            html += `<div class="${cls}" title="${d.label}">${d.dateNum}${hrsLbl}</div>`;
+            const title = d.absenceText ? `${d.label} · ${d.absenceText} · ${fmt(d.workTargetMins)} work target` : d.label;
+            html += `<div class="${cls}" title="${title}">${d.dateNum}${hrsLbl}</div>`;
         });
         html += `</div>`;
 
-        // Week rows — grouped by chronological weekIndex (Mon–Sun), not raw date-of-month
+        // Week rows
         const weekBuckets = new Map();
         days.forEach(d => {
             if (d.isWeekend || !d.dateNum) return;
@@ -798,7 +934,7 @@ const offTarget = 60;
         weekBuckets.forEach(wdays => {
             wn++;
             const offDoneH = wdays.reduce((s, d) => s + (d.officeMins || 0), 0) / 60;
-            const plannedH = wdays.reduce((s, d) => s + (plannedMap.get(d.dateNum) || 0), 0);
+            const plannedH = wdays.reduce((s, d) => s + (plannedMap.get(d.key) || 0), 0);
             const slotMap = new Map(wdays.map(d => [d.dayOfWeek, d]));
             html += `<div class="ep-week-row"><div class="ep-week-label">W${wn}</div><div class="ep-week-days">`;
             [1, 2, 3, 4, 5].forEach(dow => {
@@ -813,27 +949,29 @@ const offTarget = 60;
                     cls += 'ep-wp-absent';
                 } else if (d.hasOffice) {
                     cls += 'ep-wp-done';
-                    sub = `<span class="ep-pill-sub">${Math.round(d.officeMins/60)}h</span>`;
-                } else if (plannedMap.has(d.dateNum)) {
+                    const extraPlanH = plannedMap.get(d.key) || 0;
+                    sub = `<span class="ep-pill-sub">${fmtHours(d.officeMins/60)}h${extraPlanH>0?` +${fmtHours(extraPlanH)}h`:''}${d.isHalfDay?' · ½ day':''}</span>`;
+                } else if (plannedMap.has(d.key)) {
                     cls += 'ep-wp-office';
-                    sub = `<span class="ep-pill-sub">${plannedMap.get(d.dateNum)}h</span>`;
+                    sub = `<span class="ep-pill-sub">${fmtHours(plannedMap.get(d.key))}h${d.isHalfDay?' · ½ day':''}</span>`;
                 } else if (d.hasWFH) {
                     cls += 'ep-wp-wfh';
-                    sub = `<span class="ep-pill-sub">WFH</span>`;
+                    sub = `<span class="ep-pill-sub">WFH${d.isHalfDay?' · ½ day':''}</span>`;
                 } else {
                     cls += 'ep-wp-wfh';
+                    if (d.isHalfDay) sub = `<span class="ep-pill-sub">${d.halfDayPart} vac · 4h</span>`;
                 }
-                html += `<div class="${cls}" title="${d.label}">${DNAMES[dow]}${sub}</div>`;
+                html += `<div class="${cls}" title="${d.label}${d.absenceText?' · '+d.absenceText:''}">${DNAMES[dow]}${sub}</div>`;
             });
-            html += `</div><div class="ep-week-row-summary"><span>${Math.round(offDoneH*10)/10+plannedH}h</span> office</div></div>`;
+            html += `</div><div class="ep-week-row-summary"><span>${fmtHours(round1(offDoneH + plannedH))}h</span> office</div></div>`;
         });
         html += `</div>`;
 
         // Summary chips
         html += `<div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <div class="ep-sched-stat" style="flex:1;min-width:70px;"><div class="ep-sched-stat-val" style="color:#22c55e;">${alreadyDoneOfficeHours}h</div><div class="ep-sched-stat-lbl">Done ✓</div></div>
-            <div class="ep-sched-stat" style="flex:1;min-width:70px;"><div class="ep-sched-stat-val" style="color:#3b82f6;">${plannedTotalH}h</div><div class="ep-sched-stat-lbl">Planned</div></div>
-            <div class="ep-sched-stat" style="flex:1;min-width:70px;"><div class="ep-sched-stat-val" style="color:#a855f7;">${wfhH}h</div><div class="ep-sched-stat-lbl">WFH/Flex</div></div>
+            <div class="ep-sched-stat" style="flex:1;min-width:70px;"><div class="ep-sched-stat-val" style="color:#22c55e;">${fmtHours(alreadyDoneOfficeHours)}h</div><div class="ep-sched-stat-lbl">Done ✓</div></div>
+            <div class="ep-sched-stat" style="flex:1;min-width:70px;"><div class="ep-sched-stat-val" style="color:#3b82f6;">${fmtHours(plannedTotalH)}h</div><div class="ep-sched-stat-lbl">Planned</div></div>
+            <div class="ep-sched-stat" style="flex:1;min-width:70px;"><div class="ep-sched-stat-val" style="color:#a855f7;">${fmtHours(nonOfficeH)}h</div><div class="ep-sched-stat-lbl">Non-office/Flex</div></div>
             <div class="ep-sched-stat" style="flex:1;min-width:70px;"><div class="ep-sched-stat-val" style="color:${pctOffice>=offTarget?'#22c55e':'#f59e0b'};">${pctOffice}%</div><div class="ep-sched-stat-lbl">vs target</div></div>
         </div></div>`;
         return html;
@@ -848,8 +986,8 @@ const offTarget = 60;
         days
     }) => {
         const isOpen = localStorage.getItem(LS.PLANNER_OPEN) === 'true';
-        const officeHoursNeeded = Math.round((ds.realRota * (offTarget / 100)) / 60);
-        const alreadyDoneOfficeHours = Math.round(
+        const officeHoursNeeded = round1((ds.realRota * (offTarget / 100)) / 60);
+        const alreadyDoneOfficeHours = round1(
             days.filter(d => d.hasOffice && (d.isPast || d.isToday)).reduce((s, d) => s + d.officeMins, 0) / 60
         );
 
@@ -857,7 +995,7 @@ const offTarget = 60;
         <div class="ep-planner-toggle" data-action="planner-toggle" role="button" tabindex="0">
             ${iconBadge('calendar','linear-gradient(135deg,#3b82f6,#a855f7)',26)}
             <span class="ep-planner-toggle-label">Office Planner
-                <span class="ep-planner-toggle-sub"> · ${officeHoursNeeded}h needed this month</span>
+                <span class="ep-planner-toggle-sub"> · ${fmtHours(officeHoursNeeded)}h needed this month</span>
             </span>
             ${icon(isOpen?'chevron_up':'chevron_down',14,T.muted)}
         </div>
@@ -873,6 +1011,65 @@ const offTarget = 60;
 
         html += `</div></div>`;
         return html;
+    };
+
+    const buildTodayStrip = ({ T, ds }) => {
+        const today = getTodayInfo();
+        if (!today) return '';
+
+        const todayBufOn = localStorage.getItem(LS.TODAY_BUF) === 'true';
+        const scheduledTarget = today.targetMinutes;
+        let effTarget = scheduledTarget;
+
+        if (todayBufOn && scheduledTarget > 0) {
+            effTarget = Math.max(0, scheduledTarget - ds.priorBufferMinutes);
+            // Never make a half-day vacation require work inside the booked half-day leave.
+            if (today.isHalfDay) effTarget = Math.min(scheduledTarget, effTarget);
+        }
+
+        const todayWorked = today.workedMinutes;
+        const isDayOff = scheduledTarget === 0;
+        const todayPct = isDayOff ? 100 : (effTarget > 0 ? Math.min(100, (todayWorked / effTarget) * 100) : 100);
+        const todayDone = isDayOff || todayWorked >= effTarget;
+        const todayRemaining = Math.max(0, effTarget - todayWorked);
+        const leaveAt = today.isRunning && todayRemaining > 0
+            ? new Date(Date.now() + todayRemaining * 60000)
+            : null;
+
+        let statusHtml;
+        if (isDayOff) {
+            statusHtml = `<span class="ep-today-rem done">${icon('check',12,'#22c55e')} ${today.absenceText || 'Non-working day'}</span>`;
+        } else if (effTarget === 0 && todayBufOn) {
+            statusHtml = `<span class="ep-today-rem done">${icon('check',12,'#22c55e')} Covered by buffer</span>`;
+        } else if (todayDone) {
+            statusHtml = `<span class="ep-today-rem done">${icon('check',12,'#22c55e')} Day complete!</span>`;
+        } else {
+            statusHtml = `<span class="ep-today-rem">${icon('timer',12,T.muted)} ${fmt(todayRemaining)} left${leaveAt?` - leave at ${formatClock(leaveAt)}`:''}</span>`;
+        }
+
+        const targetSuffix = today.isHalfDay && today.absenceText
+            ? ` <span style="opacity:.75;">· ${today.absenceText}</span>`
+            : '';
+
+        return `<div class="ep-today-strip">
+            <div class="ep-today-label">${iconBadge('timer','#1d4ed8',26)}<span class="ep-today-label-text">Today</span></div>
+            <div class="ep-today-centre">
+                <div class="ep-today-nums-row">
+                    <span class="ep-today-done">${fmt(todayWorked)}</span>
+                    <span class="ep-today-sep">/</span>
+                    <span class="ep-today-total">${fmt(effTarget)}${targetSuffix}</span>
+                    ${statusHtml}
+                </div>
+                <div class="ep-today-track"><div class="ep-today-fill" style="width:${todayPct.toFixed(1)}%;background:${todayDone?'#22c55e':'#3b82f6'};"></div></div>
+            </div>
+            <div class="ep-today-actions">
+                ${scheduledTarget>0?`<span class="ep-btn ep-btn-pill" data-action="buf-toggle">
+                    <span class="ep-toggle-track" style="background:${todayBufOn?'#3b82f6':T.barTrack};"><span class="ep-toggle-thumb" style="left:${todayBufOn?'14px':'2px'};"></span></span>
+                    Include buffer
+                </span>`:''}
+                <span class="ep-btn ep-btn-label" data-action="jump-today">${icon('arrow_down',13,T.muted)} Jump to today</span>
+            </div>
+        </div>`;
     };
 
     /* ═══════════════════════════════════════════════════════════════
@@ -956,6 +1153,7 @@ const offTarget = 60;
                     <div class="ep-empty-title">New month — no entries yet</div>
                     <div class="ep-empty-sub">Start logging time in eDays and the dashboard will populate automatically. The Office Planner is still available below.</div>
                 </div>`;
+            container.innerHTML += buildTodayStrip({ T, ds });
             container.innerHTML += buildOfficePlannerPanel({
                 T,
                 ds,
@@ -965,8 +1163,8 @@ const offTarget = 60;
             return;
         }
 
-        const realRota = summary.rota - summary.absences - summary.holidays;
-        const factor = summary.recorded / rawTotal;
+        const realRota = Math.max(0, summary.rota - summary.absences - summary.holidays);
+        const factor = rawTotal > 0 ? summary.recorded / rawTotal : 0;
         const acts = Object.entries(actMap).map(([n, m]) => ({
             name: n,
             adj: Math.floor(m * factor)
@@ -1008,7 +1206,7 @@ const offTarget = 60;
 
         /* Card 2 */
         const offRemMins = Math.max(0, Math.ceil(targetMins - officeMins));
-        const offRemDays = Math.ceil(offRemMins / 480);
+        const offRemDays = offRemMins > 0 ? round1(Math.ceil(offRemMins / HALF_DAY_MINUTES) / 2) : 0;
         const offRemTime = `${Math.floor(offRemMins / 60)}h ${String(offRemMins % 60).padStart(2, '0')}m`;
 
         html += `<div class="ep-card ep-ring-card">
@@ -1070,7 +1268,7 @@ const offTarget = 60;
             <div class="ep-stat-row"><span class="ep-stat-k">Real Rota</span><span class="ep-stat-v">${fmt(realRota)}</span></div>
             <div class="ep-stat-row"><span class="ep-stat-k">Absences</span><span class="ep-stat-v">${fmt(summary.absences)}</span></div>
             <div class="ep-stat-row"><span class="ep-stat-k">Holidays</span><span class="ep-stat-v">${fmt(summary.holidays)}</span></div>
-            <div class="ep-stat-row"><span class="ep-stat-k">Days worked</span><span class="ep-stat-v">${workedDays}d</span></div>
+            <div class="ep-stat-row"><span class="ep-stat-k">Days worked</span><span class="ep-stat-v">${ds.workedDays}d</span></div>
         </div>`;
 
         /* Card 4 */
@@ -1079,7 +1277,7 @@ const offTarget = 60;
         const bi = ds.bufferMinutes > 0 ? 'trending_up' : ds.bufferMinutes < 0 ? 'trending_down' : 'trending_flat';
         const bCol = ds.bufferMinutes > 0 ? '#22c55e' : ds.bufferMinutes < 0 ? '#ef4444' : T.muted;
         html += `<div class="ep-card"><div class="ep-card-title">Buffer &amp; Outlook</div>
-            <div class="ep-buf-top">${icon(bi,20,bCol)}<span class="ep-buf-val ${bc}">${fmt(ds.bufferMinutes)}</span><span class="ep-buf-sub">${ds.bufferMinutes>=0?'ahead of':'behind'} 8h daily target<br>to date</span></div>
+            <div class="ep-buf-top">${icon(bi,20,bCol)}<span class="ep-buf-val ${bc}">${fmt(ds.bufferMinutes)}</span><span class="ep-buf-sub">${ds.bufferMinutes>=0?'ahead of':'behind'} scheduled daily target<br>to date</span></div>
             <div class="ep-chip-grid">
                 <div class="ep-chip"><div class="ep-chip-val">${ds.workableDays}</div><div class="ep-chip-lbl">Workable</div></div>
                 <div class="ep-chip"><div class="ep-chip-val" style="color:#3b82f6">${offRemDays}</div><div class="ep-chip-lbl">Office Days Needed</div></div>
@@ -1091,7 +1289,7 @@ const offTarget = 60;
                 <div class="ep-prog-track"><div class="ep-prog-fill" style="width:${clamp(ds.progressPct,0,100).toFixed(1)}%"></div></div>
             </div>
             <div class="ep-notices">
-                ${ds.daysLeft>0?`<div class="ep-notice">${icon('calendar',12,T.muted)}<span>${ds.daysLeft}d left · ${fmt(ds.daysLeft*480)} remaining</span></div>`:''}
+                ${ds.remainingMinutes>0?`<div class="ep-notice">${icon('calendar',12,T.muted)}<span>${ds.daysLeft}d equivalent left · ${fmt(ds.remainingMinutes)} remaining</span></div>`:''}
                 ${ds.bufferMinutes>0?`<div class="ep-notice good">${icon('savings',12,'#22c55e')}<span>${fmt(ds.bufferMinutes)} banked</span></div>`:ds.bufferMinutes<0?`<div class="ep-notice warn">${icon('warning',12,'#ef4444')}<span>${fmt(Math.abs(ds.bufferMinutes))} deficit</span></div>`:`<div class="ep-notice">${icon('flag',12,T.muted)}<span>Exactly on target!</span></div>`}
                 <div class="ep-notice">${icon('flag',12,T.muted)}<span>Month target: ${fmt(ds.realRota)}</span></div>
             </div>
@@ -1100,32 +1298,7 @@ const offTarget = 60;
         html += `</div>`; // close grid
 
         /* Today strip */
-        const todayBufOn = localStorage.getItem(LS.TODAY_BUF) === 'true';
-        const todayWorked = getTodayMinutes();
-        const effTarget = todayBufOn ? Math.max(0, 480 - ds.priorBufferMinutes) : 480;
-        const todayPct = effTarget > 0 ? Math.min(100, (todayWorked / effTarget) * 100) : 0;
-        const todayDone = todayWorked >= effTarget;
-        const todayRemaining = Math.max(0, effTarget - todayWorked);
-        const leaveAt = new Date(Date.now() + todayRemaining * 60000);
-        html += `<div class="ep-today-strip">
-            <div class="ep-today-label">${iconBadge('timer','#1d4ed8',26)}<span class="ep-today-label-text">Today</span></div>
-            <div class="ep-today-centre">
-                <div class="ep-today-nums-row">
-                    <span class="ep-today-done">${fmt(todayWorked)}</span>
-                    <span class="ep-today-sep">/</span>
-                    <span class="ep-today-total">${fmt(effTarget)}</span>
-                    ${todayDone?`<span class="ep-today-rem done">${icon('check',12,'#22c55e')} Day complete!</span>`:`<span class="ep-today-rem">${icon('timer',12,T.muted)} ${fmt(todayRemaining)} left - leave at ${formatClock(leaveAt)}</span>`}
-                </div>
-                <div class="ep-today-track"><div class="ep-today-fill" style="width:${todayPct.toFixed(1)}%;background:${todayDone?'#22c55e':'#3b82f6'};"></div></div>
-            </div>
-            <div class="ep-today-actions">
-                <span class="ep-btn ep-btn-pill" data-action="buf-toggle">
-                    <span class="ep-toggle-track" style="background:${todayBufOn?'#3b82f6':T.barTrack};"><span class="ep-toggle-thumb" style="left:${todayBufOn?'14px':'2px'};"></span></span>
-                    Include buffer
-                </span>
-                ${hasTodayOnPage()?`<span class="ep-btn ep-btn-label" data-action="jump-today">${icon('arrow_down',13,T.muted)} Jump to today</span>`:''}
-            </div>
-        </div>`;
+        html += buildTodayStrip({ T, ds });
 
         /* Office Planner panel */
         html += buildOfficePlannerPanel({
