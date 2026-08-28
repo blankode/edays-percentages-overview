@@ -1,12 +1,17 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      18.0
+// @version      18.1
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // ==/UserScript==
 
+// Changelog v18.1: Office Target ring now derives office minutes from each day's own logged periods
+// Changelog v18.1: instead of scaling by the recorded/rawTotal reconciliation factor, which could
+// Changelog v18.1: round already-banked office minutes DOWN whenever a later day's activity was logged.
+// Changelog v18.1: "Office Days Needed" / "WFH Days Available" chips now show exact hours (e.g. "3h 30m")
+// Changelog v18.1: and relabel to "...Time Needed/Available" whenever the remaining amount is <= 1 day.
 // Changelog v18.0: Correct half-day AM/PM vacation handling across Today, buffer, remaining time, and Office Planner calculations.
 // Changelog v18.0: Day capacity is now 8h normally, 4h for AM/PM absences, and 0h for full absences/holidays/weekends.
 // Changelog v18.0: Planner uses unique full-date keys, respects remaining daily capacity, and no longer treats every future day as an 8h slot.
@@ -1170,7 +1175,15 @@ const offTarget = 60;
             adj: Math.floor(m * factor)
         })).filter(a => a.adj > 0).sort((a, b) => b.adj - a.adj);
         const totalActMins = acts.reduce((s, a) => s + a.adj, 0);
-        const officeMins = (acts.find(a => a.name === 'Office')?.adj) || 0;
+
+        const days = getDetailedDayData();
+        // Office Target must be monotonic: only a change in the actual ROTA (target side) or an edit
+        // to a past day's own Office hours (numerator side) should move it. Deriving it from each
+        // day's own logged Office minutes (already exact) avoids the recorded/rawTotal reconciliation
+        // factor used for the Activity Breakdown below, which shifts slightly every time ANY new
+        // period is logged on ANY day and could round already-banked Office minutes back down.
+        const officeMins = days.reduce((s, d) => (d.hasOffice && (d.isPast || d.isToday)) ? s + d.officeMins : s, 0);
+
         const targetMins = realRota * (offTarget / 100);
         const officePct = targetMins > 0 ? (officeMins / targetMins) * 100 : 0;
         const officeActPct = realRota > 0 ? (officeMins / realRota) * 100 : 0;
@@ -1273,6 +1286,11 @@ const offTarget = 60;
 
         /* Card 4 */
         const wfhDaysAvailable = Math.max(0, ds.daysLeft - offRemDays);
+        const wfhAvailableMins = Math.max(0, ds.remainingMinutes - offRemMins);
+        const officeChipVal = offRemDays <= 1 ? fmt(offRemMins) : String(offRemDays);
+        const officeChipLbl = offRemDays <= 1 ? 'Office Time Needed' : 'Office Days Needed';
+        const wfhChipVal = wfhDaysAvailable <= 1 ? fmt(wfhAvailableMins) : String(wfhDaysAvailable);
+        const wfhChipLbl = wfhDaysAvailable <= 1 ? 'WFH Time Available' : 'WFH Days Available';
         const bc = ds.bufferMinutes > 0 ? 'pos' : ds.bufferMinutes < 0 ? 'neg' : 'zer';
         const bi = ds.bufferMinutes > 0 ? 'trending_up' : ds.bufferMinutes < 0 ? 'trending_down' : 'trending_flat';
         const bCol = ds.bufferMinutes > 0 ? '#22c55e' : ds.bufferMinutes < 0 ? '#ef4444' : T.muted;
@@ -1280,9 +1298,9 @@ const offTarget = 60;
             <div class="ep-buf-top">${icon(bi,20,bCol)}<span class="ep-buf-val ${bc}">${fmt(ds.bufferMinutes)}</span><span class="ep-buf-sub">${ds.bufferMinutes>=0?'ahead of':'behind'} scheduled daily target<br>to date</span></div>
             <div class="ep-chip-grid">
                 <div class="ep-chip"><div class="ep-chip-val">${ds.workableDays}</div><div class="ep-chip-lbl">Workable</div></div>
-                <div class="ep-chip"><div class="ep-chip-val" style="color:#3b82f6">${offRemDays}</div><div class="ep-chip-lbl">Office Days Needed</div></div>
+                <div class="ep-chip"><div class="ep-chip-val" style="color:#3b82f6;${offRemDays<=1?'font-size:15px;':''}">${officeChipVal}</div><div class="ep-chip-lbl">${officeChipLbl}</div></div>
                 <div class="ep-chip"><div class="ep-chip-val" style="color:#a855f7">${ds.daysLeft}</div><div class="ep-chip-lbl">Days Left</div></div>
-                <div class="ep-chip"><div class="ep-chip-val" style="color:#f59e0b">${wfhDaysAvailable}</div><div class="ep-chip-lbl">WFH Days Available</div></div>
+                <div class="ep-chip"><div class="ep-chip-val" style="color:#f59e0b;${wfhDaysAvailable<=1?'font-size:15px;':''}">${wfhChipVal}</div><div class="ep-chip-lbl">${wfhChipLbl}</div></div>
             </div>
             <div class="ep-prog-wrap">
                 <div class="ep-prog-hdr"><span>Month progress</span><span>${ds.progressPct.toFixed(0)}%</span></div>
@@ -1304,7 +1322,7 @@ const offTarget = 60;
         html += buildOfficePlannerPanel({
             T,
             ds,
-            days: getDetailedDayData()
+            days
         });
 
         container.innerHTML = html;
