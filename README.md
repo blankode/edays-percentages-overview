@@ -150,6 +150,7 @@ Tested on `*.e-days.com` monthly timesheet view.
 
 | Version | Changes |
 |---|---| 
+| **18.1** | Improved office-time accuracy and remaining-time labels. |
 | **18.0** | Fixed half-day vacation (AM/PM) handling across daily targets, buffer, Today leave time, remaining hours, and office planner calculations. |
 | **17.9** | Corrected buffer calculation. |
 | **17.8** | Buttons now use blue styling in the light theme and orange styling in the dark theme. |
