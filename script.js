@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      18.1
+// @version      18.2
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // ==/UserScript==
-
+// Changelog v18.2: Unified button styling and hover behaviour, including the Back to Analyzer button, beautified code.
+// Changelog v18.2: Fixed Back to Analyzer scrolling so it no longer causes persistent horizontal page/title-bar shifting.
 // Changelog v18.1: Office Target ring now derives office minutes from each day's own logged periods
 // Changelog v18.1: instead of scaling by the recorded/rawTotal reconciliation factor, which could
 // Changelog v18.1: round already-banked office minutes DOWN whenever a later day's activity was logged.
@@ -18,13 +19,10 @@
 // Changelog v18.0: Today leave-at time is shown only while a time period is actively open.
 // Changelog v17.9: Fixed buffer calculation to use the true 8-hour daily target and prevent today's buffer from being double-counted.
 // Changelog v17.8: Buttons now use blue styling in the light theme and orange styling in the dark theme.
-
 /* ══ Set Office Target (% of rota hours) ══ */
 const offTarget = 60;
-
 (function() {
     'use strict';
-
     /* ═══════════════════════════════════════════════════════════════
        LOCALSTORAGE KEYS
     ═══════════════════════════════════════════════════════════════ */
@@ -33,7 +31,6 @@ const offTarget = 60;
         TODAY_BUF: 'ep-today-buffer',
         PLANNER_OPEN: 'ep-planner-open',
     };
-
     /* ═══════════════════════════════════════════════════════════════
        THEME
     ═══════════════════════════════════════════════════════════════ */
@@ -113,7 +110,6 @@ const offTarget = 60;
         };
         return buildTheme();
     };
-
     /* ═══════════════════════════════════════════════════════════════
        UTILITIES
     ═══════════════════════════════════════════════════════════════ */
@@ -149,7 +145,6 @@ const offTarget = 60;
         minute: '2-digit',
         hour12: false
     });
-
     /* ═══════════════════════════════════════════════════════════════
        SCROLL HELPERS
     ═══════════════════════════════════════════════════════════════ */
@@ -190,23 +185,36 @@ const offTarget = 60;
     };
     const jumpToAnalyzer = () => {
         const el = document.getElementById('ep13');
-        if (el) el.scrollIntoView({
-            behavior: 'smooth',
-            block: 'start'
-        });
+        if (!el) return;
+        const sp = getScrollParent(el),
+            offset = 75;
+        if (sp === window) {
+            const left = window.scrollX;
+            const top = el.getBoundingClientRect().top + window.scrollY - offset;
+            window.scrollTo({
+                top,
+                left,
+                behavior: 'smooth'
+            });
+        } else {
+            const left = sp.scrollLeft;
+            const top = el.getBoundingClientRect().top - sp.getBoundingClientRect().top + sp.scrollTop - offset;
+            sp.scrollTo({
+                top,
+                left,
+                behavior: 'smooth'
+            });
+        }
     };
-
     /* ═══════════════════════════════════════════════════════════════
        PERIOD / DAY HELPERS
     ═══════════════════════════════════════════════════════════════ */
     const getDayLabel = dayEl => dayEl.querySelector('.timesheet_day_text')?.innerText?.trim() || '';
     const getDayTotalMinutes = dayEl => timeToMinutes(dayEl.querySelector('.duration_hours')?.innerText?.trim() || '');
-
     const getPeriodTimeValues = periodEl => {
         const inputs = periodEl.querySelectorAll('input[type="time"]');
         let start = inputs[0]?.value || '';
         let end = inputs[1]?.value || '';
-
         if (!start) {
             const lbl = periodEl.querySelector('label.hiddenLabel')?.innerText || '';
             const m = lbl.match(/(\d{1,2}:\d{2})\s+to(?:\s+(\d{1,2}:\d{2}))?/i);
@@ -215,30 +223,33 @@ const offTarget = 60;
                 end = m[2] || '';
             }
         }
-
-        return { start, end };
+        return {
+            start,
+            end
+        };
     };
-
     const isOpenPeriod = periodEl => {
-        const { start, end } = getPeriodTimeValues(periodEl);
+        const {
+            start,
+            end
+        } = getPeriodTimeValues(periodEl);
         return !!start && !end;
     };
-
     const getPeriodMinutes = (periodEl, allowOpen = false) => {
-        const { start, end } = getPeriodTimeValues(periodEl);
+        const {
+            start,
+            end
+        } = getPeriodTimeValues(periodEl);
         if (!start) return 0;
-
         let effectiveEnd = end;
         if (!effectiveEnd) {
             if (!allowOpen) return 0;
             const n = new Date();
             effectiveEnd = `${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}`;
         }
-
         const d = timeToMinutes(effectiveEnd) - timeToMinutes(start);
         return d > 0 ? d : 0;
     };
-
     const getAbsenceInfo = dayEl => {
         const text = dayEl.querySelector('.absence_detail_text')?.innerText?.trim() || '';
         const halfMatch = text.match(/:\s*(AM|PM)\s*$/i);
@@ -246,7 +257,6 @@ const offTarget = 60;
         const isHalfDay = !!halfDayPart;
         const isHoliday = /holiday/i.test(text);
         const isFullAbsence = !!text && !isHalfDay;
-
         return {
             text,
             isHalfDay,
@@ -255,13 +265,11 @@ const offTarget = 60;
             isFullAbsence
         };
     };
-
     const getDayName = dayEl => (getDayLabel(dayEl).split(/\s+/)[0] || '').replace(/[^A-Za-z]/g, '');
     const isWeekendDay = dayEl => {
         const name = getDayName(dayEl);
         return name === 'Saturday' || name === 'Sunday';
     };
-
     const getDayWorkTargetMinutes = dayEl => {
         if (isWeekendDay(dayEl)) return 0;
         const absence = getAbsenceInfo(dayEl);
@@ -269,7 +277,6 @@ const offTarget = 60;
         if (absence.isFullAbsence || absence.isHoliday) return 0;
         return STANDARD_DAY_MINUTES;
     };
-
     const parseDayDate = label => {
         const m = (label || '').match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/);
         if (!m) return null;
@@ -280,14 +287,11 @@ const offTarget = 60;
         if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
         return date;
     };
-
     const getDateKey = (date, fallback) => {
         if (!date) return fallback;
         return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
     };
-
     const getLocalDayStamp = date => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-
     const getLiveDayMinutes = dayEl => {
         const saved = getDayTotalMinutes(dayEl);
         if (!dayEl.querySelector('.today_chip')) return saved;
@@ -295,7 +299,6 @@ const offTarget = 60;
         dayEl.querySelectorAll('.tt_period_container').forEach(p => live += getPeriodMinutes(p, true));
         return Math.max(saved, live);
     };
-
     /* ═══════════════════════════════════════════════════════════════
        ICONS
     ═══════════════════════════════════════════════════════════════ */
@@ -321,11 +324,8 @@ const offTarget = 60;
         chevron_down: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>`,
         chevron_up: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6 1.41 1.41z"/></svg>`,
     };
-    const icon = (name, size = 14, color = '#fff') =>
-        `<span style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;color:${color};flex-shrink:0;">${ICONS[name]||''}</span>`;
-    const iconBadge = (name, bg, size = 28) =>
-        `<span style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;background:${bg};border-radius:7px;flex-shrink:0;color:#fff;">${ICONS[name]||''}</span>`;
-
+    const icon = (name, size = 14, color = '#fff') => `<span style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;color:${color};flex-shrink:0;">${ICONS[name]||''}</span>`;
+    const iconBadge = (name, bg, size = 28) => `<span style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;background:${bg};border-radius:7px;flex-shrink:0;color:#fff;">${ICONS[name]||''}</span>`;
     /* ═══════════════════════════════════════════════════════════════
        OFFICE TARGET COLOR / RING
     ═══════════════════════════════════════════════════════════════ */
@@ -347,7 +347,6 @@ const offTarget = 60;
                 stroke-dasharray="${dash.toFixed(2)} ${circ.toFixed(2)}" stroke-linecap="round"/>
         </svg>`;
     };
-
     /* ═══════════════════════════════════════════════════════════════
        DATA GATHERING
     ═══════════════════════════════════════════════════════════════ */
@@ -372,13 +371,11 @@ const offTarget = 60;
         });
         return d;
     };
-
     /* Check if eDays summary panel has actually loaded (rota > 0 means the page is ready) */
     const isSummaryReady = () => {
         const blocks = document.querySelectorAll('.desktop_summary .summary_block');
         return blocks.length > 0;
     };
-
     const getActivityData = () => {
         const actMap = {
             'Office': 0,
@@ -408,18 +405,15 @@ const offTarget = 60;
             workedDays
         };
     };
-
     const getDetailedDayData = () => {
         const allDayEls = [...document.querySelectorAll('.tt_day_container')];
         const markerTodayIdx = allDayEls.findIndex(d => d.querySelector('.today_chip'));
         const nowStamp = getLocalDayStamp(new Date());
-
         const days = allDayEls.map((day, idx) => {
             const label = getDayLabel(day);
             const parts = label.split(/\s+/);
             const dayName = (parts[0] || '').replace(/[^A-Za-z]/g, '');
             const parsedDate = parseDayDate(label);
-
             let dateNum = parsedDate?.getDate() || 0;
             if (!dateNum) {
                 for (let i = 1; i < parts.length; i++) {
@@ -435,7 +429,6 @@ const offTarget = 60;
                 const m = txt.match(/\d+/);
                 if (m) dateNum = parseInt(m[0], 10);
             }
-
             const DOW_MAP = {
                 Sunday: 0,
                 Monday: 1,
@@ -449,7 +442,6 @@ const offTarget = 60;
             const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
             const absence = getAbsenceInfo(day);
             const workTargetMins = getDayWorkTargetMinutes(day);
-
             let isToday = !!day.querySelector('.today_chip');
             let isPast = false;
             let isFuture = false;
@@ -463,7 +455,6 @@ const offTarget = 60;
                 isPast = idx < markerTodayIdx;
                 isFuture = idx > markerTodayIdx;
             }
-
             const totalMins = getLiveDayMinutes(day);
             let officeMins = 0,
                 wfhMins = 0,
@@ -482,7 +473,6 @@ const offTarget = 60;
                     hasWFH = true;
                 }
             });
-
             return {
                 key: getDateKey(parsedDate, `idx-${idx}`),
                 label,
@@ -511,17 +501,14 @@ const offTarget = 60;
                 el: day
             };
         });
-
         /* Chronological Mon–Sun week index based on DOM order. */
         let weekIdx = 0;
         days.forEach((d, i) => {
             if (i > 0 && d.dayOfWeek === 1 && days[i - 1].dayOfWeek !== 1) weekIdx++;
             d.weekIndex = weekIdx;
         });
-
         return days;
     };
-
     const getDayStats = summary => {
         const realRota = Math.max(0, summary.rota - summary.absences - summary.holidays);
         const days = getDetailedDayData();
@@ -530,16 +517,11 @@ const offTarget = 60;
         const workedDays = days.filter(d => !d.isWeekend && d.totalMins > 0).length;
         const progressPct = realRota > 0 ? (summary.recorded / realRota) * 100 : 0;
         const remainingMinutes = Math.max(0, realRota - summary.recorded);
-
         // Keep the outlook in half-day (4h) increments so a 4h vacation day is represented correctly.
-        const daysLeft = remainingMinutes > 0
-            ? round1(Math.ceil(remainingMinutes / HALF_DAY_MINUTES) / 2)
-            : 0;
-
+        const daysLeft = remainingMinutes > 0 ? round1(Math.ceil(remainingMinutes / HALF_DAY_MINUTES) / 2) : 0;
         const hasToday = days.some(d => d.isToday);
         let bufferMinutes;
         let priorBufferMinutes;
-
         if (!hasToday) {
             // Outside the current period, use eDays' own Difference as the safest source of truth.
             bufferMinutes = summary.difference;
@@ -547,17 +529,13 @@ const offTarget = 60;
         } else {
             bufferMinutes = 0;
             priorBufferMinutes = 0;
-
             days.forEach(d => {
                 if (d.isFuture) return;
-
                 // Preserve the old behaviour for full absences/holidays: they do not create buffer.
                 // Half-day AM/PM absences are deliberately NOT skipped; their target is 4h.
                 if (d.isAbsent || d.isHoliday) return;
-
                 const target = d.workTargetMins;
                 const worked = d.totalMins;
-
                 if (d.isPast) {
                     // Past weekdays: count the real +/- difference against that day's target.
                     // Weekend target is 0, so weekend work becomes positive buffer instead of -6h, etc.
@@ -569,11 +547,9 @@ const offTarget = 60;
                     bufferMinutes += worked - target;
                 }
             });
-
             bufferMinutes = Math.round(bufferMinutes);
             priorBufferMinutes = Math.round(priorBufferMinutes);
         }
-
         return {
             workableDays,
             workableMinutes,
@@ -587,11 +563,9 @@ const offTarget = 60;
             realRota
         };
     };
-
     const getTodayInfo = () => {
         const el = [...document.querySelectorAll('.tt_day_container')].find(d => d.querySelector('.today_chip'));
         if (!el) return null;
-
         let workedMinutes = 0;
         let isRunning = false;
         el.querySelectorAll('.tt_period_container').forEach(p => {
@@ -599,7 +573,6 @@ const offTarget = 60;
             if (isOpenPeriod(p)) isRunning = true;
         });
         workedMinutes = Math.max(workedMinutes, getDayTotalMinutes(el));
-
         const absence = getAbsenceInfo(el);
         return {
             el,
@@ -613,10 +586,8 @@ const offTarget = 60;
             isRunning
         };
     };
-
     const getTodayMinutes = () => getTodayInfo()?.workedMinutes || 0;
     const hasTodayOnPage = () => !!document.querySelector('.today_chip');
-
     /* ═══════════════════════════════════════════════════════════════
        HOURS-BASED SCHEDULE PLANNER
     ═══════════════════════════════════════════════════════════════ */
@@ -625,14 +596,8 @@ const offTarget = 60;
         officeHoursStillNeeded
     }) => {
         if (officeHoursStillNeeded <= 0) return new Map();
-
-        const future = days.filter(d =>
-            (d.isFuture || d.isToday) &&
-            d.isWorkable &&
-            d.remainingWorkMins > 0
-        );
+        const future = days.filter(d => (d.isFuture || d.isToday) && d.isWorkable && d.remainingWorkMins > 0);
         if (!future.length) return new Map();
-
         let remaining = round1(officeHoursStillNeeded);
         const weekMap = new Map();
         future.forEach(d => {
@@ -640,7 +605,6 @@ const offTarget = 60;
             if (!weekMap.has(wk)) weekMap.set(wk, []);
             weekMap.get(wk).push(d);
         });
-
         const DOW_PREF = {
             3: 0,
             2: 1,
@@ -651,18 +615,15 @@ const offTarget = 60;
         weekMap.forEach(w => w.sort((a, b) => (DOW_PREF[a.dayOfWeek] ?? 9) - (DOW_PREF[b.dayOfWeek] ?? 9)));
         const weeks = [...weekMap.entries()].sort((a, b) => a[0] - b[0]);
         const planned = new Map();
-
         weeks.forEach(([, wdays], wi) => {
             if (remaining <= 0) return;
             const weeksLeft = weeks.length - wi;
             const quota = round1(Math.ceil((remaining / weeksLeft) * 10) / 10);
             let assigned = 0;
-
             for (const d of wdays) {
                 if (remaining <= 0 || assigned >= quota) break;
                 const capacityH = round1(d.remainingWorkMins / 60);
                 if (capacityH <= 0) continue;
-
                 const h = round1(Math.min(capacityH, remaining, quota - assigned));
                 if (h <= 0) continue;
                 planned.set(d.key, h);
@@ -670,10 +631,8 @@ const offTarget = 60;
                 remaining = round1(Math.max(0, remaining - h));
             }
         });
-
         return planned;
     };
-
     /* ═══════════════════════════════════════════════════════════════
        STYLES
     ═══════════════════════════════════════════════════════════════ */
@@ -694,12 +653,10 @@ const offTarget = 60;
         #ep13 .ep-hdr-date{font-size:13px;color:${T.muted};letter-spacing:0.5px;display:flex;align-items:center;gap:5px;}
         #ep13 .ep-pulse{width:6px;height:6px;border-radius:50%;background:#22c55e;animation:ep-pulse 3.5s ease-in-out infinite;}
         @keyframes ep-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.65)}}
-        #ep13 .ep-btn{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500;border-radius:7px;cursor:pointer;border:1px solid ${T.isDark?'#ea580c':'#1d4ed8'};background:${T.isDark?'#f97316':'#2563eb'};color:#fff;transition:background .15s,color .15s,border-color .15s;user-select:none;white-space:nowrap;}
-        #ep13 .ep-btn:hover{background:${T.isDark?'#ea580c':'#1d4ed8'};color:#fff;border-color:${T.isDark?'#c2410c':'#1e40af'};}
-        #ep13 .ep-btn > span{color:#fff!important;}
+        #ep13 .ep-btn{display:inline-flex;align-items:center;gap:5px;margin-left:8px;height:20px;margin-top:4px;cursor:pointer;text-align:left;border:1px solid #bcc1c2;box-shadow:0 2px 3px rgba(0,0,0,.1);border-radius:5px;padding:3px 4px;font-size:12px;font-weight:500;background:transparent;color:inherit;transition:background .15s,color .15s,border-color .15s;user-select:none;white-space:nowrap;}        #ep13 .ep-btn > span{color:#inherit!important;}
         #ep13 .ep-btn-icon{width:26px;height:26px;padding:0;justify-content:center;}
-        #ep13 .ep-btn-label{padding:4px 10px;}
-        #ep13 .ep-btn-pill{padding:4px 10px;gap:6px;background:${T.isDark?'#f97316':'#2563eb'};}
+        #ep13 .ep-btn-label{padding:3px 4px;}
+        #ep13 .ep-btn-pill{padding:3px 6px;gap:6px;}
         #ep13 .ep-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
         #ep13 .ep-card{background:${T.surface};border:1px solid ${T.border};border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px;min-width:0;}
         #ep13 .ep-card-title{font-size:11px;font-weight:700;letter-spacing:1.1px;text-transform:uppercase;color:${T.muted};}
@@ -806,14 +763,10 @@ const offTarget = 60;
         #ep13 .ep-sched-stat{background:${T.chipBg};border:1px solid ${T.border};border-radius:8px;padding:9px 10px;text-align:center;}
         #ep13 .ep-sched-stat-val{font-size:18px;font-weight:700;line-height:1;}
         #ep13 .ep-sched-stat-lbl{font-size:10px;color:${T.muted};text-transform:uppercase;letter-spacing:.8px;margin-top:3px;}
-        #ep-back-chip.ep-btn{display:inline-flex!important;align-items:center!important;gap:5px!important;font-size:12px!important;font-weight:500!important;border-radius:7px!important;cursor:pointer!important;border:1px solid ${T.isDark?'#ea580c':'#1d4ed8'}!important;background:${T.isDark?'#f97316':'#2563eb'}!important;color:#fff!important;transition:background .15s,color .15s,border-color .15s!important;user-select:none!important;white-space:nowrap!important;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif!important;padding:4px 10px!important;margin-bottom:6px!important;}
-        #ep-back-chip.ep-btn:hover{background:${T.isDark?'#ea580c':'#1d4ed8'}!important;color:#fff!important;border-color:${T.isDark?'#c2410c':'#1e40af'}!important;}
-        html { scroll-behavior: smooth; }
-        #ep-today-anchor { scroll-margin-top: 75px; }
-        #ep13 { scroll-margin-top: 75px; }
+        #ep-back-chip.ep-btn{display:inline-flex!important;align-items:center!important;gap:5px!important;margin-left:8px!important;height:20px!important;margin-top:4px!important;margin-bottom:6px!important;cursor:pointer!important;text-align:left!important;border:1px solid #bcc1c2!important;box-shadow:0 2px 3px rgba(0,0,0,.1)!important;border-radius:5px!important;padding:3px 4px!important;font-size:12px!important;font-weight:500!important;background:transparent!important;color:inherit!important;transition:background .15s,color .15s,border-color .15s!important;user-select:none!important;white-space:nowrap!important;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif!important;}
+        #ep13 .ep-btn:hover{background:${T.isDark?'#fff':'#F0F0F0'}!important;color:${T.isDark?'#111':'inherit'}!important;border-color:${T.isDark?'#fff':'#bcc1c2'}!important;}#ep-back-chip.ep-btn:hover{background:#F0F0F0!important;color:inherit!important;border-color:#bcc1c2!important;}
         `;
     };
-
     /* ═══════════════════════════════════════════════════════════════
        ACTIVITY CONFIG
     ═══════════════════════════════════════════════════════════════ */
@@ -821,7 +774,7 @@ const offTarget = 60;
         'Office': {
             icon: 'office',
             grad: 'linear-gradient(135deg,#3b82f6,#06b6d4)',
-            bg: '#1d4ed8'
+            bg: '#1776cf'
         },
         'Mobile Working': {
             icon: 'laptop',
@@ -844,7 +797,6 @@ const offTarget = 60;
         grad: 'linear-gradient(135deg,#64748b,#334155)',
         bg: '#475569'
     };
-
     /* ═══════════════════════════════════════════════════════════════
        SCHEDULE SECTION HTML
     ═══════════════════════════════════════════════════════════════ */
@@ -866,7 +818,6 @@ const offTarget = 60;
         const totalOfficeH = round1(alreadyDoneOfficeHours + plannedTotalH);
         const nonOfficeH = round1(Math.max(0, totalWorkableHours - totalOfficeH));
         const pctOffice = totalWorkableHours > 0 ? Math.round((totalOfficeH / totalWorkableHours) * 100) : 0;
-
         let html = `<div class="ep-sched-section">
             <div class="ep-sched-hdr">${icon('calendar',12,T.muted)}
                 Office Schedule &nbsp;·&nbsp; <strong style="color:${T.text}">${fmtHours(officeHoursNeeded)}h needed</strong> &nbsp;·&nbsp; ${fmtHours(alreadyDoneOfficeHours)}h done &nbsp;·&nbsp; ${fmtHours(stillNeeded)}h remaining
@@ -884,14 +835,12 @@ const offTarget = 60;
                     <span class="ep-sched-leg-item"><span class="ep-sched-leg-dot" style="background:${T.isDark?'rgba(255,255,255,0.15)':'rgba(0,0,0,0.12)'};"></span>Non-office/flex</span>
                 </div>
             </div>`;
-
         // Calendar
         html += `<div class="ep-cal-grid">`;
         ['M', 'T', 'W', 'T', 'F', 'S', 'S'].forEach(d => html += `<div class="ep-cal-dow">${d}</div>`);
         const firstDow = days[0]?.dayOfWeek ?? 1;
         const colOffset = firstDow === 0 ? 6 : firstDow - 1;
         for (let i = 0; i < colOffset; i++) html += `<div class="ep-cal-day ep-cal-empty"></div>`;
-
         days.forEach(d => {
             if (!d.dateNum) {
                 html += `<div class="ep-cal-day ep-cal-empty"></div>`;
@@ -911,14 +860,12 @@ const offTarget = 60;
                 cls += 'ep-cal-plan-off';
                 hrsLbl = `<span class="ep-cal-hrs">${fmtHours(plannedMap.get(d.key))}h</span>`;
             } else cls += 'ep-cal-plan-wfh';
-
             if (!hrsLbl && d.isHalfDay) hrsLbl = `<span class="ep-cal-hrs">${d.halfDayPart} vac</span>`;
             if (d.isToday) cls += ' ep-cal-today';
             const title = d.absenceText ? `${d.label} · ${d.absenceText} · ${fmt(d.workTargetMins)} work target` : d.label;
             html += `<div class="${cls}" title="${title}">${d.dateNum}${hrsLbl}</div>`;
         });
         html += `</div>`;
-
         // Week rows
         const weekBuckets = new Map();
         days.forEach(d => {
@@ -971,7 +918,6 @@ const offTarget = 60;
             html += `</div><div class="ep-week-row-summary"><span>${fmtHours(round1(offDoneH + plannedH))}h</span> office</div></div>`;
         });
         html += `</div>`;
-
         // Summary chips
         html += `<div style="display:flex;gap:8px;flex-wrap:wrap;">
             <div class="ep-sched-stat" style="flex:1;min-width:70px;"><div class="ep-sched-stat-val" style="color:#22c55e;">${fmtHours(alreadyDoneOfficeHours)}h</div><div class="ep-sched-stat-lbl">Done ✓</div></div>
@@ -981,7 +927,6 @@ const offTarget = 60;
         </div></div>`;
         return html;
     };
-
     /* ═══════════════════════════════════════════════════════════════
        OFFICE PLANNER PANEL HTML
     ═══════════════════════════════════════════════════════════════ */
@@ -992,10 +937,7 @@ const offTarget = 60;
     }) => {
         const isOpen = localStorage.getItem(LS.PLANNER_OPEN) === 'true';
         const officeHoursNeeded = round1((ds.realRota * (offTarget / 100)) / 60);
-        const alreadyDoneOfficeHours = round1(
-            days.filter(d => d.hasOffice && (d.isPast || d.isToday)).reduce((s, d) => s + d.officeMins, 0) / 60
-        );
-
+        const alreadyDoneOfficeHours = round1(days.filter(d => d.hasOffice && (d.isPast || d.isToday)).reduce((s, d) => s + d.officeMins, 0) / 60);
         let html = `
         <div class="ep-planner-toggle" data-action="planner-toggle" role="button" tabindex="0">
             ${iconBadge('calendar','linear-gradient(135deg,#3b82f6,#a855f7)',26)}
@@ -1006,41 +948,35 @@ const offTarget = 60;
         </div>
         <div class="ep-planner-panel${isOpen?' open':''}" id="ep-planner-panel">
         <div class="ep-planner-inner">`;
-
         html += buildScheduleSection({
             T,
             days,
             officeHoursNeeded,
             alreadyDoneOfficeHours
         });
-
         html += `</div></div>`;
         return html;
     };
-
-    const buildTodayStrip = ({ T, ds }) => {
+    const buildTodayStrip = ({
+        T,
+        ds
+    }) => {
         const today = getTodayInfo();
         if (!today) return '';
-
         const todayBufOn = localStorage.getItem(LS.TODAY_BUF) === 'true';
         const scheduledTarget = today.targetMinutes;
         let effTarget = scheduledTarget;
-
         if (todayBufOn && scheduledTarget > 0) {
             effTarget = Math.max(0, scheduledTarget - ds.priorBufferMinutes);
             // Never make a half-day vacation require work inside the booked half-day leave.
             if (today.isHalfDay) effTarget = Math.min(scheduledTarget, effTarget);
         }
-
         const todayWorked = today.workedMinutes;
         const isDayOff = scheduledTarget === 0;
         const todayPct = isDayOff ? 100 : (effTarget > 0 ? Math.min(100, (todayWorked / effTarget) * 100) : 100);
         const todayDone = isDayOff || todayWorked >= effTarget;
         const todayRemaining = Math.max(0, effTarget - todayWorked);
-        const leaveAt = today.isRunning && todayRemaining > 0
-            ? new Date(Date.now() + todayRemaining * 60000)
-            : null;
-
+        const leaveAt = today.isRunning && todayRemaining > 0 ? new Date(Date.now() + todayRemaining * 60000) : null;
         let statusHtml;
         if (isDayOff) {
             statusHtml = `<span class="ep-today-rem done">${icon('check',12,'#22c55e')} ${today.absenceText || 'Non-working day'}</span>`;
@@ -1051,13 +987,9 @@ const offTarget = 60;
         } else {
             statusHtml = `<span class="ep-today-rem">${icon('timer',12,T.muted)} ${fmt(todayRemaining)} left${leaveAt?` - leave at ${formatClock(leaveAt)}`:''}</span>`;
         }
-
-        const targetSuffix = today.isHalfDay && today.absenceText
-            ? ` <span style="opacity:.75;">· ${today.absenceText}</span>`
-            : '';
-
+        const targetSuffix = today.isHalfDay && today.absenceText ? ` <span style="opacity:.75;">· ${today.absenceText}</span>` : '';
         return `<div class="ep-today-strip">
-            <div class="ep-today-label">${iconBadge('timer','#1d4ed8',26)}<span class="ep-today-label-text">Today</span></div>
+            <div class="ep-today-label">${iconBadge('timer','#1776cf',26)}<span class="ep-today-label-text">Today</span></div>
             <div class="ep-today-centre">
                 <div class="ep-today-nums-row">
                     <span class="ep-today-done">${fmt(todayWorked)}</span>
@@ -1076,7 +1008,6 @@ const offTarget = 60;
             </div>
         </div>`;
     };
-
     /* ═══════════════════════════════════════════════════════════════
        INTERACTIONS
     ═══════════════════════════════════════════════════════════════ */
@@ -1106,7 +1037,6 @@ const offTarget = 60;
             });
         });
     };
-
     /* ═══════════════════════════════════════════════════════════════
        MAIN RENDER
     ═══════════════════════════════════════════════════════════════ */
@@ -1121,12 +1051,10 @@ const offTarget = 60;
             container.id = 'ep13';
             mainPanel.insertBefore(container, mainPanel.firstChild);
         }
-
         if (!isSummaryReady()) {
             container.innerHTML = `<div class="ep-hdr"><div class="ep-hdr-logo">${icon('timer',16)}</div><div class="ep-hdr-title">eDays Analyzer Pro</div><div class="ep-hdr-date"><span class="ep-pulse"></span> Loading…</div></div>`;
             return;
         }
-
         const summary = getSummaryData();
         const {
             actMap,
@@ -1138,7 +1066,6 @@ const offTarget = 60;
             month: 'short',
             year: 'numeric'
         }).toUpperCase();
-
         /* Empty month: panel is ready but nothing logged yet */
         if (!summary.recorded && !rawTotal) {
             const ds = getDayStats(summary);
@@ -1158,7 +1085,10 @@ const offTarget = 60;
                     <div class="ep-empty-title">New month — no entries yet</div>
                     <div class="ep-empty-sub">Start logging time in eDays and the dashboard will populate automatically. The Office Planner is still available below.</div>
                 </div>`;
-            container.innerHTML += buildTodayStrip({ T, ds });
+            container.innerHTML += buildTodayStrip({
+                T,
+                ds
+            });
             container.innerHTML += buildOfficePlannerPanel({
                 T,
                 ds,
@@ -1167,7 +1097,6 @@ const offTarget = 60;
             bindInteractions(container);
             return;
         }
-
         const realRota = Math.max(0, summary.rota - summary.absences - summary.holidays);
         const factor = rawTotal > 0 ? summary.recorded / rawTotal : 0;
         const acts = Object.entries(actMap).map(([n, m]) => ({
@@ -1175,7 +1104,6 @@ const offTarget = 60;
             adj: Math.floor(m * factor)
         })).filter(a => a.adj > 0).sort((a, b) => b.adj - a.adj);
         const totalActMins = acts.reduce((s, a) => s + a.adj, 0);
-
         const days = getDetailedDayData();
         // Office Target must be monotonic: only a change in the actual ROTA (target side) or an edit
         // to a past day's own Office hours (numerator side) should move it. Deriving it from each
@@ -1183,7 +1111,6 @@ const offTarget = 60;
         // factor used for the Activity Breakdown below, which shifts slightly every time ANY new
         // period is logged on ANY day and could round already-banked Office minutes back down.
         const officeMins = days.reduce((s, d) => (d.hasOffice && (d.isPast || d.isToday)) ? s + d.officeMins : s, 0);
-
         const targetMins = realRota * (offTarget / 100);
         const officePct = targetMins > 0 ? (officeMins / targetMins) * 100 : 0;
         const officeActPct = realRota > 0 ? (officeMins / realRota) * 100 : 0;
@@ -1192,7 +1119,6 @@ const offTarget = 60;
         const offColor = getOffColor(officePct);
         const rotaColor = rotaPct >= 100 ? '#22c55e' : rotaPct >= 80 ? '#3b82f6' : '#f59e0b';
         const nextTheme = T.isDark ? 'light' : 'dark';
-
         let html = `<div class="ep-hdr">
             <div class="ep-hdr-logo">${icon('timer',16)}</div>
             <div class="ep-hdr-title">eDays Analyzer Pro</div>
@@ -1203,7 +1129,6 @@ const offTarget = 60;
                 <div class="ep-hdr-date"><span class="ep-pulse"></span>${dateStr}</div>
             </div>
         </div><div class="ep-grid">`;
-
         /* Card 1 */
         const totalActPct = realRota > 0 ? (totalActMins / realRota) * 100 : 0;
         html += `<div class="ep-card"><div class="ep-card-title">Activity Breakdown</div>`;
@@ -1216,12 +1141,10 @@ const offTarget = 60;
             html += `<div class="ep-act-row">${iconBadge(cfg.icon,cfg.bg,26)}<div class="ep-act-info"><div class="ep-act-name">${name}</div><div class="ep-act-meta">${fmt(adj)} · ${pct.toFixed(1)}%</div><div class="ep-bar"><div class="ep-bar-fill" style="width:${clamp(pct,0,100)}%;background:${cfg.grad};"></div></div></div></div>`;
         });
         html += `<div class="ep-divider"></div><div class="ep-total-row"><span class="ep-total-label">Total logged</span><span class="ep-total-val">${fmt(totalActMins)} (${totalActPct.toFixed(1)}%)</span></div><div class="ep-bar"><div class="ep-bar-fill" style="width:${clamp(totalActPct,0,100)}%;background:linear-gradient(90deg,#3b82f6,#a855f7);"></div></div></div>`;
-
         /* Card 2 */
         const offRemMins = Math.max(0, Math.ceil(targetMins - officeMins));
         const offRemDays = offRemMins > 0 ? round1(Math.ceil(offRemMins / HALF_DAY_MINUTES) / 2) : 0;
         const offRemTime = `${Math.floor(offRemMins / 60)}h ${String(offRemMins % 60).padStart(2, '0')}m`;
-
         html += `<div class="ep-card ep-ring-card">
     <div class="ep-card-title">Office Target · ${offTarget}%</div>
 
@@ -1271,7 +1194,6 @@ const offTarget = 60;
             </div>`
     }
 </div>`;
-
         /* Card 3 */
         html += `<div class="ep-card ep-ring-card"><div class="ep-card-title">Time vs Rota</div>
             <div class="ep-ring-wrap">${ring({r:54,pct:rotaPct,color:rotaColor,sw:6,trackColor:T.ringTrack})}
@@ -1283,7 +1205,6 @@ const offTarget = 60;
             <div class="ep-stat-row"><span class="ep-stat-k">Holidays</span><span class="ep-stat-v">${fmt(summary.holidays)}</span></div>
             <div class="ep-stat-row"><span class="ep-stat-k">Days worked</span><span class="ep-stat-v">${ds.workedDays}d</span></div>
         </div>`;
-
         /* Card 4 */
         const wfhDaysAvailable = Math.max(0, ds.daysLeft - offRemDays);
         const wfhAvailableMins = Math.max(0, ds.remainingMinutes - offRemMins);
@@ -1312,23 +1233,21 @@ const offTarget = 60;
                 <div class="ep-notice">${icon('flag',12,T.muted)}<span>Month target: ${fmt(ds.realRota)}</span></div>
             </div>
         </div>`;
-
         html += `</div>`; // close grid
-
         /* Today strip */
-        html += buildTodayStrip({ T, ds });
-
+        html += buildTodayStrip({
+            T,
+            ds
+        });
         /* Office Planner panel */
         html += buildOfficePlannerPanel({
             T,
             ds,
             days
         });
-
         container.innerHTML = html;
         bindInteractions(container);
     };
-
     /* ═══════════════════════════════════════════════════════════════
        BACK BUTTON
     ═══════════════════════════════════════════════════════════════ */
@@ -1350,7 +1269,6 @@ const offTarget = 60;
         });
         cont.insertBefore(btn, cont.firstChild);
     };
-
     /* ═══════════════════════════════════════════════════════════════
        BOOT
     ═══════════════════════════════════════════════════════════════ */
@@ -1360,7 +1278,6 @@ const offTarget = 60;
                 clearInterval(tick);
                 renderUI();
                 injectBackButton(getTheme());
-
                 let debounce = null;
                 const observer = new MutationObserver(mutations => {
                     const ep = document.getElementById('ep13');
@@ -1382,6 +1299,5 @@ const offTarget = 60;
             }
         }, 800);
     };
-
     boot();
 })();
