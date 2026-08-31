@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      18.2
+// @version      18.3
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // ==/UserScript==
-// Changelog v18.2: Unified button styling and hover behaviour, including the Back to Analyzer button, beautified code.
+// Changelog v18.3: Fixed Buffer & Outlook to include today’s positive or negative variance in the current banked balance while preserving the pre-today buffer for the “Include buffer” option.
+// Changelog v18.2: Unified button styling and hover behaviour, including the Back to Analyzer button.
 // Changelog v18.2: Fixed Back to Analyzer scrolling so it no longer causes persistent horizontal page/title-bar shifting.
 // Changelog v18.1: Office Target ring now derives office minutes from each day's own logged periods
 // Changelog v18.1: instead of scaling by the recorded/rawTotal reconciliation factor, which could
@@ -522,31 +523,41 @@ const offTarget = 60;
         const hasToday = days.some(d => d.isToday);
         let bufferMinutes;
         let priorBufferMinutes;
+
         if (!hasToday) {
-            // Outside the current period, use eDays' own Difference as the safest source of truth.
+            // Outside the current period, use eDays' own Difference.
             bufferMinutes = summary.difference;
             priorBufferMinutes = summary.difference;
         } else {
             bufferMinutes = 0;
             priorBufferMinutes = 0;
+
             days.forEach(d => {
                 if (d.isFuture) return;
-                // Preserve the old behaviour for full absences/holidays: they do not create buffer.
-                // Half-day AM/PM absences are deliberately NOT skipped; their target is 4h.
                 if (d.isAbsent || d.isHoliday) return;
+
                 const target = d.workTargetMins;
                 const worked = d.totalMins;
+
                 if (d.isPast) {
-                    // Past weekdays: count the real +/- difference against that day's target.
-                    // Weekend target is 0, so weekend work becomes positive buffer instead of -6h, etc.
+                    // Completed previous days contribute to both:
+                    // - current overall buffer
+                    // - buffer available before today
                     const diff = worked - target;
+
                     bufferMinutes += diff;
                     priorBufferMinutes += diff;
-                } else if (d.isToday && worked > target) {
-                    // Today only contributes positive overtime. Its in-progress shortfall is not a deficit yet.
+                } else if (d.isToday) {
+                    // FIX:
+                    // Today must affect the CURRENT buffer whether we're
+                    // ahead OR behind today's scheduled target.
+                    //
+                    // Do NOT add it to priorBufferMinutes because that value
+                    // represents the bank carried into today.
                     bufferMinutes += worked - target;
                 }
             });
+
             bufferMinutes = Math.round(bufferMinutes);
             priorBufferMinutes = Math.round(priorBufferMinutes);
         }
