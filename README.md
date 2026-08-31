@@ -15,7 +15,7 @@
 
 **A Tampermonkey userscript that overlays a live analytics dashboard on top of eDays — showing office attendance, time vs rota, buffer, and day counts at a glance.**
 
-[![Version](https://img.shields.io/badge/version-18.2-6366f1?style=flat-square&labelColor=0f0f0f)](https://github.com/blankode/edays-percentages-overview)
+[![Version](https://img.shields.io/badge/version-18.3-6366f1?style=flat-square&labelColor=0f0f0f)](https://github.com/blankode/edays-percentages-overview)
 [![Platform](https://img.shields.io/badge/platform-Tampermonkey-f59e0b?style=flat-square&labelColor=0f0f0f)](https://www.tampermonkey.net/)
 [![License](https://img.shields.io/badge/license-MIT-22c55e?style=flat-square&labelColor=0f0f0f)](LICENSE)
 [![Site](https://img.shields.io/badge/works%20on-e--days.com-3b82f6?style=flat-square&labelColor=0f0f0f)](https://e-days.com)
@@ -150,6 +150,7 @@ Tested on `*.e-days.com` monthly timesheet view.
 
 | Version | Changes |
 |---|---| 
+| **18.3** | Fixed Buffer & Outlook to include today’s positive or negative variance in the current banked balance while preserving the pre-today buffer for the “Include buffer” option. |
 | **18.2** | Unified and refined button styling, plus fixed Back to Analyzer scrolling to prevent persistent page shifting. |
 | **18.1** | Improved office-time accuracy and remaining-time labels. |
 | **18.0** | Fixed half-day vacation (AM/PM) handling across daily targets, buffer, Today leave time, remaining hours, and office planner calculations. |
