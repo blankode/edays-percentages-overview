@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      18.4
+// @version      18.5
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // ==/UserScript==
+// Changelog v18.5: Fixed buffer calculation to take only surplus/discrepancy into account.
 // Changelog v18.4: Fixed percentage discrepancy across categories.
 // Changelog v18.3: Fixed Buffer & Outlook to include today’s positive or negative variance in the current banked balance while preserving the pre-today buffer for the “Include buffer” option.
 // Changelog v18.2: Unified button styling and hover behaviour, including the Back to Analyzer button.
@@ -1048,15 +1049,48 @@ const offTarget = 60;
                 const worked =
                     d.totalMins;
 
+                /*
+                 * Buffer is a variance bank, not a countdown.
+                 * A workable day with no recorded time is assumed
+                 * to have met its target, so only real deviations
+                 * from the target affect the balance.
+                 */
                 if (d.isPast) {
+                    const effectiveWorked =
+                        worked > 0
+                            ? worked
+                            : target;
+
                     const diff =
-                        worked - target;
+                        effectiveWorked - target;
 
                     bufferMinutes += diff;
                     priorBufferMinutes += diff;
                 } else if (d.isToday) {
-                    bufferMinutes +=
-                        worked - target;
+                    if (worked <= 0) return;
+
+                    const isRunning =
+                        [...d.el.querySelectorAll(
+                            '.tt_period_container'
+                        )].some(isOpenPeriod);
+
+                    /*
+                     * While today's timer is open, assume the day
+                     * will reach its scheduled target. This prevents
+                     * the buffer from starting near -8h and counting
+                     * upward throughout the day. Overtime above the
+                     * target is still banked live. Once the timer is
+                     * closed, today's actual variance is used.
+                     */
+                    const todayDiff =
+                        isRunning
+                            ? Math.max(
+                                0,
+                                worked - target
+                            )
+                            : worked - target;
+
+                    bufferMinutes += todayDiff;
                 }
             });
 
