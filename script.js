@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      18.5
+// @version      18.6
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // ==/UserScript==
+// Changelog v18.6: Buffer & Outlook now show exact days/hours/minutes, keep values on one line without resizing chips, and hide zero-value units such as 0d, 0h, and 0m.
 // Changelog v18.5: Fixed buffer calculation to take only surplus/discrepancy into account.
 // Changelog v18.4: Fixed percentage discrepancy across categories.
 // Changelog v18.3: Fixed Buffer & Outlook to include today’s positive or negative variance in the current banked balance while preserving the pre-today buffer for the “Include buffer” option.
@@ -22,13 +23,10 @@
 // Changelog v18.0: Today leave-at time is shown only while a time period is actively open.
 // Changelog v17.9: Fixed buffer calculation to use the true 8-hour daily target and prevent today's buffer from being double-counted.
 // Changelog v17.8: Buttons now use blue styling in the light theme and orange styling in the dark theme.
-
 /* ══ Set Office Target (% of rota hours) ══ */
 const offTarget = 60;
-
 (function() {
     'use strict';
-
     /* ═══════════════════════════════════════════════════════════════
        LOCALSTORAGE KEYS
     ═══════════════════════════════════════════════════════════════ */
@@ -37,7 +35,6 @@ const offTarget = 60;
         TODAY_BUF: 'ep-today-buffer',
         PLANNER_OPEN: 'ep-planner-open',
     };
-
     /* ═══════════════════════════════════════════════════════════════
        THEME
     ═══════════════════════════════════════════════════════════════ */
@@ -50,24 +47,18 @@ const offTarget = 60;
             document.querySelector('.main-content'),
             document.querySelector('#content'),
         ].filter(Boolean);
-
         for (const el of candidates) {
             const bg = getComputedStyle(el).backgroundColor;
             const m = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
             if (!m) continue;
-
             const [, r, g, b] = m.map(Number);
             if (r === 0 && g === 0 && b === 0) continue;
-
             return 0.299 * r + 0.587 * g + 0.114 * b;
         }
-
         return 255;
     };
-
     const buildTheme = () => {
         const isDark = getPageBrightness() < 100;
-
         return isDark ? {
             isDark,
             bg: '#181818',
@@ -94,9 +85,7 @@ const offTarget = 60;
             ringTrack: 'rgba(0,0,0,0.12)',
         };
     };
-
     let themeOverride = localStorage.getItem(LS.THEME) || null;
-
     const getTheme = () => {
         if (themeOverride === 'dark') return {
             isDark: true,
@@ -111,7 +100,6 @@ const offTarget = 60;
             shadow: '0 4px 24px rgba(0,0,0,0.4)',
             ringTrack: 'rgba(255,255,255,0.12)'
         };
-
         if (themeOverride === 'light') return {
             isDark: false,
             bg: '#ffffff',
@@ -125,10 +113,8 @@ const offTarget = 60;
             shadow: '0 2px 12px rgba(0,0,0,0.10)',
             ringTrack: 'rgba(0,0,0,0.12)'
         };
-
         return buildTheme();
     };
-
     /* ═══════════════════════════════════════════════════════════════
        UTILITIES
     ═══════════════════════════════════════════════════════════════ */
@@ -137,102 +123,65 @@ const offTarget = 60;
         const [h, m] = t.split(':').map(Number);
         return h * 60 + (m || 0);
     };
-
     const STANDARD_DAY_MINUTES = 480;
     const HALF_DAY_MINUTES = STANDARD_DAY_MINUTES / 2;
-
-    const round1 = value =>
-        Math.round((value + Number.EPSILON) * 10) / 10;
-
+    const round1 = value => Math.round((value + Number.EPSILON) * 10) / 10;
     const fmtHours = hours => {
         const rounded = round1(hours);
-        return Number.isInteger(rounded)
-            ? String(rounded)
-            : rounded.toFixed(1);
+        return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
     };
-
     const fmt = mins => {
         const rounded = Math.round(mins || 0);
         const sign = rounded < 0 ? '-' : '';
         const abs = Math.abs(rounded);
         const h = Math.floor(abs / 60);
         const m = abs % 60;
-
-        return m === 0
-            ? `${sign}${h}h`
-            : `${sign}${h}h ${String(m).padStart(2, '0')}m`;
+        return m === 0 ? `${sign}${h}h` : `${sign}${h}h ${String(m).padStart(2, '0')}m`;
     };
-
     const parseTime = value => {
         const m = (value || '').match(/([+-]?)(\d+):(\d{2})/);
         if (!m) return 0;
-
-        const mins =
-            parseInt(m[2], 10) * 60 +
-            parseInt(m[3], 10);
-
+        const mins = parseInt(m[2], 10) * 60 + parseInt(m[3], 10);
         return m[1] === '-' ? -mins : mins;
     };
-
-    const clamp = (v, lo, hi) =>
-        Math.max(lo, Math.min(hi, v));
-
-    const formatClock = date =>
-        date.toLocaleTimeString('en-GB', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false
-        });
-
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    const formatClock = date => date.toLocaleTimeString('en-GB', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+    });
     /* ═══════════════════════════════════════════════════════════════
        SCROLL HELPERS
     ═══════════════════════════════════════════════════════════════ */
     const getScrollParent = el => {
         let p = el.parentElement;
-
         while (p) {
             const {
                 overflow,
                 overflowY
             } = getComputedStyle(p);
-
             if (/(auto|scroll)/.test(overflow + overflowY)) {
                 return p;
             }
-
             p = p.parentElement;
         }
-
         return window;
     };
-
     const jumpToToday = () => {
         const c = document.querySelector('.today_chip');
-
         if (c) {
             const d = c.closest('.tt_day_container');
-
             if (d) {
                 const sp = getScrollParent(d);
                 const offset = 80;
-
                 if (sp === window) {
-                    const y =
-                        d.getBoundingClientRect().top +
-                        window.scrollY -
-                        offset;
-
+                    const y = d.getBoundingClientRect().top + window.scrollY - offset;
                     window.scrollTo({
                         top: y,
                         behavior: 'smooth'
                     });
                 } else {
-                    const y =
-                        d.getBoundingClientRect().top -
-                        sp.getBoundingClientRect().top +
-                        sp.scrollTop -
-                        offset;
-
+                    const y = d.getBoundingClientRect().top - sp.getBoundingClientRect().top + sp.scrollTop - offset;
                     sp.scrollTo({
                         top: y,
                         behavior: 'smooth'
@@ -241,21 +190,14 @@ const offTarget = 60;
             }
         }
     };
-
     const jumpToAnalyzer = () => {
         const el = document.getElementById('ep13');
         if (!el) return;
-
         const sp = getScrollParent(el);
         const offset = 75;
-
         if (sp === window) {
             const left = window.scrollX;
-            const top =
-                el.getBoundingClientRect().top +
-                window.scrollY -
-                offset;
-
+            const top = el.getBoundingClientRect().top + window.scrollY - offset;
             window.scrollTo({
                 top,
                 left,
@@ -263,12 +205,7 @@ const offTarget = 60;
             });
         } else {
             const left = sp.scrollLeft;
-            const top =
-                el.getBoundingClientRect().top -
-                sp.getBoundingClientRect().top +
-                sp.scrollTop -
-                offset;
-
+            const top = el.getBoundingClientRect().top - sp.getBoundingClientRect().top + sp.scrollTop - offset;
             sp.scrollTo({
                 top,
                 left,
@@ -276,109 +213,57 @@ const offTarget = 60;
             });
         }
     };
-
     /* ═══════════════════════════════════════════════════════════════
        PERIOD / DAY HELPERS
     ═══════════════════════════════════════════════════════════════ */
-    const getDayLabel = dayEl =>
-        dayEl.querySelector('.timesheet_day_text')
-            ?.innerText
-            ?.trim() || '';
-
-    const getDayTotalMinutes = dayEl =>
-        timeToMinutes(
-            dayEl.querySelector('.duration_hours')
-                ?.innerText
-                ?.trim() || ''
-        );
-
+    const getDayLabel = dayEl => dayEl.querySelector('.timesheet_day_text')?.innerText?.trim() || '';
+    const getDayTotalMinutes = dayEl => timeToMinutes(dayEl.querySelector('.duration_hours')?.innerText?.trim() || '');
     const getPeriodTimeValues = periodEl => {
-        const inputs =
-            periodEl.querySelectorAll('input[type="time"]');
-
+        const inputs = periodEl.querySelectorAll('input[type="time"]');
         let start = inputs[0]?.value || '';
         let end = inputs[1]?.value || '';
-
         if (!start) {
-            const lbl =
-                periodEl.querySelector('label.hiddenLabel')
-                    ?.innerText || '';
-
-            const m =
-                lbl.match(
-                    /(\d{1,2}:\d{2})\s+to(?:\s+(\d{1,2}:\d{2}))?/i
-                );
-
+            const lbl = periodEl.querySelector('label.hiddenLabel')?.innerText || '';
+            const m = lbl.match(/(\d{1,2}:\d{2})\s+to(?:\s+(\d{1,2}:\d{2}))?/i);
             if (m) {
                 start = m[1] || '';
                 end = m[2] || '';
             }
         }
-
         return {
             start,
             end
         };
     };
-
     const isOpenPeriod = periodEl => {
         const {
             start,
             end
         } = getPeriodTimeValues(periodEl);
-
         return !!start && !end;
     };
-
-    const getPeriodMinutes = (
-        periodEl,
-        allowOpen = false
-    ) => {
+    const getPeriodMinutes = (periodEl, allowOpen = false) => {
         const {
             start,
             end
         } = getPeriodTimeValues(periodEl);
-
         if (!start) return 0;
-
         let effectiveEnd = end;
-
         if (!effectiveEnd) {
             if (!allowOpen) return 0;
-
             const n = new Date();
-
-            effectiveEnd =
-                `${String(n.getHours()).padStart(2, '0')}:` +
-                `${String(n.getMinutes()).padStart(2, '0')}`;
+            effectiveEnd = `${String(n.getHours()).padStart(2, '0')}:` + `${String(n.getMinutes()).padStart(2, '0')}`;
         }
-
-        const d =
-            timeToMinutes(effectiveEnd) -
-            timeToMinutes(start);
-
+        const d = timeToMinutes(effectiveEnd) - timeToMinutes(start);
         return d > 0 ? d : 0;
     };
-
     const getAbsenceInfo = dayEl => {
-        const text =
-            dayEl.querySelector('.absence_detail_text')
-                ?.innerText
-                ?.trim() || '';
-
-        const halfMatch =
-            text.match(/:\s*(AM|PM)\s*$/i);
-
-        const halfDayPart =
-            halfMatch
-                ? halfMatch[1].toUpperCase()
-                : null;
-
+        const text = dayEl.querySelector('.absence_detail_text')?.innerText?.trim() || '';
+        const halfMatch = text.match(/:\s*(AM|PM)\s*$/i);
+        const halfDayPart = halfMatch ? halfMatch[1].toUpperCase() : null;
         const isHalfDay = !!halfDayPart;
         const isHoliday = /holiday/i.test(text);
-        const isFullAbsence =
-            !!text && !isHalfDay;
-
+        const isFullAbsence = !!text && !isHalfDay;
         return {
             text,
             isHalfDay,
@@ -387,105 +272,50 @@ const offTarget = 60;
             isFullAbsence
         };
     };
-
-    const getDayName = dayEl =>
-        (getDayLabel(dayEl).split(/\s+/)[0] || '')
-            .replace(/[^A-Za-z]/g, '');
-
+    const getDayName = dayEl => (getDayLabel(dayEl).split(/\s+/)[0] || '').replace(/[^A-Za-z]/g, '');
     const isWeekendDay = dayEl => {
         const name = getDayName(dayEl);
-
-        return name === 'Saturday' ||
-            name === 'Sunday';
+        return name === 'Saturday' || name === 'Sunday';
     };
-
     const getDayWorkTargetMinutes = dayEl => {
         if (isWeekendDay(dayEl)) return 0;
-
-        const absence =
-            getAbsenceInfo(dayEl);
-
+        const absence = getAbsenceInfo(dayEl);
         if (absence.isHalfDay) {
             return HALF_DAY_MINUTES;
         }
-
-        if (
-            absence.isFullAbsence ||
-            absence.isHoliday
-        ) {
+        if (absence.isFullAbsence || absence.isHoliday) {
             return 0;
         }
-
         return STANDARD_DAY_MINUTES;
     };
-
     const parseDayDate = label => {
-        const m =
-            (label || '').match(
-                /(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/
-            );
-
+        const m = (label || '').match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/);
         if (!m) return null;
-
         const day = Number(m[1]);
         const month = Number(m[2]);
         const year = Number(m[3]);
-
-        const date =
-            new Date(year, month - 1, day);
-
-        if (
-            date.getFullYear() !== year ||
-            date.getMonth() !== month - 1 ||
-            date.getDate() !== day
-        ) {
+        const date = new Date(year, month - 1, day);
+        if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
             return null;
         }
-
         return date;
     };
-
-    const getDateKey = (
-        date,
-        fallback
-    ) => {
+    const getDateKey = (date, fallback) => {
         if (!date) return fallback;
-
-        return (
-            `${date.getFullYear()}-` +
-            `${String(date.getMonth() + 1).padStart(2, '0')}-` +
-            `${String(date.getDate()).padStart(2, '0')}`
-        );
+        return (`${date.getFullYear()}-` + `${String(date.getMonth() + 1).padStart(2, '0')}-` + `${String(date.getDate()).padStart(2, '0')}`);
     };
-
-    const getLocalDayStamp = date =>
-        new Date(
-            date.getFullYear(),
-            date.getMonth(),
-            date.getDate()
-        ).getTime();
-
+    const getLocalDayStamp = date => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
     const getLiveDayMinutes = dayEl => {
-        const saved =
-            getDayTotalMinutes(dayEl);
-
-        if (
-            !dayEl.querySelector('.today_chip')
-        ) {
+        const saved = getDayTotalMinutes(dayEl);
+        if (!dayEl.querySelector('.today_chip')) {
             return saved;
         }
-
         let live = 0;
-
-        dayEl
-            .querySelectorAll('.tt_period_container')
-            .forEach(p => {
-                live += getPeriodMinutes(p, true);
-            });
-
+        dayEl.querySelectorAll('.tt_period_container').forEach(p => {
+            live += getPeriodMinutes(p, true);
+        });
         return Math.max(saved, live);
     };
-
     /* ═══════════════════════════════════════════════════════════════
        ICONS
     ═══════════════════════════════════════════════════════════════ */
@@ -511,31 +341,12 @@ const offTarget = 60;
         chevron_down: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>`,
         chevron_up: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6 1.41 1.41z"/></svg>`,
     };
-
-    const icon = (
-        name,
-        size = 14,
-        color = '#fff'
-    ) =>
-        `<span style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;color:${color};flex-shrink:0;">${ICONS[name] || ''}</span>`;
-
-    const iconBadge = (
-        name,
-        bg,
-        size = 28
-    ) =>
-        `<span style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;background:${bg};border-radius:7px;flex-shrink:0;color:#fff;">${ICONS[name] || ''}</span>`;
-
+    const icon = (name, size = 14, color = '#fff') => `<span style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;color:${color};flex-shrink:0;">${ICONS[name] || ''}</span>`;
+    const iconBadge = (name, bg, size = 28) => `<span style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;background:${bg};border-radius:7px;flex-shrink:0;color:#fff;">${ICONS[name] || ''}</span>`;
     /* ═══════════════════════════════════════════════════════════════
        OFFICE TARGET COLOR / RING
     ═══════════════════════════════════════════════════════════════ */
-    const getOffColor = p =>
-        p >= 100 ? '#22c55e' :
-        p >= 85 ? '#84cc16' :
-        p >= 65 ? '#eab308' :
-        p >= 45 ? '#f97316' :
-        '#ef4444';
-
+    const getOffColor = p => p >= 100 ? '#22c55e' : p >= 85 ? '#84cc16' : p >= 65 ? '#eab308' : p >= 45 ? '#f97316' : '#ef4444';
     const ring = ({
         r = 54,
         pct,
@@ -544,14 +355,9 @@ const offTarget = 60;
         trackColor
     }) => {
         const circ = 2 * Math.PI * r;
-        const dash =
-            clamp(pct, 0, 100) /
-            100 *
-            circ;
-
+        const dash = clamp(pct, 0, 100) / 100 * circ;
         const cx = r + sw + 1;
         const sz = cx * 2;
-
         return `
             <svg
                 viewBox="0 0 ${sz} ${sz}"
@@ -578,7 +384,6 @@ const offTarget = 60;
             </svg>
         `;
     };
-
     /* ═══════════════════════════════════════════════════════════════
        DATA GATHERING
     ═══════════════════════════════════════════════════════════════ */
@@ -590,64 +395,33 @@ const offTarget = 60;
             holidays: 0,
             difference: 0
         };
-
-        document
-            .querySelectorAll(
-                '.desktop_summary .summary_block'
-            )
-            .forEach(block => {
-                const spans =
-                    block.querySelectorAll('span');
-
-                if (spans.length < 2) return;
-
-                const mins =
-                    parseTime(
-                        spans[0].innerText.trim()
-                    );
-
-                const lbl =
-                    spans[1].innerText.trim();
-
-                if (
-                    lbl.includes('Time recorded')
-                ) {
-                    d.recorded = mins;
-                }
-
-                if (lbl.includes('Rota')) {
-                    d.rota = Math.abs(mins);
-                }
-
-                if (lbl.includes('Absences')) {
-                    d.absences = Math.abs(mins);
-                }
-
-                if (
-                    lbl.includes('Public holidays')
-                ) {
-                    d.holidays = Math.abs(mins);
-                }
-
-                if (
-                    lbl.includes('Difference')
-                ) {
-                    d.difference = mins;
-                }
-            });
-
+        document.querySelectorAll('.desktop_summary .summary_block').forEach(block => {
+            const spans = block.querySelectorAll('span');
+            if (spans.length < 2) return;
+            const mins = parseTime(spans[0].innerText.trim());
+            const lbl = spans[1].innerText.trim();
+            if (lbl.includes('Time recorded')) {
+                d.recorded = mins;
+            }
+            if (lbl.includes('Rota')) {
+                d.rota = Math.abs(mins);
+            }
+            if (lbl.includes('Absences')) {
+                d.absences = Math.abs(mins);
+            }
+            if (lbl.includes('Public holidays')) {
+                d.holidays = Math.abs(mins);
+            }
+            if (lbl.includes('Difference')) {
+                d.difference = mins;
+            }
+        });
         return d;
     };
-
     const isSummaryReady = () => {
-        const blocks =
-            document.querySelectorAll(
-                '.desktop_summary .summary_block'
-            );
-
+        const blocks = document.querySelectorAll('.desktop_summary .summary_block');
         return blocks.length > 0;
     };
-
     const getActivityData = () => {
         const actMap = {
             'Office': 0,
@@ -655,400 +429,165 @@ const offTarget = 60;
             'Business Travel': 0,
             'No Activity': 0
         };
-
         let rawTotal = 0;
         let workedDays = 0;
-
-        document
-            .querySelectorAll(
-                '.tt_day_container'
-            )
-            .forEach(day => {
-                let worked = false;
-
-                const allowOpen =
-                    !!day.querySelector(
-                        '.today_chip'
-                    );
-
-                day
-                    .querySelectorAll(
-                        '.tt_period_container'
-                    )
-                    .forEach(p => {
-                        const dur =
-                            getPeriodMinutes(
-                                p,
-                                allowOpen
-                            );
-
-                        if (dur <= 0) return;
-
-                        worked = true;
-
-                        const act =
-                            p.querySelector(
-                                '.chosen-single span'
-                            )
-                                ?.innerText
-                                .trim() ||
-                            'No Activity';
-
-                        if (!(act in actMap)) {
-                            actMap[act] = 0;
-                        }
-
-                        actMap[act] += dur;
-                        rawTotal += dur;
-                    });
-
-                if (worked) {
-                    workedDays++;
+        document.querySelectorAll('.tt_day_container').forEach(day => {
+            let worked = false;
+            const allowOpen = !!day.querySelector('.today_chip');
+            day.querySelectorAll('.tt_period_container').forEach(p => {
+                const dur = getPeriodMinutes(p, allowOpen);
+                if (dur <= 0) return;
+                worked = true;
+                const act = p.querySelector('.chosen-single span')?.innerText.trim() || 'No Activity';
+                if (!(act in actMap)) {
+                    actMap[act] = 0;
                 }
+                actMap[act] += dur;
+                rawTotal += dur;
             });
-
+            if (worked) {
+                workedDays++;
+            }
+        });
         return {
             actMap,
             rawTotal,
             workedDays
         };
     };
-
     const getDetailedDayData = () => {
-        const allDayEls = [
-            ...document.querySelectorAll(
-                '.tt_day_container'
-            )
-        ];
-
-        const markerTodayIdx =
-            allDayEls.findIndex(d =>
-                d.querySelector('.today_chip')
-            );
-
-        const nowStamp =
-            getLocalDayStamp(new Date());
-
-        const days =
-            allDayEls.map((day, idx) => {
-                const label =
-                    getDayLabel(day);
-
-                const parts =
-                    label.split(/\s+/);
-
-                const dayName =
-                    (parts[0] || '')
-                        .replace(
-                            /[^A-Za-z]/g,
-                            ''
-                        );
-
-                const parsedDate =
-                    parseDayDate(label);
-
-                let dateNum =
-                    parsedDate?.getDate() || 0;
-
-                if (!dateNum) {
-                    for (
-                        let i = 1;
-                        i < parts.length;
-                        i++
-                    ) {
-                        const n =
-                            parseInt(
-                                parts[i],
-                                10
-                            );
-
-                        if (
-                            !isNaN(n) &&
-                            n >= 1 &&
-                            n <= 31
-                        ) {
-                            dateNum = n;
-                            break;
-                        }
+        const allDayEls = [...document.querySelectorAll('.tt_day_container')];
+        const markerTodayIdx = allDayEls.findIndex(d => d.querySelector('.today_chip'));
+        const nowStamp = getLocalDayStamp(new Date());
+        const days = allDayEls.map((day, idx) => {
+            const label = getDayLabel(day);
+            const parts = label.split(/\s+/);
+            const dayName = (parts[0] || '').replace(/[^A-Za-z]/g, '');
+            const parsedDate = parseDayDate(label);
+            let dateNum = parsedDate?.getDate() || 0;
+            if (!dateNum) {
+                for (let i = 1; i < parts.length; i++) {
+                    const n = parseInt(parts[i], 10);
+                    if (!isNaN(n) && n >= 1 && n <= 31) {
+                        dateNum = n;
+                        break;
                     }
                 }
-
-                if (!dateNum) {
-                    const txt =
-                        day.querySelector(
-                            '[class*="date"]'
-                        )
-                            ?.innerText || '';
-
-                    const m =
-                        txt.match(/\d+/);
-
-                    if (m) {
-                        dateNum =
-                            parseInt(
-                                m[0],
-                                10
-                            );
-                    }
+            }
+            if (!dateNum) {
+                const txt = day.querySelector('[class*="date"]')?.innerText || '';
+                const m = txt.match(/\d+/);
+                if (m) {
+                    dateNum = parseInt(m[0], 10);
                 }
-
-                const DOW_MAP = {
-                    Sunday: 0,
-                    Monday: 1,
-                    Tuesday: 2,
-                    Wednesday: 3,
-                    Thursday: 4,
-                    Friday: 5,
-                    Saturday: 6
-                };
-
-                const dayOfWeek =
-                    parsedDate
-                        ? parsedDate.getDay()
-                        : (
-                            DOW_MAP[dayName] ??
-                            -1
-                        );
-
-                const isWeekend =
-                    dayOfWeek === 0 ||
-                    dayOfWeek === 6;
-
-                const absence =
-                    getAbsenceInfo(day);
-
-                const workTargetMins =
-                    getDayWorkTargetMinutes(day);
-
-                let isToday =
-                    !!day.querySelector(
-                        '.today_chip'
-                    );
-
-                let isPast = false;
-                let isFuture = false;
-
-                if (parsedDate) {
-                    const stamp =
-                        getLocalDayStamp(
-                            parsedDate
-                        );
-
-                    isToday =
-                        isToday ||
-                        stamp === nowStamp;
-
-                    isPast =
-                        stamp < nowStamp;
-
-                    isFuture =
-                        stamp > nowStamp;
-                } else if (
-                    markerTodayIdx !== -1
-                ) {
-                    isToday =
-                        idx === markerTodayIdx;
-
-                    isPast =
-                        idx < markerTodayIdx;
-
-                    isFuture =
-                        idx > markerTodayIdx;
+            }
+            const DOW_MAP = {
+                Sunday: 0,
+                Monday: 1,
+                Tuesday: 2,
+                Wednesday: 3,
+                Thursday: 4,
+                Friday: 5,
+                Saturday: 6
+            };
+            const dayOfWeek = parsedDate ? parsedDate.getDay() : (DOW_MAP[dayName] ?? -1);
+            const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+            const absence = getAbsenceInfo(day);
+            const workTargetMins = getDayWorkTargetMinutes(day);
+            let isToday = !!day.querySelector('.today_chip');
+            let isPast = false;
+            let isFuture = false;
+            if (parsedDate) {
+                const stamp = getLocalDayStamp(parsedDate);
+                isToday = isToday || stamp === nowStamp;
+                isPast = stamp < nowStamp;
+                isFuture = stamp > nowStamp;
+            } else if (markerTodayIdx !== -1) {
+                isToday = idx === markerTodayIdx;
+                isPast = idx < markerTodayIdx;
+                isFuture = idx > markerTodayIdx;
+            }
+            const totalMins = getLiveDayMinutes(day);
+            let officeMins = 0;
+            let wfhMins = 0;
+            let hasOffice = false;
+            let hasWFH = false;
+            day.querySelectorAll('.tt_period_container').forEach(p => {
+                const dur = getPeriodMinutes(p, isToday);
+                if (dur <= 0) return;
+                const act = p.querySelector('.chosen-single span')?.innerText.trim() || '';
+                if (act === 'Office') {
+                    officeMins += dur;
+                    hasOffice = true;
                 }
-
-                const totalMins =
-                    getLiveDayMinutes(day);
-
-                let officeMins = 0;
-                let wfhMins = 0;
-                let hasOffice = false;
-                let hasWFH = false;
-
-                day
-                    .querySelectorAll(
-                        '.tt_period_container'
-                    )
-                    .forEach(p => {
-                        const dur =
-                            getPeriodMinutes(
-                                p,
-                                isToday
-                            );
-
-                        if (dur <= 0) return;
-
-                        const act =
-                            p.querySelector(
-                                '.chosen-single span'
-                            )
-                                ?.innerText
-                                .trim() ||
-                            '';
-
-                        if (act === 'Office') {
-                            officeMins += dur;
-                            hasOffice = true;
-                        }
-
-                        if (
-                            act ===
-                            'Mobile Working'
-                        ) {
-                            wfhMins += dur;
-                            hasWFH = true;
-                        }
-                    });
-
-                return {
-                    key: getDateKey(
-                        parsedDate,
-                        `idx-${idx}`
-                    ),
-                    label,
-                    date: parsedDate,
-                    dayName,
-                    dateNum,
-                    dayOfWeek,
-                    isWeekend,
-                    absenceText:
-                        absence.text,
-                    isAbsent:
-                        absence.isFullAbsence &&
-                        !absence.isHoliday,
-                    isHoliday:
-                        absence.isHoliday,
-                    isHalfDay:
-                        absence.isHalfDay,
-                    halfDayPart:
-                        absence.halfDayPart,
-                    isToday,
-                    isPast,
-                    isFuture,
-                    totalMins,
-                    officeMins,
-                    wfhMins,
-                    hasOffice,
-                    hasWFH,
-                    workTargetMins,
-                    remainingWorkMins:
-                        Math.max(
-                            0,
-                            workTargetMins -
-                            totalMins
-                        ),
-                    isWorkable:
-                        workTargetMins > 0,
-                    weekIndex: 0,
-                    el: day
-                };
+                if (act === 'Mobile Working') {
+                    wfhMins += dur;
+                    hasWFH = true;
+                }
             });
-
+            return {
+                key: getDateKey(parsedDate, `idx-${idx}`),
+                label,
+                date: parsedDate,
+                dayName,
+                dateNum,
+                dayOfWeek,
+                isWeekend,
+                absenceText: absence.text,
+                isAbsent: absence.isFullAbsence && !absence.isHoliday,
+                isHoliday: absence.isHoliday,
+                isHalfDay: absence.isHalfDay,
+                halfDayPart: absence.halfDayPart,
+                isToday,
+                isPast,
+                isFuture,
+                totalMins,
+                officeMins,
+                wfhMins,
+                hasOffice,
+                hasWFH,
+                workTargetMins,
+                remainingWorkMins: Math.max(0, workTargetMins - totalMins),
+                isWorkable: workTargetMins > 0,
+                weekIndex: 0,
+                el: day
+            };
+        });
         let weekIdx = 0;
-
         days.forEach((d, i) => {
-            if (
-                i > 0 &&
-                d.dayOfWeek === 1 &&
-                days[i - 1].dayOfWeek !== 1
-            ) {
+            if (i > 0 && d.dayOfWeek === 1 && days[i - 1].dayOfWeek !== 1) {
                 weekIdx++;
             }
-
             d.weekIndex = weekIdx;
         });
-
         return days;
     };
-
     const getDayStats = summary => {
-        const realRota =
-            Math.max(
-                0,
-                summary.rota -
-                summary.absences -
-                summary.holidays
-            );
-
-        const days =
-            getDetailedDayData();
-
-        const workableDays =
-            days.filter(
-                d => d.isWorkable
-            ).length;
-
-        const workableMinutes =
-            days.reduce(
-                (sum, d) =>
-                    sum +
-                    d.workTargetMins,
-                0
-            );
-
-        const workedDays =
-            days.filter(
-                d =>
-                    !d.isWeekend &&
-                    d.totalMins > 0
-            ).length;
-
-        const progressPct =
-            realRota > 0
-                ? (
-                    summary.recorded /
-                    realRota
-                ) * 100
-                : 0;
-
-        const remainingMinutes =
-            Math.max(
-                0,
-                realRota -
-                summary.recorded
-            );
-
-        const daysLeft =
-            remainingMinutes > 0
-                ? round1(
-                    Math.ceil(
-                        remainingMinutes /
-                        HALF_DAY_MINUTES
-                    ) / 2
-                )
-                : 0;
-
-        const hasToday =
-            days.some(d => d.isToday);
-
+        const realRota = Math.max(0, summary.rota - summary.absences - summary.holidays);
+        const days = getDetailedDayData();
+        const workableDays = days.filter(d => d.isWorkable).length;
+        const workableMinutes = days.reduce(
+            (sum, d) => sum + d.workTargetMins, 0);
+        const workedDays = days.filter(d => !d.isWeekend && d.totalMins > 0).length;
+        const progressPct = realRota > 0 ? (summary.recorded / realRota) * 100 : 0;
+        const remainingMinutes = Math.max(0, realRota - summary.recorded);
+        const daysLeft = remainingMinutes > 0 ? round1(Math.ceil(remainingMinutes / HALF_DAY_MINUTES) / 2) : 0;
+        const hasToday = days.some(d => d.isToday);
         let bufferMinutes;
         let priorBufferMinutes;
-
         if (!hasToday) {
-            bufferMinutes =
-                summary.difference;
-
-            priorBufferMinutes =
-                summary.difference;
+            bufferMinutes = summary.difference;
+            priorBufferMinutes = summary.difference;
         } else {
             bufferMinutes = 0;
             priorBufferMinutes = 0;
-
             days.forEach(d => {
                 if (d.isFuture) return;
-
-                if (
-                    d.isAbsent ||
-                    d.isHoliday
-                ) {
+                if (d.isAbsent || d.isHoliday) {
                     return;
                 }
-
-                const target =
-                    d.workTargetMins;
-
-                const worked =
-                    d.totalMins;
-
+                const target = d.workTargetMins;
+                const worked = d.totalMins;
                 /*
                  * Buffer is a variance bank, not a countdown.
                  * A workable day with no recorded time is assumed
@@ -1056,24 +595,13 @@ const offTarget = 60;
                  * from the target affect the balance.
                  */
                 if (d.isPast) {
-                    const effectiveWorked =
-                        worked > 0
-                            ? worked
-                            : target;
-
-                    const diff =
-                        effectiveWorked - target;
-
+                    const effectiveWorked = worked > 0 ? worked : target;
+                    const diff = effectiveWorked - target;
                     bufferMinutes += diff;
                     priorBufferMinutes += diff;
                 } else if (d.isToday) {
                     if (worked <= 0) return;
-
-                    const isRunning =
-                        [...d.el.querySelectorAll(
-                            '.tt_period_container'
-                        )].some(isOpenPeriod);
-
+                    const isRunning = [...d.el.querySelectorAll('.tt_period_container')].some(isOpenPeriod);
                     /*
                      * While today's timer is open, assume the day
                      * will reach its scheduled target. This prevents
@@ -1082,36 +610,17 @@ const offTarget = 60;
                      * target is still banked live. Once the timer is
                      * closed, today's actual variance is used.
                      */
-                    const todayDiff =
-                        isRunning
-                            ? Math.max(
-                                0,
-                                worked - target
-                            )
-                            : worked - target;
-
+                    const todayDiff = isRunning ? Math.max(0, worked - target) : worked - target;
                     bufferMinutes += todayDiff;
                 }
             });
-
-            bufferMinutes =
-                Math.round(
-                    bufferMinutes
-                );
-
-            priorBufferMinutes =
-                Math.round(
-                    priorBufferMinutes
-                );
+            bufferMinutes = Math.round(bufferMinutes);
+            priorBufferMinutes = Math.round(priorBufferMinutes);
         }
-
         return {
             workableDays,
             workableMinutes,
-            workableHours:
-                round1(
-                    workableMinutes / 60
-                ),
+            workableHours: round1(workableMinutes / 60),
             daysLeft,
             remainingMinutes,
             workedDays,
@@ -1121,75 +630,33 @@ const offTarget = 60;
             realRota
         };
     };
-
     const getTodayInfo = () => {
-        const el = [
-            ...document.querySelectorAll(
-                '.tt_day_container'
-            )
-        ].find(d =>
-            d.querySelector(
-                '.today_chip'
-            )
-        );
-
+        const el = [...document.querySelectorAll('.tt_day_container')].find(d => d.querySelector('.today_chip'));
         if (!el) return null;
-
         let workedMinutes = 0;
         let isRunning = false;
-
-        el
-            .querySelectorAll(
-                '.tt_period_container'
-            )
-            .forEach(p => {
-                workedMinutes +=
-                    getPeriodMinutes(
-                        p,
-                        true
-                    );
-
-                if (isOpenPeriod(p)) {
-                    isRunning = true;
-                }
-            });
-
-        workedMinutes =
-            Math.max(
-                workedMinutes,
-                getDayTotalMinutes(el)
-            );
-
-        const absence =
-            getAbsenceInfo(el);
-
+        el.querySelectorAll('.tt_period_container').forEach(p => {
+            workedMinutes += getPeriodMinutes(p, true);
+            if (isOpenPeriod(p)) {
+                isRunning = true;
+            }
+        });
+        workedMinutes = Math.max(workedMinutes, getDayTotalMinutes(el));
+        const absence = getAbsenceInfo(el);
         return {
             el,
             workedMinutes,
-            targetMinutes:
-                getDayWorkTargetMinutes(el),
-            absenceText:
-                absence.text,
-            isHalfDay:
-                absence.isHalfDay,
-            halfDayPart:
-                absence.halfDayPart,
-            isHoliday:
-                absence.isHoliday,
-            isFullAbsence:
-                absence.isFullAbsence,
+            targetMinutes: getDayWorkTargetMinutes(el),
+            absenceText: absence.text,
+            isHalfDay: absence.isHalfDay,
+            halfDayPart: absence.halfDayPart,
+            isHoliday: absence.isHoliday,
+            isFullAbsence: absence.isFullAbsence,
             isRunning
         };
     };
-
-    const getTodayMinutes = () =>
-        getTodayInfo()?.workedMinutes || 0;
-
-    const hasTodayOnPage = () =>
-        !!document.querySelector(
-            '.today_chip'
-        );
-
+    const getTodayMinutes = () => getTodayInfo()?.workedMinutes || 0;
+    const hasTodayOnPage = () => !!document.querySelector('.today_chip');
     /* ═══════════════════════════════════════════════════════════════
        HOURS-BASED SCHEDULE PLANNER
     ═══════════════════════════════════════════════════════════════ */
@@ -1197,48 +664,22 @@ const offTarget = 60;
         days,
         officeHoursStillNeeded
     }) => {
-        if (
-            officeHoursStillNeeded <= 0
-        ) {
+        if (officeHoursStillNeeded <= 0) {
             return new Map();
         }
-
-        const future =
-            days.filter(
-                d =>
-                    (
-                        d.isFuture ||
-                        d.isToday
-                    ) &&
-                    d.isWorkable &&
-                    d.remainingWorkMins > 0
-            );
-
+        const future = days.filter(d => (d.isFuture || d.isToday) && d.isWorkable && d.remainingWorkMins > 0);
         if (!future.length) {
             return new Map();
         }
-
-        let remaining =
-            round1(
-                officeHoursStillNeeded
-            );
-
-        const weekMap =
-            new Map();
-
+        let remaining = round1(officeHoursStillNeeded);
+        const weekMap = new Map();
         future.forEach(d => {
-            const wk =
-                d.weekIndex;
-
+            const wk = d.weekIndex;
             if (!weekMap.has(wk)) {
                 weekMap.set(wk, []);
             }
-
-            weekMap
-                .get(wk)
-                .push(d);
+            weekMap.get(wk).push(d);
         });
-
         const DOW_PREF = {
             3: 0,
             2: 1,
@@ -1246,140 +687,50 @@ const offTarget = 60;
             1: 3,
             5: 4
         };
-
-        weekMap.forEach(w =>
-            w.sort(
-                (a, b) =>
-                    (
-                        DOW_PREF[
-                            a.dayOfWeek
-                        ] ?? 9
-                    ) -
-                    (
-                        DOW_PREF[
-                            b.dayOfWeek
-                        ] ?? 9
-                    )
-            )
-        );
-
-        const weeks = [
-            ...weekMap.entries()
-        ].sort(
-            (a, b) =>
-                a[0] - b[0]
-        );
-
-        const planned =
-            new Map();
-
+        weekMap.forEach(w => w.sort(
+            (a, b) => (DOW_PREF[a.dayOfWeek] ?? 9) - (DOW_PREF[b.dayOfWeek] ?? 9)));
+        const weeks = [...weekMap.entries()].sort(
+            (a, b) => a[0] - b[0]);
+        const planned = new Map();
         weeks.forEach(
             ([, wdays], wi) => {
-                if (
-                    remaining <= 0
-                ) {
+                if (remaining <= 0) {
                     return;
                 }
-
-                const weeksLeft =
-                    weeks.length - wi;
-
-                const quota =
-                    round1(
-                        Math.ceil(
-                            (
-                                remaining /
-                                weeksLeft
-                            ) * 10
-                        ) / 10
-                    );
-
+                const weeksLeft = weeks.length - wi;
+                const quota = round1(Math.ceil(
+                    (remaining / weeksLeft) * 10) / 10);
                 let assigned = 0;
-
-                for (
-                    const d of wdays
-                ) {
-                    if (
-                        remaining <= 0 ||
-                        assigned >= quota
-                    ) {
+                for (const d of wdays) {
+                    if (remaining <= 0 || assigned >= quota) {
                         break;
                     }
-
-                    const capacityH =
-                        round1(
-                            d.remainingWorkMins /
-                            60
-                        );
-
-                    if (
-                        capacityH <= 0
-                    ) {
+                    const capacityH = round1(d.remainingWorkMins / 60);
+                    if (capacityH <= 0) {
                         continue;
                     }
-
-                    const h =
-                        round1(
-                            Math.min(
-                                capacityH,
-                                remaining,
-                                quota -
-                                assigned
-                            )
-                        );
-
+                    const h = round1(Math.min(capacityH, remaining, quota - assigned));
                     if (h <= 0) {
                         continue;
                     }
-
-                    planned.set(
-                        d.key,
-                        h
-                    );
-
-                    assigned =
-                        round1(
-                            assigned + h
-                        );
-
-                    remaining =
-                        round1(
-                            Math.max(
-                                0,
-                                remaining - h
-                            )
-                        );
+                    planned.set(d.key, h);
+                    assigned = round1(assigned + h);
+                    remaining = round1(Math.max(0, remaining - h));
                 }
-            }
-        );
-
+            });
         return planned;
     };
-
     /* ═══════════════════════════════════════════════════════════════
        STYLES
     ═══════════════════════════════════════════════════════════════ */
-    const STYLE_ID =
-        'edays-pro-v18-styles';
-
+    const STYLE_ID = 'edays-pro-v18-styles';
     const injectStyles = T => {
-        let s =
-            document.getElementById(
-                STYLE_ID
-            );
-
+        let s = document.getElementById(STYLE_ID);
         if (!s) {
-            s =
-                document.createElement(
-                    'style'
-                );
-
+            s = document.createElement('style');
             s.id = STYLE_ID;
-
-            document.head
-                .appendChild(s);
+            document.head.appendChild(s);
         }
-
         s.textContent = `
         #ep13{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:${T.bg};border-radius:14px;padding:14px 16px 12px;margin:0 0 16px;color:${T.text};}
         #ep13 .ep-hdr{display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid ${T.border};}
@@ -1511,7 +862,6 @@ const offTarget = 60;
         #ep-back-chip.ep-btn:hover{background:#F0F0F0!important;color:inherit!important;border-color:#bcc1c2!important;}
         `;
     };
-
     /* ═══════════════════════════════════════════════════════════════
        ACTIVITY CONFIG
     ═══════════════════════════════════════════════════════════════ */
@@ -1537,13 +887,11 @@ const offTarget = 60;
             bg: '#374151'
         },
     };
-
     const FALLBACK_CFG = {
         icon: 'timer',
         grad: 'linear-gradient(135deg,#64748b,#334155)',
         bg: '#475569'
     };
-
     /* ═══════════════════════════════════════════════════════════════
        SCHEDULE SECTION HTML
     ═══════════════════════════════════════════════════════════════ */
@@ -1553,83 +901,22 @@ const offTarget = 60;
         officeHoursNeeded,
         alreadyDoneOfficeHours
     }) => {
-        const stillNeeded =
-            round1(
-                Math.max(
-                    0,
-                    officeHoursNeeded -
-                    alreadyDoneOfficeHours
-                )
-            );
-
-        const plannedMap =
-            buildHoursSchedulePlan({
-                days,
-                officeHoursStillNeeded:
-                    stillNeeded
-            });
-
-        const plannedTotalH =
-            round1(
-                [...plannedMap.values()]
-                    .reduce(
-                        (a, b) =>
-                            a + b,
-                        0
-                    )
-            );
-
-        const totalWorkableHours =
-            round1(
-                days.reduce(
-                    (sum, d) =>
-                        sum +
-                        d.workTargetMins,
-                    0
-                ) / 60
-            );
-
-        const donePct =
-            officeHoursNeeded > 0
-                ? (
-                    alreadyDoneOfficeHours /
-                    officeHoursNeeded
-                ) * 100
-                : 0;
-
-        const planPct =
-            officeHoursNeeded > 0
-                ? (
-                    plannedTotalH /
-                    officeHoursNeeded
-                ) * 100
-                : 0;
-
-        const totalOfficeH =
-            round1(
-                alreadyDoneOfficeHours +
-                plannedTotalH
-            );
-
-        const nonOfficeH =
-            round1(
-                Math.max(
-                    0,
-                    totalWorkableHours -
-                    totalOfficeH
-                )
-            );
-
-        const pctOffice =
-            totalWorkableHours > 0
-                ? Math.round(
-                    (
-                        totalOfficeH /
-                        totalWorkableHours
-                    ) * 100
-                )
-                : 0;
-
+        const stillNeeded = round1(Math.max(0, officeHoursNeeded - alreadyDoneOfficeHours));
+        const plannedMap = buildHoursSchedulePlan({
+            days,
+            officeHoursStillNeeded: stillNeeded
+        });
+        const plannedTotalH = round1(
+            [...plannedMap.values()].reduce(
+                (a, b) => a + b, 0));
+        const totalWorkableHours = round1(days.reduce(
+            (sum, d) => sum + d.workTargetMins, 0) / 60);
+        const donePct = officeHoursNeeded > 0 ? (alreadyDoneOfficeHours / officeHoursNeeded) * 100 : 0;
+        const planPct = officeHoursNeeded > 0 ? (plannedTotalH / officeHoursNeeded) * 100 : 0;
+        const totalOfficeH = round1(alreadyDoneOfficeHours + plannedTotalH);
+        const nonOfficeH = round1(Math.max(0, totalWorkableHours - totalOfficeH));
+        const pctOffice = totalWorkableHours > 0 ? Math.round(
+            (totalOfficeH / totalWorkableHours) * 100) : 0;
         let html = `
             <div class="ep-sched-section">
                 <div class="ep-sched-hdr">
@@ -1692,154 +979,60 @@ const offTarget = 60;
                     </div>
                 </div>
         `;
-
         html += `<div class="ep-cal-grid">`;
-
-        ['M', 'T', 'W', 'T', 'F', 'S', 'S']
-            .forEach(
-                d =>
-                    html +=
-                        `<div class="ep-cal-dow">${d}</div>`
-            );
-
-        const firstDow =
-            days[0]?.dayOfWeek ?? 1;
-
-        const colOffset =
-            firstDow === 0
-                ? 6
-                : firstDow - 1;
-
-        for (
-            let i = 0;
-            i < colOffset;
-            i++
-        ) {
-            html +=
-                `<div class="ep-cal-day ep-cal-empty"></div>`;
+        ['M', 'T', 'W', 'T', 'F', 'S', 'S'].forEach(d => html += `<div class="ep-cal-dow">${d}</div>`);
+        const firstDow = days[0]?.dayOfWeek ?? 1;
+        const colOffset = firstDow === 0 ? 6 : firstDow - 1;
+        for (let i = 0; i < colOffset; i++) {
+            html += `<div class="ep-cal-day ep-cal-empty"></div>`;
         }
-
         days.forEach(d => {
             if (!d.dateNum) {
-                html +=
-                    `<div class="ep-cal-day ep-cal-empty"></div>`;
-
+                html += `<div class="ep-cal-day ep-cal-empty"></div>`;
                 return;
             }
-
-            let cls =
-                'ep-cal-day ';
-
+            let cls = 'ep-cal-day ';
             let hrsLbl = '';
-
             if (d.isWeekend) {
-                cls +=
-                    'ep-cal-weekend';
-            } else if (
-                d.isAbsent ||
-                d.isHoliday
-            ) {
-                cls +=
-                    'ep-cal-absent';
+                cls += 'ep-cal-weekend';
+            } else if (d.isAbsent || d.isHoliday) {
+                cls += 'ep-cal-absent';
             } else if (d.hasOffice) {
-                cls +=
-                    'ep-cal-done-off';
-
-                const extraPlanH =
-                    plannedMap.get(d.key) ||
-                    0;
-
-                hrsLbl =
-                    `<span class="ep-cal-hrs">` +
-                    `${fmtHours(d.officeMins / 60)}h` +
-                    `${extraPlanH > 0 ? ` +${fmtHours(extraPlanH)}h` : ''}` +
-                    `</span>`;
-            } else if (
-                d.hasWFH &&
-                (
-                    d.isPast ||
-                    d.isToday
-                )
-            ) {
-                cls +=
-                    'ep-cal-done-wfh';
-            } else if (
-                d.isPast ||
-                d.isToday
-            ) {
-                cls +=
-                    'ep-cal-done-any';
-            } else if (
-                plannedMap.has(d.key)
-            ) {
-                cls +=
-                    'ep-cal-plan-off';
-
-                hrsLbl =
-                    `<span class="ep-cal-hrs">` +
-                    `${fmtHours(plannedMap.get(d.key))}h` +
-                    `</span>`;
+                cls += 'ep-cal-done-off';
+                const extraPlanH = plannedMap.get(d.key) || 0;
+                hrsLbl = `<span class="ep-cal-hrs">` + `${fmtHours(d.officeMins / 60)}h` + `${extraPlanH > 0 ? ` +${fmtHours(extraPlanH)}h` : ''}` + `</span>`;
+            } else if (d.hasWFH && (d.isPast || d.isToday)) {
+                cls += 'ep-cal-done-wfh';
+            } else if (d.isPast || d.isToday) {
+                cls += 'ep-cal-done-any';
+            } else if (plannedMap.has(d.key)) {
+                cls += 'ep-cal-plan-off';
+                hrsLbl = `<span class="ep-cal-hrs">` + `${fmtHours(plannedMap.get(d.key))}h` + `</span>`;
             } else {
-                cls +=
-                    'ep-cal-plan-wfh';
+                cls += 'ep-cal-plan-wfh';
             }
-
-            if (
-                !hrsLbl &&
-                d.isHalfDay
-            ) {
-                hrsLbl =
-                    `<span class="ep-cal-hrs">` +
-                    `${d.halfDayPart} vac` +
-                    `</span>`;
+            if (!hrsLbl && d.isHalfDay) {
+                hrsLbl = `<span class="ep-cal-hrs">` + `${d.halfDayPart} vac` + `</span>`;
             }
-
             if (d.isToday) {
-                cls +=
-                    ' ep-cal-today';
+                cls += ' ep-cal-today';
             }
-
-            const title =
-                d.absenceText
-                    ? `${d.label} · ${d.absenceText} · ${fmt(d.workTargetMins)} work target`
-                    : d.label;
-
-            html +=
-                `<div class="${cls}" title="${title}">` +
-                `${d.dateNum}${hrsLbl}` +
-                `</div>`;
+            const title = d.absenceText ? `${d.label} · ${d.absenceText} · ${fmt(d.workTargetMins)} work target` : d.label;
+            html += `<div class="${cls}" title="${title}">` + `${d.dateNum}${hrsLbl}` + `</div>`;
         });
-
         html += `</div>`;
-
-        const weekBuckets =
-            new Map();
-
+        const weekBuckets = new Map();
         days.forEach(d => {
-            if (
-                d.isWeekend ||
-                !d.dateNum
-            ) {
+            if (d.isWeekend || !d.dateNum) {
                 return;
             }
-
-            const wk =
-                d.weekIndex;
-
-            if (
-                !weekBuckets.has(wk)
-            ) {
-                weekBuckets.set(
-                    wk,
-                    []
-                );
+            const wk = d.weekIndex;
+            if (!weekBuckets.has(wk)) {
+                weekBuckets.set(wk,
+                    []);
             }
-
-            weekBuckets
-                .get(wk)
-                .push(d);
+            weekBuckets.get(wk).push(d);
         });
-
         const DNAMES = {
             1: 'Mon',
             2: 'Tue',
@@ -1847,152 +1040,50 @@ const offTarget = 60;
             4: 'Thu',
             5: 'Fri'
         };
-
-        html +=
-            `<div class="ep-week-rows">`;
-
+        html += `<div class="ep-week-rows">`;
         let wn = 0;
-
-        weekBuckets.forEach(
-            wdays => {
-                wn++;
-
-                const offDoneH =
-                    wdays.reduce(
-                        (s, d) =>
-                            s +
-                            (
-                                d.officeMins ||
-                                0
-                            ),
-                        0
-                    ) / 60;
-
-                const plannedH =
-                    wdays.reduce(
-                        (s, d) =>
-                            s +
-                            (
-                                plannedMap.get(
-                                    d.key
-                                ) ||
-                                0
-                            ),
-                        0
-                    );
-
-                const slotMap =
-                    new Map(
-                        wdays.map(
-                            d => [
-                                d.dayOfWeek,
-                                d
-                            ]
-                        )
-                    );
-
-                html +=
-                    `<div class="ep-week-row">` +
-                    `<div class="ep-week-label">W${wn}</div>` +
-                    `<div class="ep-week-days">`;
-
-                [1, 2, 3, 4, 5]
-                    .forEach(dow => {
-                        const d =
-                            slotMap.get(dow);
-
-                        if (!d) {
-                            html +=
-                                `<div class="ep-week-day-pill ep-wp-off">—</div>`;
-
-                            return;
-                        }
-
-                        let cls =
-                            'ep-week-day-pill ';
-
-                        let sub = '';
-
-                        if (
-                            d.isAbsent ||
-                            d.isHoliday
-                        ) {
-                            cls +=
-                                'ep-wp-absent';
-                        } else if (
-                            d.hasOffice
-                        ) {
-                            cls +=
-                                'ep-wp-done';
-
-                            const extraPlanH =
-                                plannedMap.get(
-                                    d.key
-                                ) ||
-                                0;
-
-                            sub =
-                                `<span class="ep-pill-sub">` +
-                                `${fmtHours(d.officeMins / 60)}h` +
-                                `${extraPlanH > 0 ? ` +${fmtHours(extraPlanH)}h` : ''}` +
-                                `${d.isHalfDay ? ' · ½ day' : ''}` +
-                                `</span>`;
-                        } else if (
-                            plannedMap.has(
-                                d.key
-                            )
-                        ) {
-                            cls +=
-                                'ep-wp-office';
-
-                            sub =
-                                `<span class="ep-pill-sub">` +
-                                `${fmtHours(plannedMap.get(d.key))}h` +
-                                `${d.isHalfDay ? ' · ½ day' : ''}` +
-                                `</span>`;
-                        } else if (
-                            d.hasWFH
-                        ) {
-                            cls +=
-                                'ep-wp-wfh';
-
-                            sub =
-                                `<span class="ep-pill-sub">` +
-                                `WFH` +
-                                `${d.isHalfDay ? ' · ½ day' : ''}` +
-                                `</span>`;
-                        } else {
-                            cls +=
-                                'ep-wp-wfh';
-
-                            if (
-                                d.isHalfDay
-                            ) {
-                                sub =
-                                    `<span class="ep-pill-sub">` +
-                                    `${d.halfDayPart} vac · 4h` +
-                                    `</span>`;
-                            }
-                        }
-
-                        html +=
-                            `<div class="${cls}" title="${d.label}${d.absenceText ? ' · ' + d.absenceText : ''}">` +
-                            `${DNAMES[dow]}` +
-                            `${sub}` +
-                            `</div>`;
-                    });
-
-                html +=
-                    `</div>` +
-                    `<div class="ep-week-row-summary">` +
-                    `<span>${fmtHours(round1(offDoneH + plannedH))}h</span> office` +
-                    `</div>` +
-                    `</div>`;
-            }
-        );
-
+        weekBuckets.forEach(wdays => {
+            wn++;
+            const offDoneH = wdays.reduce(
+                (s, d) => s + (d.officeMins || 0), 0) / 60;
+            const plannedH = wdays.reduce(
+                (s, d) => s + (plannedMap.get(d.key) || 0), 0);
+            const slotMap = new Map(wdays.map(d => [
+                d.dayOfWeek,
+                d
+            ]));
+            html += `<div class="ep-week-row">` + `<div class="ep-week-label">W${wn}</div>` + `<div class="ep-week-days">`;
+            [1, 2, 3, 4, 5].forEach(dow => {
+                const d = slotMap.get(dow);
+                if (!d) {
+                    html += `<div class="ep-week-day-pill ep-wp-off">—</div>`;
+                    return;
+                }
+                let cls = 'ep-week-day-pill ';
+                let sub = '';
+                if (d.isAbsent || d.isHoliday) {
+                    cls += 'ep-wp-absent';
+                } else if (d.hasOffice) {
+                    cls += 'ep-wp-done';
+                    const extraPlanH = plannedMap.get(d.key) || 0;
+                    sub = `<span class="ep-pill-sub">` + `${fmtHours(d.officeMins / 60)}h` + `${extraPlanH > 0 ? ` +${fmtHours(extraPlanH)}h` : ''}` + `${d.isHalfDay ? ' · ½ day' : ''}` + `</span>`;
+                } else if (plannedMap.has(d.key)) {
+                    cls += 'ep-wp-office';
+                    sub = `<span class="ep-pill-sub">` + `${fmtHours(plannedMap.get(d.key))}h` + `${d.isHalfDay ? ' · ½ day' : ''}` + `</span>`;
+                } else if (d.hasWFH) {
+                    cls += 'ep-wp-wfh';
+                    sub = `<span class="ep-pill-sub">` + `WFH` + `${d.isHalfDay ? ' · ½ day' : ''}` + `</span>`;
+                } else {
+                    cls += 'ep-wp-wfh';
+                    if (d.isHalfDay) {
+                        sub = `<span class="ep-pill-sub">` + `${d.halfDayPart} vac · 4h` + `</span>`;
+                    }
+                }
+                html += `<div class="${cls}" title="${d.label}${d.absenceText ? ' · ' + d.absenceText : ''}">` + `${DNAMES[dow]}` + `${sub}` + `</div>`;
+            });
+            html += `</div>` + `<div class="ep-week-row-summary">` + `<span>${fmtHours(round1(offDoneH + plannedH))}h</span> office` + `</div>` + `</div>`;
+        });
         html += `</div>`;
-
         html += `
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <div class="ep-sched-stat" style="flex:1;min-width:70px;">
@@ -2027,10 +1118,8 @@ const offTarget = 60;
                 </div>
             </div>
         </div>`;
-
         return html;
     };
-
     /* ═══════════════════════════════════════════════════════════════
        OFFICE PLANNER PANEL HTML
     ═══════════════════════════════════════════════════════════════ */
@@ -2039,43 +1128,11 @@ const offTarget = 60;
         ds,
         days
     }) => {
-        const isOpen =
-            localStorage.getItem(
-                LS.PLANNER_OPEN
-            ) === 'true';
-
-        const officeHoursNeeded =
-            round1(
-                (
-                    ds.realRota *
-                    (
-                        offTarget /
-                        100
-                    )
-                ) /
-                60
-            );
-
-        const alreadyDoneOfficeHours =
-            round1(
-                days
-                    .filter(
-                        d =>
-                            d.hasOffice &&
-                            (
-                                d.isPast ||
-                                d.isToday
-                            )
-                    )
-                    .reduce(
-                        (s, d) =>
-                            s +
-                            d.officeMins,
-                        0
-                    ) /
-                60
-            );
-
+        const isOpen = localStorage.getItem(LS.PLANNER_OPEN) === 'true';
+        const officeHoursNeeded = round1(
+            (ds.realRota * (offTarget / 100)) / 60);
+        const alreadyDoneOfficeHours = round1(days.filter(d => d.hasOffice && (d.isPast || d.isToday)).reduce(
+            (s, d) => s + d.officeMins, 0) / 60);
         let html = `
             <div
                 class="ep-planner-toggle"
@@ -2111,141 +1168,48 @@ const offTarget = 60;
             >
                 <div class="ep-planner-inner">
         `;
-
-        html +=
-            buildScheduleSection({
-                T,
-                days,
-                officeHoursNeeded,
-                alreadyDoneOfficeHours
-            });
-
-        html +=
-            `</div></div>`;
-
+        html += buildScheduleSection({
+            T,
+            days,
+            officeHoursNeeded,
+            alreadyDoneOfficeHours
+        });
+        html += `</div></div>`;
         return html;
     };
-
     const buildTodayStrip = ({
         T,
         ds
     }) => {
-        const today =
-            getTodayInfo();
-
+        const today = getTodayInfo();
         if (!today) return '';
-
-        const todayBufOn =
-            localStorage.getItem(
-                LS.TODAY_BUF
-            ) === 'true';
-
-        const scheduledTarget =
-            today.targetMinutes;
-
-        let effTarget =
-            scheduledTarget;
-
-        if (
-            todayBufOn &&
-            scheduledTarget > 0
-        ) {
-            effTarget =
-                Math.max(
-                    0,
-                    scheduledTarget -
-                    ds.priorBufferMinutes
-                );
-
+        const todayBufOn = localStorage.getItem(LS.TODAY_BUF) === 'true';
+        const scheduledTarget = today.targetMinutes;
+        let effTarget = scheduledTarget;
+        if (todayBufOn && scheduledTarget > 0) {
+            effTarget = Math.max(0, scheduledTarget - ds.priorBufferMinutes);
             if (today.isHalfDay) {
-                effTarget =
-                    Math.min(
-                        scheduledTarget,
-                        effTarget
-                    );
+                effTarget = Math.min(scheduledTarget, effTarget);
             }
         }
-
-        const todayWorked =
-            today.workedMinutes;
-
-        const isDayOff =
-            scheduledTarget === 0;
-
-        const todayPct =
-            isDayOff
-                ? 100
-                : (
-                    effTarget > 0
-                        ? Math.min(
-                            100,
-                            (
-                                todayWorked /
-                                effTarget
-                            ) * 100
-                        )
-                        : 100
-                );
-
-        const todayDone =
-            isDayOff ||
-            todayWorked >= effTarget;
-
-        const todayRemaining =
-            Math.max(
-                0,
-                effTarget -
-                todayWorked
-            );
-
-        const leaveAt =
-            today.isRunning &&
-            todayRemaining > 0
-                ? new Date(
-                    Date.now() +
-                    todayRemaining *
-                    60000
-                )
-                : null;
-
+        const todayWorked = today.workedMinutes;
+        const isDayOff = scheduledTarget === 0;
+        const todayPct = isDayOff ? 100 : (effTarget > 0 ? Math.min(100,
+            (todayWorked / effTarget) * 100) : 100);
+        const todayDone = isDayOff || todayWorked >= effTarget;
+        const todayRemaining = Math.max(0, effTarget - todayWorked);
+        const leaveAt = today.isRunning && todayRemaining > 0 ? new Date(Date.now() + todayRemaining * 60000) : null;
         let statusHtml;
-
         if (isDayOff) {
-            statusHtml =
-                `<span class="ep-today-rem done">` +
-                `${icon('check',12,'#22c55e')} ` +
-                `${today.absenceText || 'Non-working day'}` +
-                `</span>`;
-        } else if (
-            effTarget === 0 &&
-            todayBufOn
-        ) {
-            statusHtml =
-                `<span class="ep-today-rem done">` +
-                `${icon('check',12,'#22c55e')} ` +
-                `Covered by buffer` +
-                `</span>`;
+            statusHtml = `<span class="ep-today-rem done">` + `${icon('check',12,'#22c55e')} ` + `${today.absenceText || 'Non-working day'}` + `</span>`;
+        } else if (effTarget === 0 && todayBufOn) {
+            statusHtml = `<span class="ep-today-rem done">` + `${icon('check',12,'#22c55e')} ` + `Covered by buffer` + `</span>`;
         } else if (todayDone) {
-            statusHtml =
-                `<span class="ep-today-rem done">` +
-                `${icon('check',12,'#22c55e')} ` +
-                `Day complete!` +
-                `</span>`;
+            statusHtml = `<span class="ep-today-rem done">` + `${icon('check',12,'#22c55e')} ` + `Day complete!` + `</span>`;
         } else {
-            statusHtml =
-                `<span class="ep-today-rem">` +
-                `${icon('timer',12,T.muted)} ` +
-                `${fmt(todayRemaining)} left` +
-                `${leaveAt ? ` - leave at ${formatClock(leaveAt)}` : ''}` +
-                `</span>`;
+            statusHtml = `<span class="ep-today-rem">` + `${icon('timer',12,T.muted)} ` + `${fmt(todayRemaining)} left` + `${leaveAt ? ` - leave at ${formatClock(leaveAt)}` : ''}` + `</span>`;
         }
-
-        const targetSuffix =
-            today.isHalfDay &&
-            today.absenceText
-                ? ` <span style="opacity:.75;">· ${today.absenceText}</span>`
-                : '';
-
+        const targetSuffix = today.isHalfDay && today.absenceText ? ` <span style="opacity:.75;">· ${today.absenceText}</span>` : '';
         return `
             <div class="ep-today-strip">
                 <div class="ep-today-label">
@@ -2320,183 +1284,71 @@ const offTarget = 60;
             </div>
         `;
     };
-
     /* ═══════════════════════════════════════════════════════════════
        INTERACTIONS
     ═══════════════════════════════════════════════════════════════ */
-    const bindInteractions =
-        container => {
-            container
-                .querySelectorAll(
-                    '[data-action]'
-                )
-                .forEach(el => {
-                    el.addEventListener(
-                        'click',
-                        e => {
-                            e.preventDefault();
-
-                            const action =
-                                el.dataset.action;
-
-                            if (
-                                action ===
-                                'jump-today'
-                            ) {
-                                jumpToToday();
-                            }
-
-                            if (
-                                action ===
-                                'jump-analyzer'
-                            ) {
-                                jumpToAnalyzer();
-                            }
-
-                            if (
-                                action ===
-                                'theme-toggle'
-                            ) {
-                                themeOverride =
-                                    el.dataset.theme;
-
-                                localStorage.setItem(
-                                    LS.THEME,
-                                    themeOverride
-                                );
-
-                                renderUI();
-
-                                injectBackButton(
-                                    getTheme()
-                                );
-                            }
-
-                            if (
-                                action ===
-                                'buf-toggle'
-                            ) {
-                                localStorage.setItem(
-                                    LS.TODAY_BUF,
-                                    String(
-                                        localStorage.getItem(
-                                            LS.TODAY_BUF
-                                        ) !== 'true'
-                                    )
-                                );
-
-                                renderUI();
-
-                                injectBackButton(
-                                    getTheme()
-                                );
-                            }
-
-                            if (
-                                action ===
-                                'planner-toggle'
-                            ) {
-                                localStorage.setItem(
-                                    LS.PLANNER_OPEN,
-                                    String(
-                                        localStorage.getItem(
-                                            LS.PLANNER_OPEN
-                                        ) !== 'true'
-                                    )
-                                );
-
-                                renderUI();
-
-                                injectBackButton(
-                                    getTheme()
-                                );
-                            }
-                        }
-                    );
-                });
-        };
-
+    const bindInteractions = container => {
+        container.querySelectorAll('[data-action]').forEach(el => {
+            el.addEventListener('click', e => {
+                e.preventDefault();
+                const action = el.dataset.action;
+                if (action === 'jump-today') {
+                    jumpToToday();
+                }
+                if (action === 'jump-analyzer') {
+                    jumpToAnalyzer();
+                }
+                if (action === 'theme-toggle') {
+                    themeOverride = el.dataset.theme;
+                    localStorage.setItem(LS.THEME, themeOverride);
+                    renderUI();
+                    injectBackButton(getTheme());
+                }
+                if (action === 'buf-toggle') {
+                    localStorage.setItem(LS.TODAY_BUF, String(localStorage.getItem(LS.TODAY_BUF) !== 'true'));
+                    renderUI();
+                    injectBackButton(getTheme());
+                }
+                if (action === 'planner-toggle') {
+                    localStorage.setItem(LS.PLANNER_OPEN, String(localStorage.getItem(LS.PLANNER_OPEN) !== 'true'));
+                    renderUI();
+                    injectBackButton(getTheme());
+                }
+            });
+        });
+    };
     /* ═══════════════════════════════════════════════════════════════
        MAIN RENDER
     ═══════════════════════════════════════════════════════════════ */
     const renderUI = () => {
-        const T =
-            getTheme();
-
+        const T = getTheme();
         injectStyles(T);
-
-        const mainPanel =
-            document.getElementById(
-                'mainTimesheetPanel'
-            );
-
+        const mainPanel = document.getElementById('mainTimesheetPanel');
         if (!mainPanel) return;
-
-        let container =
-            document.getElementById(
-                'ep13'
-            );
-
+        let container = document.getElementById('ep13');
         if (!container) {
-            container =
-                document.createElement(
-                    'div'
-                );
-
+            container = document.createElement('div');
             container.id = 'ep13';
-
-            mainPanel.insertBefore(
-                container,
-                mainPanel.firstChild
-            );
+            mainPanel.insertBefore(container, mainPanel.firstChild);
         }
-
         if (!isSummaryReady()) {
-            container.innerHTML =
-                `<div class="ep-hdr">` +
-                `<div class="ep-hdr-logo">${icon('timer',16)}</div>` +
-                `<div class="ep-hdr-title">eDays Analyzer Pro</div>` +
-                `<div class="ep-hdr-date"><span class="ep-pulse"></span> Loading…</div>` +
-                `</div>`;
-
+            container.innerHTML = `<div class="ep-hdr">` + `<div class="ep-hdr-logo">${icon('timer',16)}</div>` + `<div class="ep-hdr-title">eDays Analyzer Pro</div>` + `<div class="ep-hdr-date"><span class="ep-pulse"></span> Loading…</div>` + `</div>`;
             return;
         }
-
-        const summary =
-            getSummaryData();
-
+        const summary = getSummaryData();
         const {
             actMap,
             rawTotal
         } = getActivityData();
-
-        const dateStr =
-            new Date()
-                .toLocaleDateString(
-                    'en-GB',
-                    {
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric'
-                    }
-                )
-                .toUpperCase();
-
-        if (
-            !summary.recorded &&
-            !rawTotal
-        ) {
-            const ds =
-                getDayStats(summary);
-
-            const detailedDays =
-                getDetailedDayData();
-
-            const nextTheme =
-                T.isDark
-                    ? 'light'
-                    : 'dark';
-
+        const dateStr = new Date().toLocaleDateString('en-GB', {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric'
+        }).toUpperCase();
+        if (!summary.recorded && !rawTotal) {
+            const ds = getDayStats(summary);
+            const detailedDays = getDetailedDayData();
+            const nextTheme = T.isDark ? 'light' : 'dark';
             container.innerHTML = `
                 <div class="ep-hdr">
                     <div class="ep-hdr-logo">
@@ -2548,179 +1400,79 @@ const offTarget = 60;
                     </div>
                 </div>
             `;
-
-            container.innerHTML +=
-                buildTodayStrip({
-                    T,
-                    ds
-                });
-
-            container.innerHTML +=
-                buildOfficePlannerPanel({
-                    T,
-                    ds,
-                    days: detailedDays
-                });
-
-            bindInteractions(
-                container
-            );
-
+            container.innerHTML += buildTodayStrip({
+                T,
+                ds
+            });
+            container.innerHTML += buildOfficePlannerPanel({
+                T,
+                ds,
+                days: detailedDays
+            });
+            bindInteractions(container);
             return;
         }
-
-        const realRota =
-            Math.max(
-                0,
-                summary.rota -
-                summary.absences -
-                summary.holidays
-            );
-
-        const days =
-            getDetailedDayData();
-
+        const realRota = Math.max(0, summary.rota - summary.absences - summary.holidays);
+        const days = getDetailedDayData();
         /*
          * FIX:
          * Exact Office minutes are authoritative.
          * They are read directly from the individual Office periods
          * and are not scaled by the raw/summary reconciliation factor.
          */
-        const officeMins =
-            days.reduce(
-                (s, d) =>
-                    (
-                        d.hasOffice &&
-                        (
-                            d.isPast ||
-                            d.isToday
-                        )
-                    )
-                        ? s +
-                          d.officeMins
-                        : s,
-                0
-            );
-
+        const officeMins = days.reduce(
+            (s, d) => (d.hasOffice && (d.isPast || d.isToday)) ? s + d.officeMins : s, 0);
         /*
          * FIX:
          * Reconcile all NON-OFFICE activity around the exact Office
          * value so Activity Breakdown always totals exactly the same
          * number of minutes as eDays "Time recorded".
          */
-        const recordedMins =
-            Math.round(
-                summary.recorded
-            );
-
-        const remainingRecordedMins =
-            Math.max(
-                0,
-                recordedMins -
-                officeMins
-            );
-
-        const nonOfficeRaw =
-            Object.entries(
-                actMap
-            ).filter(
-                ([name, mins]) =>
-                    name !== 'Office' &&
-                    mins > 0
-            );
-
-        const rawNonOfficeTotal =
-            nonOfficeRaw.reduce(
-                (s, [, mins]) =>
-                    s + mins,
-                0
-            );
-
+        const recordedMins = Math.round(summary.recorded);
+        const remainingRecordedMins = Math.max(0, recordedMins - officeMins);
+        const nonOfficeRaw = Object.entries(actMap).filter(
+            ([name, mins]) => name !== 'Office' && mins > 0);
+        const rawNonOfficeTotal = nonOfficeRaw.reduce(
+            (s, [, mins]) => s + mins, 0);
         let nonOfficeActs = [];
-
-        if (
-            rawNonOfficeTotal > 0 &&
-            remainingRecordedMins > 0
-        ) {
-            const scaled =
-                nonOfficeRaw.map(
-                    (
-                        [name, mins],
+        if (rawNonOfficeTotal > 0 && remainingRecordedMins > 0) {
+            const scaled = nonOfficeRaw.map(
+                (
+                    [name, mins], index) => {
+                    const exact = (mins / rawNonOfficeTotal) * remainingRecordedMins;
+                    const adj = Math.floor(exact);
+                    return {
+                        name,
+                        adj,
+                        remainder: exact - adj,
                         index
-                    ) => {
-                        const exact =
-                            (
-                                mins /
-                                rawNonOfficeTotal
-                            ) *
-                            remainingRecordedMins;
-
-                        const adj =
-                            Math.floor(
-                                exact
-                            );
-
-                        return {
-                            name,
-                            adj,
-                            remainder:
-                                exact -
-                                adj,
-                            index
-                        };
-                    }
-                );
-
+                    };
+                });
             /*
              * Largest-remainder distribution:
              * after flooring the scaled non-Office categories,
              * distribute any missing minute(s) to the categories
              * with the largest fractional remainder.
              */
-            let leftover =
-                remainingRecordedMins -
-                scaled.reduce(
-                    (s, a) =>
-                        s + a.adj,
-                    0
-                );
-
-            [...scaled]
-                .sort(
-                    (a, b) =>
-                        (
-                            b.remainder -
-                            a.remainder
-                        ) ||
-                        (
-                            a.index -
-                            b.index
-                        )
-                )
-                .forEach(a => {
-                    if (
-                        leftover <= 0
-                    ) {
-                        return;
-                    }
-
-                    a.adj += 1;
-                    leftover -= 1;
-                });
-
-            nonOfficeActs =
-                scaled.map(
-                    ({
-                        name,
-                        adj
-                    }) => ({
-                        name,
-                        adj
-                    })
-                );
-        } else if (
-            remainingRecordedMins > 0
-        ) {
+            let leftover = remainingRecordedMins - scaled.reduce(
+                (s, a) => s + a.adj, 0);
+            [...scaled].sort(
+                (a, b) => (b.remainder - a.remainder) || (a.index - b.index)).forEach(a => {
+                if (leftover <= 0) {
+                    return;
+                }
+                a.adj += 1;
+                leftover -= 1;
+            });
+            nonOfficeActs = scaled.map(
+                ({
+                    name,
+                    adj
+                }) => ({
+                    name,
+                    adj
+                }));
+        } else if (remainingRecordedMins > 0) {
             /*
              * Safety fallback:
              * if eDays has recorded minutes but no identifiable
@@ -2729,88 +1481,24 @@ const offTarget = 60;
              */
             nonOfficeActs = [{
                 name: 'No Activity',
-                adj:
-                    remainingRecordedMins
+                adj: remainingRecordedMins
             }];
         }
-
-        const acts = [
-            ...(
-                officeMins > 0
-                    ? [{
-                        name: 'Office',
-                        adj: officeMins
-                    }]
-                    : []
-            ),
-            ...nonOfficeActs
-        ]
-            .filter(
-                a => a.adj > 0
-            )
-            .sort(
-                (a, b) =>
-                    b.adj - a.adj
-            );
-
-        const totalActMins =
-            acts.reduce(
-                (s, a) =>
-                    s + a.adj,
-                0
-            );
-
-        const targetMins =
-            realRota *
-            (
-                offTarget /
-                100
-            );
-
-        const officePct =
-            targetMins > 0
-                ? (
-                    officeMins /
-                    targetMins
-                ) * 100
-                : 0;
-
-        const officeActPct =
-            realRota > 0
-                ? (
-                    officeMins /
-                    realRota
-                ) * 100
-                : 0;
-
-        const rotaPct =
-            realRota > 0
-                ? (
-                    summary.recorded /
-                    realRota
-                ) * 100
-                : 0;
-
-        const ds =
-            getDayStats(summary);
-
-        const offColor =
-            getOffColor(
-                officePct
-            );
-
-        const rotaColor =
-            rotaPct >= 100
-                ? '#22c55e'
-                : rotaPct >= 80
-                    ? '#3b82f6'
-                    : '#f59e0b';
-
-        const nextTheme =
-            T.isDark
-                ? 'light'
-                : 'dark';
-
+        const acts = [...(officeMins > 0 ? [{
+            name: 'Office',
+            adj: officeMins
+        }] : []), ...nonOfficeActs].filter(a => a.adj > 0).sort(
+            (a, b) => b.adj - a.adj);
+        const totalActMins = acts.reduce(
+            (s, a) => s + a.adj, 0);
+        const targetMins = realRota * (offTarget / 100);
+        const officePct = targetMins > 0 ? (officeMins / targetMins) * 100 : 0;
+        const officeActPct = realRota > 0 ? (officeMins / realRota) * 100 : 0;
+        const rotaPct = realRota > 0 ? (summary.recorded / realRota) * 100 : 0;
+        const ds = getDayStats(summary);
+        const offColor = getOffColor(officePct);
+        const rotaColor = rotaPct >= 100 ? '#22c55e' : rotaPct >= 80 ? '#3b82f6' : '#f59e0b';
+        const nextTheme = T.isDark ? 'light' : 'dark';
         let html = `
             <div class="ep-hdr">
                 <div class="ep-hdr-logo">
@@ -2846,84 +1534,22 @@ const offTarget = 60;
 
             <div class="ep-grid">
         `;
-
         /* Card 1 */
-        const totalActPct =
-            realRota > 0
-                ? (
-                    totalActMins /
-                    realRota
-                ) * 100
-                : 0;
-
-        html +=
-            `<div class="ep-card">` +
-            `<div class="ep-card-title">Activity Breakdown</div>`;
-
+        const totalActPct = realRota > 0 ? (totalActMins / realRota) * 100 : 0;
+        html += `<div class="ep-card">` + `<div class="ep-card-title">Activity Breakdown</div>`;
         acts.forEach(({
             name,
             adj
         }) => {
-            const cfg =
-                ACT_CFG[name] ||
-                FALLBACK_CFG;
-
-            const pct =
-                realRota > 0
-                    ? (
-                        adj /
-                        realRota
-                    ) * 100
-                    : 0;
-
-            html +=
-                `<div class="ep-act-row">` +
-                `${iconBadge(cfg.icon,cfg.bg,26)}` +
-                `<div class="ep-act-info">` +
-                `<div class="ep-act-name">${name}</div>` +
-                `<div class="ep-act-meta">${fmt(adj)} · ${pct.toFixed(0)}%</div>` +
-                `<div class="ep-bar">` +
-                `<div class="ep-bar-fill" style="width:${clamp(pct,0,100)}%;background:${cfg.grad};"></div>` +
-                `</div>` +
-                `</div>` +
-                `</div>`;
+            const cfg = ACT_CFG[name] || FALLBACK_CFG;
+            const pct = realRota > 0 ? (adj / realRota) * 100 : 0;
+            html += `<div class="ep-act-row">` + `${iconBadge(cfg.icon,cfg.bg,26)}` + `<div class="ep-act-info">` + `<div class="ep-act-name">${name}</div>` + `<div class="ep-act-meta">${fmt(adj)} · ${pct.toFixed(0)}%</div>` + `<div class="ep-bar">` + `<div class="ep-bar-fill" style="width:${clamp(pct,0,100)}%;background:${cfg.grad};"></div>` + `</div>` + `</div>` + `</div>`;
         });
-
-        html +=
-            `<div class="ep-divider"></div>` +
-            `<div class="ep-total-row">` +
-                `<span class="ep-total-label">Total logged</span>` +
-                `<span class="ep-total-val">${fmt(totalActMins)} (${totalActPct.toFixed(0)}%)</span>` +
-            `</div>` +
-            `<div class="ep-bar">` +
-                `<div class="ep-bar-fill" style="width:${clamp(totalActPct,0,100)}%;background:linear-gradient(90deg,#3b82f6,#a855f7);"></div>` +
-            `</div>` +
-            `</div>`;
-
+        html += `<div class="ep-divider"></div>` + `<div class="ep-total-row">` + `<span class="ep-total-label">Total logged</span>` + `<span class="ep-total-val">${fmt(totalActMins)} (${totalActPct.toFixed(0)}%)</span>` + `</div>` + `<div class="ep-bar">` + `<div class="ep-bar-fill" style="width:${clamp(totalActPct,0,100)}%;background:linear-gradient(90deg,#3b82f6,#a855f7);"></div>` + `</div>` + `</div>`;
         /* Card 2 */
-        const offRemMins =
-            Math.max(
-                0,
-                Math.ceil(
-                    targetMins -
-                    officeMins
-                )
-            );
-
-        const offRemDays =
-            offRemMins > 0
-                ? round1(
-                    Math.ceil(
-                        offRemMins /
-                        HALF_DAY_MINUTES
-                    ) / 2
-                )
-                : 0;
-
-        const offRemTime =
-            `${Math.floor(offRemMins / 60)}h ` +
-            `${String(offRemMins % 60).padStart(2, '0')}m`;
-
+        const offRemMins = Math.max(0, Math.ceil(targetMins - officeMins));
+        const offRemDays = offRemMins > 0 ? round1(Math.ceil(offRemMins / HALF_DAY_MINUTES) / 2) : 0;
+        const offRemTime = `${Math.floor(offRemMins / 60)}h ` + `${String(offRemMins % 60).padStart(2, '0')}m`;
         html += `
             <div class="ep-card ep-ring-card">
                 <div class="ep-card-title">
@@ -3020,7 +1646,6 @@ const offTarget = 60;
                 }
             </div>
         `;
-
         /* Card 3 */
         html += `
             <div class="ep-card ep-ring-card">
@@ -3102,63 +1727,48 @@ const offTarget = 60;
                 </div>
             </div>
         `;
-
         /* Card 4 */
-        const wfhDaysAvailable =
-            Math.max(
-                0,
-                ds.daysLeft -
-                offRemDays
-            );
-
-        const wfhAvailableMins =
-            Math.max(
-                0,
-                ds.remainingMinutes -
-                offRemMins
-            );
-
-        const officeChipVal =
-            offRemDays <= 1
-                ? fmt(offRemMins)
-                : String(offRemDays);
-
-        const officeChipLbl =
-            offRemDays <= 1
-                ? 'Office Time Needed'
-                : 'Office Days Needed';
-
-        const wfhChipVal =
-            wfhDaysAvailable <= 1
-                ? fmt(wfhAvailableMins)
-                : String(wfhDaysAvailable);
-
-        const wfhChipLbl =
-            wfhDaysAvailable <= 1
-                ? 'WFH Time Available'
-                : 'WFH Days Available';
-
-        const bc =
-            ds.bufferMinutes > 0
-                ? 'pos'
-                : ds.bufferMinutes < 0
-                    ? 'neg'
-                    : 'zer';
-
-        const bi =
-            ds.bufferMinutes > 0
-                ? 'trending_up'
-                : ds.bufferMinutes < 0
-                    ? 'trending_down'
-                    : 'trending_flat';
-
-        const bCol =
-            ds.bufferMinutes > 0
-                ? '#22c55e'
-                : ds.bufferMinutes < 0
-                    ? '#ef4444'
-                    : T.muted;
-
+        const wfhDaysAvailable = Math.max(0, ds.daysLeft - offRemDays);
+        const wfhAvailableMins = Math.max(0, ds.remainingMinutes - offRemMins);
+        /*
+         * Display exact time instead of decimal / half-day values.
+         *
+         * Examples:
+         * 2 days + 4 hours       -> 2d 4h
+         * 3 days + 3h 30m       -> 3d 3h 30m
+         * exactly 2 days         -> 2d
+         * <= 1 day               -> exact hours, e.g. 6h 30m
+         */
+        const fmtDaysAndTime = mins => {
+            const total = Math.max(0, Math.round(mins || 0));
+            if (total === 0) {
+                return '';
+            }
+            const wholeDays = Math.floor(total / STANDARD_DAY_MINUTES);
+            const remainder = total % STANDARD_DAY_MINUTES;
+            const hours = Math.floor(remainder / 60);
+            const minutes = remainder % 60;
+            const parts = [];
+            if (wholeDays > 0) {
+                parts.push(`${wholeDays}d`);
+            }
+            if (hours > 0) {
+                parts.push(`${hours}h`);
+            }
+            if (minutes > 0) {
+                parts.push(`${minutes}m`);
+            }
+            return parts.join(' ');
+        };
+        const officeChipVal = fmtDaysAndTime(offRemMins);
+        const officeChipLbl = offRemMins <= STANDARD_DAY_MINUTES ? 'Office Time Needed' : 'Office Days Needed';
+        const wfhChipVal = fmtDaysAndTime(wfhAvailableMins);
+        const wfhChipLbl = wfhAvailableMins <= STANDARD_DAY_MINUTES ? 'WFH Time Available' : 'WFH Days Available';
+        const officeChipCompact = officeChipVal.includes(' ');
+        const wfhChipCompact = wfhChipVal.includes(' ');
+        const bc = ds.bufferMinutes > 0 ? 'pos' : ds.bufferMinutes < 0 ? 'neg' : 'zer';
+        const bi = ds.bufferMinutes > 0 ? 'trending_up' : ds.bufferMinutes < 0 ? 'trending_down' : 'trending_flat';
+        const bCol = ds.bufferMinutes > 0 ? '#22c55e' : ds.bufferMinutes < 0 ? '#ef4444' : T.muted;
         html += `
             <div class="ep-card">
                 <div class="ep-card-title">
@@ -3195,18 +1805,18 @@ const offTarget = 60;
                         </div>
                     </div>
 
-                    <div class="ep-chip">
-                        <div
-                            class="ep-chip-val"
-                            style="color:#3b82f6;${offRemDays <= 1 ? 'font-size:15px;' : ''}"
-                        >
-                            ${officeChipVal}
-                        </div>
+<div class="ep-chip" style="min-width:0;overflow:hidden;">
+    <div
+        class="ep-chip-val"
+        style="color:#3b82f6;white-space:nowrap;overflow:hidden;${offRemDays <= 1 || officeChipVal.includes(' ') ? 'font-size:14px;' : ''}"
+    >
+        ${officeChipVal}
+    </div>
 
-                        <div class="ep-chip-lbl">
-                            ${officeChipLbl}
-                        </div>
-                    </div>
+    <div class="ep-chip-lbl">
+        ${officeChipLbl}
+    </div>
+</div>
 
                     <div class="ep-chip">
                         <div
@@ -3221,18 +1831,18 @@ const offTarget = 60;
                         </div>
                     </div>
 
-                    <div class="ep-chip">
-                        <div
-                            class="ep-chip-val"
-                            style="color:#f59e0b;${wfhDaysAvailable <= 1 ? 'font-size:15px;' : ''}"
-                        >
-                            ${wfhChipVal}
-                        </div>
+<div class="ep-chip" style="min-width:0;overflow:hidden;">
+    <div
+        class="ep-chip-val"
+        style="color:#f59e0b;white-space:nowrap;overflow:hidden;${wfhDaysAvailable <= 1 || wfhChipVal.includes(' ') ? 'font-size:14px;' : ''}"
+    >
+        ${wfhChipVal}
+    </div>
 
-                        <div class="ep-chip-lbl">
-                            ${wfhChipLbl}
-                        </div>
-                    </div>
+    <div class="ep-chip-lbl">
+        ${wfhChipLbl}
+    </div>
+</div>
                 </div>
 
                 <div class="ep-prog-wrap">
@@ -3333,208 +1943,77 @@ const offTarget = 60;
                 </div>
             </div>
         `;
-
         html += `</div>`;
-
-        html +=
-            buildTodayStrip({
-                T,
-                ds
-            });
-
-        html +=
-            buildOfficePlannerPanel({
-                T,
-                ds,
-                days
-            });
-
-        container.innerHTML =
-            html;
-
-        bindInteractions(
-            container
-        );
+        html += buildTodayStrip({
+            T,
+            ds
+        });
+        html += buildOfficePlannerPanel({
+            T,
+            ds,
+            days
+        });
+        container.innerHTML = html;
+        bindInteractions(container);
     };
-
     /* ═══════════════════════════════════════════════════════════════
        BACK BUTTON
     ═══════════════════════════════════════════════════════════════ */
-    const BACK_BTN_ID =
-        'ep-back-chip';
-
+    const BACK_BTN_ID = 'ep-back-chip';
     const injectBackButton = T => {
-        document
-            .getElementById(
-                BACK_BTN_ID
-            )
-            ?.remove();
-
-        const chip =
-            document.querySelector(
-                '.today_chip'
-            );
-
-        const cont =
-            chip?.closest(
-                '.tt_day_container'
-            );
-
+        document.getElementById(BACK_BTN_ID)?.remove();
+        const chip = document.querySelector('.today_chip');
+        const cont = chip?.closest('.tt_day_container');
         if (!cont) return;
-
-        const btn =
-            document.createElement(
-                'span'
-            );
-
-        btn.id =
-            BACK_BTN_ID;
-
-        btn.role =
-            'button';
-
-        btn.tabIndex =
-            0;
-
-        btn.className =
-            'ep-btn ep-btn-label';
-
-        btn.innerHTML =
-            `<span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;color:currentColor;">` +
-            `${ICONS.arrow_up}` +
-            `</span> Back to analyzer`;
-
-        btn.addEventListener(
-            'click',
-            e => {
-                e.preventDefault();
-                jumpToAnalyzer();
-            }
-        );
-
-        cont.insertBefore(
-            btn,
-            cont.firstChild
-        );
+        const btn = document.createElement('span');
+        btn.id = BACK_BTN_ID;
+        btn.role = 'button';
+        btn.tabIndex = 0;
+        btn.className = 'ep-btn ep-btn-label';
+        btn.innerHTML = `<span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;color:currentColor;">` + `${ICONS.arrow_up}` + `</span> Back to analyzer`;
+        btn.addEventListener('click', e => {
+            e.preventDefault();
+            jumpToAnalyzer();
+        });
+        cont.insertBefore(btn, cont.firstChild);
     };
-
     /* ═══════════════════════════════════════════════════════════════
        BOOT
     ═══════════════════════════════════════════════════════════════ */
     const boot = () => {
-        const tick =
-            setInterval(
-                () => {
-                    if (
-                        document.querySelector(
-                            '.tt_day_container'
-                        ) &&
-                        document.querySelector(
-                            '.desktop_summary'
-                        )
-                    ) {
-                        clearInterval(
-                            tick
-                        );
-
-                        renderUI();
-
-                        injectBackButton(
-                            getTheme()
-                        );
-
-                        let debounce = null;
-
-                        const observer =
-                            new MutationObserver(
-                                mutations => {
-                                    const ep =
-                                        document.getElementById(
-                                            'ep13'
-                                        );
-
-                                    const bb =
-                                        document.getElementById(
-                                            BACK_BTN_ID
-                                        );
-
-                                    if (
-                                        mutations.every(
-                                            m =>
-                                                (
-                                                    ep &&
-                                                    (
-                                                        ep.contains(
-                                                            m.target
-                                                        ) ||
-                                                        ep ===
-                                                        m.target
-                                                    )
-                                                ) ||
-                                                (
-                                                    bb &&
-                                                    (
-                                                        bb.contains(
-                                                            m.target
-                                                        ) ||
-                                                        bb ===
-                                                        m.target
-                                                    )
-                                                )
-                                        )
-                                    ) {
-                                        return;
-                                    }
-
-                                    clearTimeout(
-                                        debounce
-                                    );
-
-                                    debounce =
-                                        setTimeout(
-                                            () => {
-                                                renderUI();
-
-                                                if (
-                                                    !document.getElementById(
-                                                        BACK_BTN_ID
-                                                    )
-                                                ) {
-                                                    injectBackButton(
-                                                        getTheme()
-                                                    );
-                                                }
-                                            },
-                                            600
-                                        );
-                                }
-                            );
-
-                        const panel =
-                            document.getElementById(
-                                'mainTimesheetPanel'
-                            );
-
-                        if (panel) {
-                            observer.observe(
-                                panel,
-                                {
-                                    childList: true,
-                                    subtree: true,
-                                    characterData: true
-                                }
-                            );
+        const tick = setInterval(
+            () => {
+                if (document.querySelector('.tt_day_container') && document.querySelector('.desktop_summary')) {
+                    clearInterval(tick);
+                    renderUI();
+                    injectBackButton(getTheme());
+                    let debounce = null;
+                    const observer = new MutationObserver(mutations => {
+                        const ep = document.getElementById('ep13');
+                        const bb = document.getElementById(BACK_BTN_ID);
+                        if (mutations.every(m => (ep && (ep.contains(m.target) || ep === m.target)) || (bb && (bb.contains(m.target) || bb === m.target)))) {
+                            return;
                         }
-
-                        setInterval(
-                            renderUI,
-                            30000
-                        );
+                        clearTimeout(debounce);
+                        debounce = setTimeout(
+                            () => {
+                                renderUI();
+                                if (!document.getElementById(BACK_BTN_ID)) {
+                                    injectBackButton(getTheme());
+                                }
+                            }, 600);
+                    });
+                    const panel = document.getElementById('mainTimesheetPanel');
+                    if (panel) {
+                        observer.observe(panel, {
+                            childList: true,
+                            subtree: true,
+                            characterData: true
+                        });
                     }
-                },
-                800
-            );
+                    setInterval(renderUI, 30000);
+                }
+            }, 800);
     };
-
     boot();
 })();
