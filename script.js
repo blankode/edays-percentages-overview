@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      18.6
+// @version      18.7
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // ==/UserScript==
+// Changelog v18.7: Unified exact office-time calculations across Office Target and Buffer & Outlook, fixed formatter initialization, and added mandatory 30-minute break handling to Today/leave-at time.
 // Changelog v18.6: Buffer & Outlook now show exact days/hours/minutes, keep values on one line without resizing chips, and hide zero-value units such as 0d, 0h, and 0m.
 // Changelog v18.5: Fixed buffer calculation to take only surplus/discrepancy into account.
 // Changelog v18.4: Fixed percentage discrepancy across categories.
@@ -125,6 +126,7 @@ const offTarget = 60;
     };
     const STANDARD_DAY_MINUTES = 480;
     const HALF_DAY_MINUTES = STANDARD_DAY_MINUTES / 2;
+    const MANDATORY_BREAK_MINUTES = 30;
     const round1 = value => Math.round((value + Number.EPSILON) * 10) / 10;
     const fmtHours = hours => {
         const rounded = round1(hours);
@@ -137,6 +139,27 @@ const offTarget = 60;
         const h = Math.floor(abs / 60);
         const m = abs % 60;
         return m === 0 ? `${sign}${h}h` : `${sign}${h}h ${String(m).padStart(2, '0')}m`;
+    };
+    const fmtDaysAndTime = mins => {
+        const total = Math.max(0, Math.round(mins || 0));
+        if (total === 0) {
+            return '';
+        }
+        const wholeDays = Math.floor(total / STANDARD_DAY_MINUTES);
+        const remainder = total % STANDARD_DAY_MINUTES;
+        const hours = Math.floor(remainder / 60);
+        const minutes = remainder % 60;
+        const parts = [];
+        if (wholeDays > 0) {
+            parts.push(`${wholeDays}d`);
+        }
+        if (hours > 0) {
+            parts.push(`${hours}h`);
+        }
+        if (minutes > 0) {
+            parts.push(`${minutes}m`);
+        }
+        return parts.join(' ');
     };
     const parseTime = value => {
         const m = (value || '').match(/([+-]?)(\d+):(\d{2})/);
@@ -315,6 +338,31 @@ const offTarget = 60;
             live += getPeriodMinutes(p, true);
         });
         return Math.max(saved, live);
+    };
+    const getObservedBreakMinutes = dayEl => {
+        const periods = [...dayEl.querySelectorAll('.tt_period_container')].map(p => {
+            const {
+                start,
+                end
+            } = getPeriodTimeValues(p);
+            if (!start) {
+                return null;
+            }
+            return {
+                start: timeToMinutes(start),
+                end: end ? timeToMinutes(end) : null
+            };
+        }).filter(Boolean).sort((a, b) => a.start - b.start);
+        let breakMinutes = 0;
+        for (let i = 1; i < periods.length; i++) {
+            const previous = periods[i - 1];
+            const current = periods[i];
+            if (previous.end === null) {
+                continue;
+            }
+            breakMinutes += Math.max(0, current.start - previous.end);
+        }
+        return breakMinutes;
     };
     /* ═══════════════════════════════════════════════════════════════
        ICONS
@@ -643,6 +691,7 @@ const offTarget = 60;
         });
         workedMinutes = Math.max(workedMinutes, getDayTotalMinutes(el));
         const absence = getAbsenceInfo(el);
+        const observedBreakMinutes = getObservedBreakMinutes(el);
         return {
             el,
             workedMinutes,
@@ -652,7 +701,8 @@ const offTarget = 60;
             halfDayPart: absence.halfDayPart,
             isHoliday: absence.isHoliday,
             isFullAbsence: absence.isFullAbsence,
-            isRunning
+            isRunning,
+            observedBreakMinutes
         };
     };
     const getTodayMinutes = () => getTodayInfo()?.workedMinutes || 0;
@@ -1194,10 +1244,35 @@ const offTarget = 60;
         }
         const todayWorked = today.workedMinutes;
         const isDayOff = scheduledTarget === 0;
+        /*
+         * Mandatory break:
+         *
+         * Full working day requires 30 minutes of break.
+         *
+         * Any real gaps between periods already count towards that break,
+         * therefore only the missing part of the 30 minutes is added.
+         *
+         * Examples:
+         * no clock-out  -> +30m required
+         * 10m break     -> +20m required
+         * 30m break     -> +0m
+         * 45m break     -> +0m
+         */
+        const mandatoryBreakRequired = !isDayOff && !today.isHalfDay && scheduledTarget >= STANDARD_DAY_MINUTES ? MANDATORY_BREAK_MINUTES : 0;
+        const missingBreakMinutes = Math.max(0, mandatoryBreakRequired - today.observedBreakMinutes);
+        /*
+         * Break time does not count as working time, therefore the missing
+         * mandatory break is added to the amount of elapsed time still needed.
+         */
+        const todayRemaining = Math.max(0, effTarget - todayWorked + missingBreakMinutes);
+        const todayDone = isDayOff || todayRemaining === 0;
+        /*
+         * Progress represents how close we are to actually being allowed
+         * to finish the day, including any still-missing mandatory break.
+         */
+        const effectiveCompleted = Math.max(0, effTarget - todayRemaining);
         const todayPct = isDayOff ? 100 : (effTarget > 0 ? Math.min(100,
-            (todayWorked / effTarget) * 100) : 100);
-        const todayDone = isDayOff || todayWorked >= effTarget;
-        const todayRemaining = Math.max(0, effTarget - todayWorked);
+            (effectiveCompleted / effTarget) * 100) : 100);
         const leaveAt = today.isRunning && todayRemaining > 0 ? new Date(Date.now() + todayRemaining * 60000) : null;
         let statusHtml;
         if (isDayOff) {
@@ -1549,7 +1624,7 @@ const offTarget = 60;
         /* Card 2 */
         const offRemMins = Math.max(0, Math.ceil(targetMins - officeMins));
         const offRemDays = offRemMins > 0 ? round1(Math.ceil(offRemMins / HALF_DAY_MINUTES) / 2) : 0;
-        const offRemTime = `${Math.floor(offRemMins / 60)}h ` + `${String(offRemMins % 60).padStart(2, '0')}m`;
+        const officeChipVal = fmtDaysAndTime(offRemMins);
         html += `
             <div class="ep-card ep-ring-card">
                 <div class="ep-card-title">
@@ -1619,12 +1694,9 @@ const offTarget = 60;
                                     T.muted
                                 )}
 
-                                <span>
-                                    ${offRemDays}
-                                    office day${offRemDays === 1 ? '' : 's'}
-                                    (${offRemTime})
-                                    to hit ${offTarget}%
-                                </span>
+<span>
+    ${officeChipVal} needed in office to hit ${offTarget}%
+</span>
                             </div>
                         `
                         : `
@@ -1739,28 +1811,6 @@ const offTarget = 60;
          * exactly 2 days         -> 2d
          * <= 1 day               -> exact hours, e.g. 6h 30m
          */
-        const fmtDaysAndTime = mins => {
-            const total = Math.max(0, Math.round(mins || 0));
-            if (total === 0) {
-                return '';
-            }
-            const wholeDays = Math.floor(total / STANDARD_DAY_MINUTES);
-            const remainder = total % STANDARD_DAY_MINUTES;
-            const hours = Math.floor(remainder / 60);
-            const minutes = remainder % 60;
-            const parts = [];
-            if (wholeDays > 0) {
-                parts.push(`${wholeDays}d`);
-            }
-            if (hours > 0) {
-                parts.push(`${hours}h`);
-            }
-            if (minutes > 0) {
-                parts.push(`${minutes}m`);
-            }
-            return parts.join(' ');
-        };
-        const officeChipVal = fmtDaysAndTime(offRemMins);
         const officeChipLbl = offRemMins <= STANDARD_DAY_MINUTES ? 'Office Time Needed' : 'Office Days Needed';
         const wfhChipVal = fmtDaysAndTime(wfhAvailableMins);
         const wfhChipLbl = wfhAvailableMins <= STANDARD_DAY_MINUTES ? 'WFH Time Available' : 'WFH Days Available';
