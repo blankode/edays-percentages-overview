@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      18.7
+// @version      18.8
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // ==/UserScript==
+// Changelog v18.8: Made the mandatory break configurable and included any missing break in Today buffer calculations, including the predicted post-clock-out deficit.
 // Changelog v18.7: Unified exact office-time calculations across Office Target and Buffer & Outlook, fixed formatter initialization, and added mandatory 30-minute break handling to Today/leave-at time.
 // Changelog v18.6: Buffer & Outlook now show exact days/hours/minutes, keep values on one line without resizing chips, and hide zero-value units such as 0d, 0h, and 0m.
 // Changelog v18.5: Fixed buffer calculation to take only surplus/discrepancy into account.
@@ -24,8 +25,11 @@
 // Changelog v18.0: Today leave-at time is shown only while a time period is actively open.
 // Changelog v17.9: Fixed buffer calculation to use the true 8-hour daily target and prevent today's buffer from being double-counted.
 // Changelog v17.8: Buttons now use blue styling in the light theme and orange styling in the dark theme.
-/* ══ Set Office Target (% of rota hours) ══ */
-const offTarget = 60;
+
+/* ══ SETTINGS ══ */
+const offTarget = 60; // Office target (% of rota hours)
+const mandatoryBreakMinutes = 30; // Mandatory break on a full working day
+
 (function() {
     'use strict';
     /* ═══════════════════════════════════════════════════════════════
@@ -126,7 +130,6 @@ const offTarget = 60;
     };
     const STANDARD_DAY_MINUTES = 480;
     const HALF_DAY_MINUTES = STANDARD_DAY_MINUTES / 2;
-    const MANDATORY_BREAK_MINUTES = 30;
     const round1 = value => Math.round((value + Number.EPSILON) * 10) / 10;
     const fmtHours = hours => {
         const rounded = round1(hours);
@@ -363,6 +366,26 @@ const offTarget = 60;
             breakMinutes += Math.max(0, current.start - previous.end);
         }
         return breakMinutes;
+    };
+    const getRequiredMandatoryBreakMinutes = dayEl => {
+        const target = getDayWorkTargetMinutes(dayEl);
+        /*
+         * Mandatory break applies only to a full working day.
+         *
+         * Half-days, holidays, absences and weekends have a target
+         * below STANDARD_DAY_MINUTES, therefore no mandatory break
+         * is added.
+         */
+        return target >= STANDARD_DAY_MINUTES ? mandatoryBreakMinutes : 0;
+    };
+    const getMissingMandatoryBreakMinutes = dayEl => {
+        const requiredBreak = getRequiredMandatoryBreakMinutes(dayEl);
+        const observedBreak = getObservedBreakMinutes(dayEl);
+        /*
+         * Only count the part of the mandatory break that has
+         * not already been taken as real clock-out gaps.
+         */
+        return Math.max(0, requiredBreak - observedBreak);
     };
     /* ═══════════════════════════════════════════════════════════════
        ICONS
@@ -650,15 +673,34 @@ const offTarget = 60;
                 } else if (d.isToday) {
                     if (worked <= 0) return;
                     const isRunning = [...d.el.querySelectorAll('.tt_period_container')].some(isOpenPeriod);
+                    const missingBreakMinutes = getMissingMandatoryBreakMinutes(d.el);
                     /*
-                     * While today's timer is open, assume the day
-                     * will reach its scheduled target. This prevents
-                     * the buffer from starting near -8h and counting
-                     * upward throughout the day. Overtime above the
-                     * target is still banked live. Once the timer is
-                     * closed, today's actual variance is used.
+                     * What eDays will effectively credit if we clock out
+                     * without taking the remaining mandatory break.
                      */
-                    const todayDiff = isRunning ? Math.max(0, worked - target) : worked - target;
+                    const effectiveWorked = Math.max(0, worked - missingBreakMinutes);
+                    /*
+                     * While the timer is running we keep the existing behaviour
+                     * of NOT showing a huge negative balance throughout the day.
+                     *
+                     * However, as soon as the normal daily target is reached,
+                     * the buffer starts accounting for the missing mandatory break.
+                     *
+                     * Example:
+                     *
+                     * target = 8h
+                     * mandatoryBreakMinutes = 30
+                     *
+                     * 7h30 worked, no break -> buffer remains 0 while running
+                     * 8h00 worked, no break -> buffer = -30m
+                     * 8h15 worked, no break -> buffer = -15m
+                     * 8h30 worked, no break -> buffer = 0
+                     * 9h00 worked, no break -> buffer = +30m
+                     *
+                     * If the timer is closed, effectiveWorked is always used,
+                     * so the post-clock-out deficit is represented correctly.
+                     */
+                    const todayDiff = isRunning && worked < target ? 0 : effectiveWorked - target;
                     bufferMinutes += todayDiff;
                 }
             });
@@ -691,7 +733,6 @@ const offTarget = 60;
         });
         workedMinutes = Math.max(workedMinutes, getDayTotalMinutes(el));
         const absence = getAbsenceInfo(el);
-        const observedBreakMinutes = getObservedBreakMinutes(el);
         return {
             el,
             workedMinutes,
@@ -701,8 +742,7 @@ const offTarget = 60;
             halfDayPart: absence.halfDayPart,
             isHoliday: absence.isHoliday,
             isFullAbsence: absence.isFullAbsence,
-            isRunning,
-            observedBreakMinutes
+            isRunning
         };
     };
     const getTodayMinutes = () => getTodayInfo()?.workedMinutes || 0;
@@ -1245,21 +1285,9 @@ const offTarget = 60;
         const todayWorked = today.workedMinutes;
         const isDayOff = scheduledTarget === 0;
         /*
-         * Mandatory break:
-         *
-         * Full working day requires 30 minutes of break.
-         *
-         * Any real gaps between periods already count towards that break,
-         * therefore only the missing part of the 30 minutes is added.
-         *
-         * Examples:
-         * no clock-out  -> +30m required
-         * 10m break     -> +20m required
-         * 30m break     -> +0m
-         * 45m break     -> +0m
+         * Use the same mandatory-break calculation as Buffer.
          */
-        const mandatoryBreakRequired = !isDayOff && !today.isHalfDay && scheduledTarget >= STANDARD_DAY_MINUTES ? MANDATORY_BREAK_MINUTES : 0;
-        const missingBreakMinutes = Math.max(0, mandatoryBreakRequired - today.observedBreakMinutes);
+        const missingBreakMinutes = isDayOff ? 0 : getMissingMandatoryBreakMinutes(today.el);
         /*
          * Break time does not count as working time, therefore the missing
          * mandatory break is added to the amount of elapsed time still needed.
