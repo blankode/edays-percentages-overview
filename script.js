@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      18.8
+// @version      18.9
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // ==/UserScript==
-// Changelog v18.8: Made the mandatory break configurable and included any missing break in Today buffer calculations, including the predicted post-clock-out deficit.
+// Changelog v18.9: Added persistent Analyzer Settings for Office Target and Mandatory Break, with validation, live recalculation, and reset-to-defaults support.
+// Changelog v18.8: Made the mandatory break configurable and included the missing break in Today buffer calculations so the predicted post-clock-out deficit is visible.
 // Changelog v18.7: Unified exact office-time calculations across Office Target and Buffer & Outlook, fixed formatter initialization, and added mandatory 30-minute break handling to Today/leave-at time.
 // Changelog v18.6: Buffer & Outlook now show exact days/hours/minutes, keep values on one line without resizing chips, and hide zero-value units such as 0d, 0h, and 0m.
 // Changelog v18.5: Fixed buffer calculation to take only surplus/discrepancy into account.
@@ -25,11 +26,9 @@
 // Changelog v18.0: Today leave-at time is shown only while a time period is actively open.
 // Changelog v17.9: Fixed buffer calculation to use the true 8-hour daily target and prevent today's buffer from being double-counted.
 // Changelog v17.8: Buttons now use blue styling in the light theme and orange styling in the dark theme.
-
-/* ══ SETTINGS ══ */
-const offTarget = 60; // Office target (% of rota hours)
-const mandatoryBreakMinutes = 30; // Mandatory break on a full working day
-
+/* ══ DEFAULT SETTINGS ══ */
+const DEFAULT_OFF_TARGET = 60;               // Office target (% of rota hours)
+const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full working day
 (function() {
     'use strict';
     /* ═══════════════════════════════════════════════════════════════
@@ -39,7 +38,31 @@ const mandatoryBreakMinutes = 30; // Mandatory break on a full working day
         THEME: 'ep-theme-override',
         TODAY_BUF: 'ep-today-buffer',
         PLANNER_OPEN: 'ep-planner-open',
+        OFF_TARGET: 'ep-office-target',
+        MANDATORY_BREAK: 'ep-mandatory-break',
     };
+
+    const readNumericSetting = (key, fallback, min, max) => {
+        const raw = localStorage.getItem(key);
+        if (raw === null) return fallback;
+        const value = Number(raw);
+        if (!Number.isFinite(value)) return fallback;
+        return Math.max(min, Math.min(max, value));
+    };
+
+    let offTarget = readNumericSetting(
+        LS.OFF_TARGET,
+        DEFAULT_OFF_TARGET,
+        0,
+        100
+    );
+
+    let mandatoryBreakMinutes = readNumericSetting(
+        LS.MANDATORY_BREAK,
+        DEFAULT_MANDATORY_BREAK_MINUTES,
+        0,
+        480
+    );
     /* ═══════════════════════════════════════════════════════════════
        THEME
     ═══════════════════════════════════════════════════════════════ */
@@ -369,22 +392,12 @@ const mandatoryBreakMinutes = 30; // Mandatory break on a full working day
     };
     const getRequiredMandatoryBreakMinutes = dayEl => {
         const target = getDayWorkTargetMinutes(dayEl);
-        /*
-         * Mandatory break applies only to a full working day.
-         *
-         * Half-days, holidays, absences and weekends have a target
-         * below STANDARD_DAY_MINUTES, therefore no mandatory break
-         * is added.
-         */
         return target >= STANDARD_DAY_MINUTES ? mandatoryBreakMinutes : 0;
     };
+
     const getMissingMandatoryBreakMinutes = dayEl => {
         const requiredBreak = getRequiredMandatoryBreakMinutes(dayEl);
         const observedBreak = getObservedBreakMinutes(dayEl);
-        /*
-         * Only count the part of the mandatory break that has
-         * not already been taken as real clock-out gaps.
-         */
         return Math.max(0, requiredBreak - observedBreak);
     };
     /* ═══════════════════════════════════════════════════════════════
@@ -411,6 +424,7 @@ const mandatoryBreakMinutes = 30; // Mandatory break on a full working day
         arrow_up: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z"/></svg>`,
         chevron_down: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>`,
         chevron_up: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6 1.41 1.41z"/></svg>`,
+        settings: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.43 12.98c.04-.32.07-.65.07-.98s-.03-.66-.08-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.37-.31-.6-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98L14.5 2.42A.488.488 0 0 0 14 2h-4c-.25 0-.46.18-.49.42L9.13 5.07c-.61.25-1.17.59-1.69.98l-2.49-1a.49.49 0 0 0-.6.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.05.32-.08.66-.08.98s.03.66.08.98l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46c.12.22.37.31.6.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.58 1.69-.98l2.49 1c.23.08.48 0 .6-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.11-1.65zM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5z"/></svg>`,
     };
     const icon = (name, size = 14, color = '#fff') => `<span style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;color:${color};flex-shrink:0;">${ICONS[name] || ''}</span>`;
     const iconBadge = (name, bg, size = 28) => `<span style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;background:${bg};border-radius:7px;flex-shrink:0;color:#fff;">${ICONS[name] || ''}</span>`;
@@ -674,31 +688,16 @@ const mandatoryBreakMinutes = 30; // Mandatory break on a full working day
                     if (worked <= 0) return;
                     const isRunning = [...d.el.querySelectorAll('.tt_period_container')].some(isOpenPeriod);
                     const missingBreakMinutes = getMissingMandatoryBreakMinutes(d.el);
-                    /*
-                     * What eDays will effectively credit if we clock out
-                     * without taking the remaining mandatory break.
-                     */
                     const effectiveWorked = Math.max(0, worked - missingBreakMinutes);
                     /*
-                     * While the timer is running we keep the existing behaviour
-                     * of NOT showing a huge negative balance throughout the day.
+                     * Keep the buffer neutral while today's normal target has not
+                     * yet been reached. Once it is reached, predict the balance
+                     * eDays will show after applying any still-missing mandatory break.
                      *
-                     * However, as soon as the normal daily target is reached,
-                     * the buffer starts accounting for the missing mandatory break.
-                     *
-                     * Example:
-                     *
-                     * target = 8h
-                     * mandatoryBreakMinutes = 30
-                     *
-                     * 7h30 worked, no break -> buffer remains 0 while running
-                     * 8h00 worked, no break -> buffer = -30m
-                     * 8h15 worked, no break -> buffer = -15m
-                     * 8h30 worked, no break -> buffer = 0
-                     * 9h00 worked, no break -> buffer = +30m
-                     *
-                     * If the timer is closed, effectiveWorked is always used,
-                     * so the post-clock-out deficit is represented correctly.
+                     * Example with an 8h target and 30m mandatory break:
+                     * 8h00 worked, no break -> -30m
+                     * 8h15 worked, no break -> -15m
+                     * 8h30 worked, no break -> 0m
                      */
                     const todayDiff = isRunning && worked < target ? 0 : effectiveWorked - target;
                     bufferMinutes += todayDiff;
@@ -950,6 +949,29 @@ const mandatoryBreakMinutes = 30; // Mandatory break on a full working day
         #ep-back-chip.ep-btn{display:inline-flex!important;align-items:center!important;gap:5px!important;margin-left:8px!important;height:20px!important;margin-top:4px!important;margin-bottom:6px!important;cursor:pointer!important;text-align:left!important;border:1px solid #bcc1c2!important;box-shadow:0 2px 3px rgba(0,0,0,.1)!important;border-radius:5px!important;padding:3px 4px!important;font-size:12px!important;font-weight:500!important;background:transparent!important;color:inherit!important;transition:background .15s,color .15s,border-color .15s!important;user-select:none!important;white-space:nowrap!important;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif!important;}
         #ep13 .ep-btn:hover{background:${T.isDark?'#fff':'#F0F0F0'}!important;color:${T.isDark?'#111':'inherit'}!important;border-color:${T.isDark?'#fff':'#bcc1c2'}!important;}
         #ep-back-chip.ep-btn:hover{background:#F0F0F0!important;color:inherit!important;border-color:#bcc1c2!important;}
+
+        /* SETTINGS MODAL */
+        .ep-settings-overlay{position:fixed;inset:0;z-index:999999;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.55);}
+        .ep-settings-modal{width:min(420px,calc(100vw - 32px));background:${T.bg};color:${T.text};border:1px solid ${T.border};border-radius:12px;box-shadow:${T.shadow};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;overflow:hidden;}
+        .ep-settings-hdr{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid ${T.border};}
+        .ep-settings-title{font-size:15px;font-weight:700;flex:1;}
+        .ep-settings-close{border:0;background:transparent;color:${T.muted};font-size:22px;line-height:1;cursor:pointer;padding:4px 6px;border-radius:6px;}
+        .ep-settings-close:hover{background:${T.faint};color:${T.text};}
+        .ep-settings-body{padding:16px;display:flex;flex-direction:column;gap:14px;}
+        .ep-settings-field{display:flex;flex-direction:column;gap:5px;}
+        .ep-settings-label{font-size:12px;font-weight:700;color:${T.text};}
+        .ep-settings-help{font-size:11px;color:${T.muted};line-height:1.4;}
+        .ep-settings-input-wrap{display:flex;align-items:center;gap:8px;}
+        .ep-settings-input{flex:1;min-width:0;background:${T.surface};color:${T.text};border:1px solid ${T.border};border-radius:7px;padding:8px 10px;font-size:14px;outline:none;}
+        .ep-settings-input:focus{border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.15);}
+        .ep-settings-unit{font-size:12px;color:${T.muted};min-width:54px;}
+        .ep-settings-error{display:none;font-size:12px;color:#ef4444;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:7px;padding:8px 10px;}
+        .ep-settings-actions{display:flex;justify-content:space-between;gap:8px;padding:12px 16px;border-top:1px solid ${T.border};}
+        .ep-settings-actions-right{display:flex;gap:8px;margin-left:auto;}
+        .ep-settings-btn{border:1px solid ${T.border};background:${T.surface};color:${T.text};border-radius:7px;padding:7px 10px;font-size:12px;font-weight:600;cursor:pointer;}
+        .ep-settings-btn:hover{background:${T.faint};}
+        .ep-settings-btn.primary{background:#3b82f6;border-color:#3b82f6;color:#fff;}
+        .ep-settings-btn.primary:hover{background:#2563eb;}
         `;
     };
     /* ═══════════════════════════════════════════════════════════════
@@ -1286,6 +1308,7 @@ const mandatoryBreakMinutes = 30; // Mandatory break on a full working day
         const isDayOff = scheduledTarget === 0;
         /*
          * Use the same mandatory-break calculation as Buffer.
+         * Real clock-out gaps count toward the configured break requirement.
          */
         const missingBreakMinutes = isDayOff ? 0 : getMissingMandatoryBreakMinutes(today.el);
         /*
@@ -1387,6 +1410,127 @@ const mandatoryBreakMinutes = 30; // Mandatory break on a full working day
             </div>
         `;
     };
+    let settingsKeyHandler = null;
+
+    const closeSettingsModal = () => {
+        document.getElementById('ep-settings-overlay')?.remove();
+        if (settingsKeyHandler) {
+            document.removeEventListener('keydown', settingsKeyHandler);
+            settingsKeyHandler = null;
+        }
+    };
+
+    const openSettingsModal = () => {
+        closeSettingsModal();
+        const T = getTheme();
+        injectStyles(T);
+        const overlay = document.createElement('div');
+        overlay.id = 'ep-settings-overlay';
+        overlay.className = 'ep-settings-overlay';
+        overlay.innerHTML = `
+            <form class="ep-settings-modal" id="ep-settings-form">
+                <div class="ep-settings-hdr">
+                    ${icon('settings',16,T.muted)}
+                    <div class="ep-settings-title">Analyzer Settings</div>
+                    <button type="button" class="ep-settings-close" id="ep-settings-close" aria-label="Close settings">×</button>
+                </div>
+
+                <div class="ep-settings-body">
+                    <div class="ep-settings-field">
+                        <label class="ep-settings-label" for="ep-setting-office-target">Office target</label>
+                        <div class="ep-settings-input-wrap">
+                            <input class="ep-settings-input" id="ep-setting-office-target" type="number" min="0" max="100" step="1" value="${offTarget}" required>
+                            <span class="ep-settings-unit">%</span>
+                        </div>
+                        <div class="ep-settings-help">Percentage of rota hours that should be completed in the office.</div>
+                    </div>
+
+                    <div class="ep-settings-field">
+                        <label class="ep-settings-label" for="ep-setting-break">Mandatory break</label>
+                        <div class="ep-settings-input-wrap">
+                            <input class="ep-settings-input" id="ep-setting-break" type="number" min="0" max="480" step="1" value="${mandatoryBreakMinutes}" required>
+                            <span class="ep-settings-unit">minutes</span>
+                        </div>
+                        <div class="ep-settings-help">Applied to full working days. Real clock-out gaps count toward this value.</div>
+                    </div>
+
+                    <div class="ep-settings-error" id="ep-settings-error" role="alert"></div>
+                </div>
+
+                <div class="ep-settings-actions">
+                    <button type="button" class="ep-settings-btn" id="ep-settings-reset">Reset defaults</button>
+                    <div class="ep-settings-actions-right">
+                        <button type="button" class="ep-settings-btn" id="ep-settings-cancel">Cancel</button>
+                        <button type="submit" class="ep-settings-btn primary">Save</button>
+                    </div>
+                </div>
+            </form>
+        `;
+        document.body.appendChild(overlay);
+
+        const form = overlay.querySelector('#ep-settings-form');
+        const officeInput = overlay.querySelector('#ep-setting-office-target');
+        const breakInput = overlay.querySelector('#ep-setting-break');
+        const errorEl = overlay.querySelector('#ep-settings-error');
+
+        const showError = message => {
+            errorEl.textContent = message;
+            errorEl.style.display = 'block';
+        };
+
+        const applyAndClose = () => {
+            closeSettingsModal();
+            renderUI();
+            injectBackButton(getTheme());
+        };
+
+        form.addEventListener('submit', e => {
+            e.preventDefault();
+            const nextOffTarget = Number(officeInput.value);
+            const nextBreak = Number(breakInput.value);
+
+            if (!Number.isFinite(nextOffTarget) || nextOffTarget < 0 || nextOffTarget > 100) {
+                showError('Office target must be between 0 and 100%.');
+                officeInput.focus();
+                return;
+            }
+
+            if (!Number.isFinite(nextBreak) || nextBreak < 0 || nextBreak > 480) {
+                showError('Mandatory break must be between 0 and 480 minutes.');
+                breakInput.focus();
+                return;
+            }
+
+            offTarget = nextOffTarget;
+            mandatoryBreakMinutes = Math.round(nextBreak);
+            localStorage.setItem(LS.OFF_TARGET, String(offTarget));
+            localStorage.setItem(LS.MANDATORY_BREAK, String(mandatoryBreakMinutes));
+            applyAndClose();
+        });
+
+        overlay.querySelector('#ep-settings-reset').addEventListener('click', () => {
+            localStorage.removeItem(LS.OFF_TARGET);
+            localStorage.removeItem(LS.MANDATORY_BREAK);
+            offTarget = DEFAULT_OFF_TARGET;
+            mandatoryBreakMinutes = DEFAULT_MANDATORY_BREAK_MINUTES;
+            applyAndClose();
+        });
+
+        overlay.querySelector('#ep-settings-close').addEventListener('click', closeSettingsModal);
+        overlay.querySelector('#ep-settings-cancel').addEventListener('click', closeSettingsModal);
+        overlay.addEventListener('click', e => {
+            if (e.target === overlay) closeSettingsModal();
+        });
+
+        settingsKeyHandler = e => {
+            if (e.key === 'Escape') closeSettingsModal();
+        };
+        document.addEventListener('keydown', settingsKeyHandler);
+
+        officeInput.focus();
+        officeInput.select();
+    };
+
     /* ═══════════════════════════════════════════════════════════════
        INTERACTIONS
     ═══════════════════════════════════════════════════════════════ */
@@ -1400,6 +1544,9 @@ const mandatoryBreakMinutes = 30; // Mandatory break on a full working day
                 }
                 if (action === 'jump-analyzer') {
                     jumpToAnalyzer();
+                }
+                if (action === 'settings-open') {
+                    openSettingsModal();
                 }
                 if (action === 'theme-toggle') {
                     themeOverride = el.dataset.theme;
@@ -1463,6 +1610,18 @@ const mandatoryBreakMinutes = 30; // Mandatory break on a full working day
                     </div>
 
                     <div class="ep-hdr-right">
+                        <span
+                            class="ep-btn ep-btn-icon"
+                            data-action="settings-open"
+                            title="Analyzer settings"
+                        >
+                            ${icon(
+                                'settings',
+                                14,
+                                T.muted
+                            )}
+                        </span>
+
                         <span
                             class="ep-btn ep-btn-icon"
                             data-action="theme-toggle"
@@ -1613,6 +1772,18 @@ const mandatoryBreakMinutes = 30; // Mandatory break on a full working day
                 </div>
 
                 <div class="ep-hdr-right">
+                    <span
+                        class="ep-btn ep-btn-icon"
+                        data-action="settings-open"
+                        title="Analyzer settings"
+                    >
+                        ${icon(
+                            'settings',
+                            14,
+                            T.muted
+                        )}
+                    </span>
+
                     <span
                         class="ep-btn ep-btn-icon"
                         data-action="theme-toggle"
