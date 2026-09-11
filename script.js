@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      18.9
+// @version      19.0
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // ==/UserScript==
+// Changelog v19.0: Replaced the inline Back to Analyzer button with a floating down-arrow that appears after scrolling and returns to the analyzer.
 // Changelog v18.9: Added persistent Analyzer Settings for Office Target and Mandatory Break, with validation, live recalculation, and reset-to-defaults support.
 // Changelog v18.8: Made the mandatory break configurable and included the missing break in Today buffer calculations so the predicted post-clock-out deficit is visible.
 // Changelog v18.7: Unified exact office-time calculations across Office Target and Buffer & Outlook, fixed formatter initialization, and added mandatory 30-minute break handling to Today/leave-at time.
@@ -946,9 +947,14 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
         #ep13 .ep-sched-stat{background:${T.chipBg};border:1px solid ${T.border};border-radius:8px;padding:9px 10px;text-align:center;}
         #ep13 .ep-sched-stat-val{font-size:18px;font-weight:700;line-height:1;}
         #ep13 .ep-sched-stat-lbl{font-size:10px;color:${T.muted};text-transform:uppercase;letter-spacing:.8px;margin-top:3px;}
-        #ep-back-chip.ep-btn{display:inline-flex!important;align-items:center!important;gap:5px!important;margin-left:8px!important;height:20px!important;margin-top:4px!important;margin-bottom:6px!important;cursor:pointer!important;text-align:left!important;border:1px solid #bcc1c2!important;box-shadow:0 2px 3px rgba(0,0,0,.1)!important;border-radius:5px!important;padding:3px 4px!important;font-size:12px!important;font-weight:500!important;background:transparent!important;color:inherit!important;transition:background .15s,color .15s,border-color .15s!important;user-select:none!important;white-space:nowrap!important;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif!important;}
         #ep13 .ep-btn:hover{background:${T.isDark?'#fff':'#F0F0F0'}!important;color:${T.isDark?'#111':'inherit'}!important;border-color:${T.isDark?'#fff':'#bcc1c2'}!important;}
-        #ep-back-chip.ep-btn:hover{background:#F0F0F0!important;color:inherit!important;border-color:#bcc1c2!important;}
+        #ep-analyzer-float{position:fixed;left:0;right:auto;bottom:24px;width:46px;height:46px;display:flex;align-items:center;justify-content:center;padding:0;border:1px solid ${T.isDark?'rgba(255,255,255,.16)':'rgba(0,0,0,.08)'};border-radius:50%;background:${T.isDark?'#f59e0b':'#3b82f6'};color:#fff;box-shadow:0 8px 24px rgba(0,0,0,.24);cursor:pointer;z-index:999998;opacity:0;pointer-events:none;transform:translateY(12px) scale(.92);transition:opacity .2s ease,transform .2s ease,box-shadow .15s ease,filter .15s ease,left .12s ease;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;}
+        #ep-analyzer-float.visible{opacity:1;pointer-events:auto;transform:translateY(0) scale(1);}
+        #ep-analyzer-float:hover{filter:brightness(1.08);box-shadow:0 10px 28px rgba(0,0,0,.30);}
+        #ep-analyzer-float:active{transform:translateY(1px) scale(.97);}
+        #ep-analyzer-float:focus-visible{outline:3px solid ${T.isDark?'rgba(245,158,11,.35)':'rgba(59,130,246,.35)'};outline-offset:3px;}
+        #ep-analyzer-float svg{width:21px;height:21px;display:block;}
+        @media (max-width:640px){#ep-analyzer-float{bottom:16px;width:44px;height:44px;}}
 
         /* SETTINGS MODAL */
         .ep-settings-overlay{position:fixed;inset:0;z-index:999999;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.55);}
@@ -1481,7 +1487,6 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
         const applyAndClose = () => {
             closeSettingsModal();
             renderUI();
-            injectBackButton(getTheme());
         };
 
         form.addEventListener('submit', e => {
@@ -1552,17 +1557,14 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
                     themeOverride = el.dataset.theme;
                     localStorage.setItem(LS.THEME, themeOverride);
                     renderUI();
-                    injectBackButton(getTheme());
                 }
                 if (action === 'buf-toggle') {
                     localStorage.setItem(LS.TODAY_BUF, String(localStorage.getItem(LS.TODAY_BUF) !== 'true'));
                     renderUI();
-                    injectBackButton(getTheme());
                 }
                 if (action === 'planner-toggle') {
                     localStorage.setItem(LS.PLANNER_OPEN, String(localStorage.getItem(LS.PLANNER_OPEN) !== 'true'));
                     renderUI();
-                    injectBackButton(getTheme());
                 }
             });
         });
@@ -2206,25 +2208,62 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
         bindInteractions(container);
     };
     /* ═══════════════════════════════════════════════════════════════
-       BACK BUTTON
+       FLOATING ANALYZER BUTTON
     ═══════════════════════════════════════════════════════════════ */
-    const BACK_BTN_ID = 'ep-back-chip';
-    const injectBackButton = T => {
-        document.getElementById(BACK_BTN_ID)?.remove();
-        const chip = document.querySelector('.today_chip');
-        const cont = chip?.closest('.tt_day_container');
-        if (!cont) return;
-        const btn = document.createElement('span');
-        btn.id = BACK_BTN_ID;
-        btn.role = 'button';
-        btn.tabIndex = 0;
-        btn.className = 'ep-btn ep-btn-label';
-        btn.innerHTML = `<span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;color:currentColor;">` + `${ICONS.arrow_up}` + `</span> Back to analyzer`;
+    const FLOAT_ANALYZER_BTN_ID = 'ep-analyzer-float';
+    const FLOAT_REVEAL_DISTANCE = 180;
+    const FLOAT_PANEL_GAP = 10;
+    const FLOAT_VIEWPORT_GAP = 8;
+
+    const initFloatingAnalyzerButton = () => {
+        document.getElementById(FLOAT_ANALYZER_BTN_ID)?.remove();
+
+        const analyzer = document.getElementById('ep13');
+        const mainPanel = document.getElementById('mainTimesheetPanel');
+        if (!analyzer || !mainPanel) return;
+
+        const btn = document.createElement('button');
+        btn.id = FLOAT_ANALYZER_BTN_ID;
+        btn.type = 'button';
+        btn.title = 'Back to analyzer';
+        btn.setAttribute('aria-label', 'Back to analyzer');
+        btn.innerHTML = ICONS.arrow_up;
+        document.body.appendChild(btn);
+
+        const scrollParent = getScrollParent(analyzer);
+
+        const updatePosition = () => {
+            const panelRect = mainPanel.getBoundingClientRect();
+            const buttonWidth = btn.offsetWidth || 46;
+            const preferredLeft = panelRect.right + FLOAT_PANEL_GAP;
+            const maxLeft = Math.max(FLOAT_VIEWPORT_GAP, window.innerWidth - buttonWidth - FLOAT_VIEWPORT_GAP);
+            const left = Math.max(FLOAT_VIEWPORT_GAP, Math.min(preferredLeft, maxLeft));
+            btn.style.left = `${Math.round(left)}px`;
+        };
+
+        const updateFloatingButton = () => {
+            const analyzerTop = scrollParent === window
+                ? analyzer.getBoundingClientRect().top + window.scrollY
+                : analyzer.getBoundingClientRect().top - scrollParent.getBoundingClientRect().top + scrollParent.scrollTop;
+            const currentScroll = scrollParent === window ? window.scrollY : scrollParent.scrollTop;
+            btn.classList.toggle('visible', currentScroll - analyzerTop > FLOAT_REVEAL_DISTANCE);
+            updatePosition();
+        };
+
         btn.addEventListener('click', e => {
             e.preventDefault();
             jumpToAnalyzer();
         });
-        cont.insertBefore(btn, cont.firstChild);
+
+        scrollParent.addEventListener('scroll', updateFloatingButton, { passive: true });
+        window.addEventListener('resize', updateFloatingButton, { passive: true });
+
+        if (window.ResizeObserver) {
+            const panelResizeObserver = new ResizeObserver(updatePosition);
+            panelResizeObserver.observe(mainPanel);
+        }
+
+        updateFloatingButton();
     };
     /* ═══════════════════════════════════════════════════════════════
        BOOT
@@ -2235,21 +2274,17 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
                 if (document.querySelector('.tt_day_container') && document.querySelector('.desktop_summary')) {
                     clearInterval(tick);
                     renderUI();
-                    injectBackButton(getTheme());
+                    initFloatingAnalyzerButton();
                     let debounce = null;
                     const observer = new MutationObserver(mutations => {
                         const ep = document.getElementById('ep13');
-                        const bb = document.getElementById(BACK_BTN_ID);
-                        if (mutations.every(m => (ep && (ep.contains(m.target) || ep === m.target)) || (bb && (bb.contains(m.target) || bb === m.target)))) {
+                        if (mutations.every(m => ep && (ep.contains(m.target) || ep === m.target))) {
                             return;
                         }
                         clearTimeout(debounce);
                         debounce = setTimeout(
                             () => {
                                 renderUI();
-                                if (!document.getElementById(BACK_BTN_ID)) {
-                                    injectBackButton(getTheme());
-                                }
                             }, 600);
                     });
                     const panel = document.getElementById('mainTimesheetPanel');
