@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      19.0
+// @version      19.1
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // ==/UserScript==
+// Changelog v19.1: Added a subtle full-row Today highlight with blue accent, tinted background, and a stronger Today chip for faster visual scanning.
 // Changelog v19.0: Replaced the inline Back to Analyzer button with a floating down-arrow that appears after scrolling and returns to the analyzer.
 // Changelog v18.9: Added persistent Analyzer Settings for Office Target and Mandatory Break, with validation, live recalculation, and reset-to-defaults support.
 // Changelog v18.8: Made the mandatory break configurable and included the missing break in Today buffer calculations so the predicted post-clock-out deficit is visible.
@@ -891,6 +892,90 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
         #ep13 .ep-today-actions{display:flex;align-items:center;gap:6px;flex-shrink:0;}
         #ep13 .ep-toggle-track{display:inline-block;width:28px;height:16px;border-radius:8px;position:relative;vertical-align:middle;flex-shrink:0;transition:background .2s;}
         #ep13 .ep-toggle-thumb{position:absolute;width:12px;height:12px;background:#fff;border-radius:50%;top:2px;box-shadow:0 1px 2px rgba(0,0,0,0.25);transition:left .2s;}
+
+        /* TODAY HIGHLIGHT — native eDays row */
+        .tt_day_container:has(.today_chip){
+            position:relative;
+            z-index:2;
+            background:linear-gradient(100deg,#eef6ff 0%,#f3f2ff 55%,#f8fbff 100%)!important;
+            border-radius:7px!important;
+            outline:1px solid rgba(37,99,235,.52);
+            outline-offset:-1px;
+            box-shadow:
+                inset 4px 0 0 #2563eb,
+                0 5px 16px rgba(37,99,235,.12),
+                0 1px 3px rgba(15,23,42,.08)!important;
+            margin-bottom:12px!important;
+        }
+
+        /* Header gets a stronger tint so Today reads immediately when scanning the month. */
+        .timesheet_day_header.timesheet_today{
+            background:linear-gradient(90deg,#dbeafe 0%,#e8efff 58%,#f4f8ff 100%)!important;
+            border-color:rgba(37,99,235,.38)!important;
+            padding-left:10px!important;
+            box-sizing:border-box!important;
+            transition:background .18s ease,box-shadow .18s ease;
+        }
+        .timesheet_day_header.timesheet_today .timesheet_day_text{
+            font-weight:750!important;
+            color:#172554!important;
+        }
+
+        /* Carry the Today treatment through the complete editable area, not only the header. */
+        .timesheet_day_header.timesheet_today + .tt_day_inner_container{
+            background:linear-gradient(100deg,#eff6ff 0%,#f5f3ff 58%,#fafcff 100%)!important;
+            border-color:rgba(59,130,246,.26)!important;
+            padding-left:10px!important;
+            padding-right:5px!important;
+            box-sizing:border-box!important;
+        }
+
+        /* Keep native eDays working-period cards untouched.
+           Today differentiation is applied only to the surrounding day structure. */
+        .timesheet_day_header.timesheet_today + .tt_day_inner_container .tt_break_container,
+        .timesheet_day_header.timesheet_today + .tt_day_inner_container .tt_total_container{
+            background:rgba(255,255,255,.20)!important;
+        }
+
+        /* Compact Today pill: visible, but no longer taller than the header content. */
+        .timesheet_day_header.timesheet_today .today_chip{
+            display:inline-flex!important;
+            align-items:center!important;
+            justify-content:center!important;
+            gap:5px!important;
+            height:20px!important;
+            min-height:20px!important;
+            line-height:16px!important;
+            padding:1px 8px!important;
+            box-sizing:border-box!important;
+            border:1px solid rgba(37,99,235,.38)!important;
+            border-radius:999px!important;
+            background:linear-gradient(135deg,#3b82f6,#2563eb)!important;
+            color:#fff!important;
+            font-size:11px!important;
+            font-weight:700!important;
+            letter-spacing:.15px!important;
+            box-shadow:0 2px 6px rgba(37,99,235,.20)!important;
+        }
+        .timesheet_day_header.timesheet_today .today_chip::before{
+            content:'';
+            width:5px;
+            height:5px;
+            flex:0 0 5px;
+            border-radius:50%;
+            background:#fff;
+            box-shadow:0 0 0 2px rgba(255,255,255,.18);
+        }
+
+        /* Fallback for browsers without :has(): header + body still remain highlighted. */
+        @supports not selector(:has(*)){
+            .timesheet_day_header.timesheet_today{
+                box-shadow:inset 4px 0 0 #2563eb;
+            }
+            .timesheet_day_header.timesheet_today + .tt_day_inner_container{
+                box-shadow:inset 4px 0 0 #2563eb;
+            }
+        }
 
         /* EMPTY STATE */
         #ep13 .ep-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:28px 16px;text-align:center;}
