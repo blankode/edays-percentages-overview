@@ -20,6 +20,7 @@ jobs:
         run: |
           python <<'PY'
           from pathlib import Path
+          import re
 
           source = Path('script_core.js').read_text(encoding='utf-8')
 
@@ -29,22 +30,10 @@ jobs:
           if changelog not in source:
               source = source.replace(header_marker, header_marker + changelog, 1)
 
-          jump_markup = '''
-                    <span
-                        class="ep-btn ep-btn-label"
-                        data-action="jump-today"
-                    >
-                        ${icon(
-                            'arrow_down',
-                            13,
-                            T.muted
-                        )}
-                        Jump to today
-                    </span>
-          '''
-          if jump_markup not in source:
-              raise RuntimeError('Jump to today markup not found')
-          source = source.replace(jump_markup, '', 1)
+          jump_pattern = r'''\n\s*<span\s*\n\s*class="ep-btn ep-btn-label"\s*\n\s*data-action="jump-today"\s*\n\s*>.*?Jump to today\s*\n\s*</span>'''
+          source, jump_count = re.subn(jump_pattern, '', source, count=1, flags=re.S)
+          if jump_count != 1:
+              raise RuntimeError(f'Expected to remove one Jump to today control, removed {jump_count}')
 
           floating_pos = source.index('       FLOATING ANALYZER BUTTON')
           block_start = source.rfind('    /*', 0, floating_pos)
@@ -164,7 +153,6 @@ jobs:
               };
           '''
 
-          # Remove indentation that exists only to keep this workflow readable.
           navigation_code = '\n'.join(
               line[12:] if line.startswith('            ') else line
               for line in navigation_code.splitlines()
