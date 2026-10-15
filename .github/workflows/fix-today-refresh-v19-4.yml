@@ -36,3 +36,5 @@ jobs:
           git add script.js
           git commit -m "Fix Today styling on dark-mode refresh in v19.4" || exit 0
           git push
+
+# retry after changelog-anchor correction
