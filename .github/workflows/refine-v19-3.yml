@@ -1,0 +1,43 @@
+name: Refine v19.3
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/refine-v19-3.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply v19.3 refinements
+        run: python .github/scripts/refine_v19_3.py
+
+      - name: Validate
+        run: |
+          node --check script.js
+          grep -q '^// @version      19.3$' script.js
+          grep -q "button.setAttribute('icon', 'settings');" script.js
+          grep -q "host.appendChild(nativeMargin.cloneNode(true));" script.js
+          grep -q "background:#181a1b!important" script.js
+          if grep -q 'siteUiObserver.observe(document.body' script.js; then
+            echo 'whole-body theme observer still present'
+            exit 1
+          fi
+          if grep -q '^// @require' script.js; then
+            echo 'script.js must remain standalone'
+            exit 1
+          fi
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add script.js
+          git commit -m "Refine v19.3 theme controls and performance" || exit 0
+          git push
