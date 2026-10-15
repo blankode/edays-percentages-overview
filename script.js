@@ -2312,30 +2312,65 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
         };
     };
 
+    const getTimesheetNavState = () => {
+        const todayRow = getTodayRow();
+        if (!todayRow) return 'top';
+
+        const metrics = getScrollMetrics(todayRow);
+        const todayReachedAt = Math.max(0, metrics.target - 100);
+        return metrics.current >= todayReachedAt ? 'top' : 'today';
+    };
+
+    const getTimesheetNavLabel = target => target === 'today'
+        ? '↓ To today'
+        : '↑ To home';
+
+    const configureTimesheetNavButton = (button, target) => {
+        const description = target === 'today'
+            ? 'Jump to today in the current timesheet'
+            : 'Back to the top of the timesheet';
+
+        button.dataset.epTarget = target;
+        button.setAttribute('title', description);
+        button.setAttribute('aria-label', description);
+    };
+
+    const createTimesheetNavButton = target => {
+        const button = document.createElement('c3-button');
+        button.id = TIMESHEET_NAV_BUTTON_ID;
+        button.className = 'disallow-impersonation-action';
+
+        // eDays' c3-button initializes its visible content when connected.
+        // Give it the label first, then attach it to the document.
+        button.textContent = getTimesheetNavLabel(target);
+        configureTimesheetNavButton(button, target);
+
+        button.addEventListener('click', event => {
+            event.preventDefault();
+            if (button.dataset.epTarget === 'today') {
+                jumpToToday();
+            } else {
+                jumpToAnalyzer();
+            }
+        });
+
+        return button;
+    };
+
     const updateTimesheetNavButton = () => {
         const button = document.getElementById(TIMESHEET_NAV_BUTTON_ID);
         if (!button) return;
 
-        const todayRow = getTodayRow();
-        let target = 'top';
+        const target = getTimesheetNavState();
 
-        if (todayRow) {
-            const metrics = getScrollMetrics(todayRow);
-            const todayReachedAt = Math.max(0, metrics.target - 100);
-            target = metrics.current >= todayReachedAt ? 'top' : 'today';
+        // Never rewrite text on an already-connected c3-button. Recreate it only
+        // when the target actually changes, with its new label set before insertion.
+        if (button.dataset.epTarget !== target) {
+            button.replaceWith(createTimesheetNavButton(target));
+            return;
         }
 
-        const label = target === 'today' ? '↓ To today' : '↑ To home';
-        if (button.textContent.trim() !== label) {
-            button.textContent = label;
-        }
-        button.dataset.epTarget = target;
-
-        const description = target === 'today'
-            ? 'Jump to today in the current timesheet'
-            : 'Back to the top of the timesheet';
-        button.setAttribute('title', description);
-        button.setAttribute('aria-label', description);
+        configureTimesheetNavButton(button, target);
     };
 
     const scheduleTimesheetNavUpdate = () => {
@@ -2366,17 +2401,7 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
         let button = document.getElementById(TIMESHEET_NAV_BUTTON_ID);
         if (!button || button.tagName.toLowerCase() !== 'c3-button') {
             button?.remove();
-            button = document.createElement('c3-button');
-            button.id = TIMESHEET_NAV_BUTTON_ID;
-            button.className = 'disallow-impersonation-action';
-            button.addEventListener('click', event => {
-                event.preventDefault();
-                if (button.dataset.epTarget === 'today') {
-                    jumpToToday();
-                } else {
-                    jumpToAnalyzer();
-                }
-            });
+            button = createTimesheetNavButton(getTimesheetNavState());
         }
 
         if (submitButton.nextElementSibling !== button) {
