@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      19.3
+// @version      19.4
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
@@ -9450,6 +9450,7 @@ _______|_______/__/ ____ \\__\\__|___\\__\\__|___\\__\\____
 });
 /* === END VENDORED DARK READER API === */
 
+// Changelog v19.4: Fixed Today highlight styling after refresh when persistent Dark Reader mode is enabled by making stylesheet/theme activation order deterministic.
 // Changelog v19.3: Uses the bundled official Dark Reader Dynamic Theme engine for site-wide dark mode; keeps the theme control beside Book time off, Analyzer Settings beside navigation, Time Tracking Enhanced branding, and the compact Analyzer layout.
 // Changelog v19.2: Unified To today and Back to top into one native eDays c3-button placed immediately after Submit month; removed the separate floating navigation and Jump to today from the Today strip.
 // Changelog v19.1: Added a subtle full-row Today highlight with blue accent, tinted background, and a stronger Today chip for faster visual scanning.
@@ -10918,6 +10919,11 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
             document.body.classList.remove('ep-site-dark');
         }
 
+        // Keep Analyzer CSS earlier in the cascade. The Today light-theme rules use
+        // !important, so Dark Reader's fixes must be inserted after this stylesheet
+        // to win consistently on both fresh loads and manual theme toggles.
+        injectStyles(T);
+
         try {
             if (typeof DarkReader === 'undefined' || typeof DarkReader.enable !== 'function') {
                 throw new Error('Bundled Dark Reader API is unavailable');
@@ -10932,7 +10938,6 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
             console.error('[eDays Analyzer Pro] Dark Reader theme error:', error);
         }
 
-        injectStyles(T);
         return T;
     };
 
