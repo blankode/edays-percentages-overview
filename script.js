@@ -1034,13 +1034,6 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
         #ep13 .ep-sched-stat-val{font-size:18px;font-weight:700;line-height:1;}
         #ep13 .ep-sched-stat-lbl{font-size:10px;color:${T.muted};text-transform:uppercase;letter-spacing:.8px;margin-top:3px;}
         #ep13 .ep-btn:hover{background:${T.isDark?'#fff':'#F0F0F0'}!important;color:${T.isDark?'#111':'inherit'}!important;border-color:${T.isDark?'#fff':'#bcc1c2'}!important;}
-        #ep-analyzer-float{position:fixed;left:0;right:auto;bottom:24px;width:46px;height:46px;display:flex;align-items:center;justify-content:center;padding:0;border:1px solid ${T.isDark?'rgba(255,255,255,.16)':'rgba(0,0,0,.08)'};border-radius:50%;background:${T.isDark?'#f59e0b':'#3b82f6'};color:#fff;box-shadow:0 8px 24px rgba(0,0,0,.24);cursor:pointer;z-index:999998;opacity:0;pointer-events:none;transform:translateY(12px) scale(.92);transition:opacity .2s ease,transform .2s ease,box-shadow .15s ease,filter .15s ease,left .12s ease;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;}
-        #ep-analyzer-float.visible{opacity:1;pointer-events:auto;transform:translateY(0) scale(1);}
-        #ep-analyzer-float:hover{filter:brightness(1.08);box-shadow:0 10px 28px rgba(0,0,0,.30);}
-        #ep-analyzer-float:active{transform:translateY(1px) scale(.97);}
-        #ep-analyzer-float:focus-visible{outline:3px solid ${T.isDark?'rgba(245,158,11,.35)':'rgba(59,130,246,.35)'};outline-offset:3px;}
-        #ep-analyzer-float svg{width:21px;height:21px;display:block;}
-        @media (max-width:640px){#ep-analyzer-float{bottom:16px;width:44px;height:44px;}}
 
         /* SETTINGS MODAL */
         .ep-settings-overlay{position:fixed;inset:0;z-index:999999;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.55);}
@@ -2282,8 +2275,8 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
         bindInteractions(container);
     };
     /* ═══════════════════════════════════════════════════════════════
-   UNIFIED TIMESHEET NAVIGATION
-═══════════════════════════════════════════════════════════════ */
+       UNIFIED TIMESHEET NAVIGATION
+    ═══════════════════════════════════════════════════════════════ */
     const TIMESHEET_NAV_BUTTON_ID = 'ep-timesheet-nav';
     let timesheetNavScrollParent = null;
     let timesheetNavObserver = null;
@@ -2296,33 +2289,51 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
         if (!header) return null;
         const buttons = [...header.querySelectorAll('.button_container c3-button')];
         return buttons.find(button => button.textContent.trim() === 'Submit month')
-|| header.querySelector('.button_container c3-button[accesskey="s"]');
+            || header.querySelector('.button_container c3-button[accesskey="s"]');
     };
 
     const getTodayRow = () => document.querySelector('.today_chip')?.closest('.tt_day_container') || null;
+
+    const getScrollMetrics = element => {
+        const scrollParent = getScrollParent(element);
+        if (scrollParent === window) {
+            return {
+                scrollParent,
+                current: window.scrollY,
+                target: element.getBoundingClientRect().top + window.scrollY
+            };
+        }
+        return {
+            scrollParent,
+            current: scrollParent.scrollTop,
+            target: element.getBoundingClientRect().top
+                - scrollParent.getBoundingClientRect().top
+                + scrollParent.scrollTop
+        };
+    };
 
     const updateTimesheetNavButton = () => {
         const button = document.getElementById(TIMESHEET_NAV_BUTTON_ID);
         if (!button) return;
 
         const todayRow = getTodayRow();
-        const header = getTimesheetHeader();
         let target = 'top';
 
         if (todayRow) {
-const triggerLine = Math.max(0, header?.getBoundingClientRect().bottom || 0) + 12;
-target = todayRow.getBoundingClientRect().top > triggerLine ? 'today' : 'top';
+            const metrics = getScrollMetrics(todayRow);
+            const todayReachedAt = Math.max(0, metrics.target - 100);
+            target = metrics.current >= todayReachedAt ? 'top' : 'today';
         }
 
         const label = target === 'today' ? 'To today' : 'Back to top';
         if (button.textContent.trim() !== label) {
-button.textContent = label;
+            button.textContent = label;
         }
         button.dataset.epTarget = target;
 
         const description = target === 'today'
-? 'Jump to today in the current timesheet'
-: 'Back to the top of the timesheet';
+            ? 'Jump to today in the current timesheet'
+            : 'Back to the top of the timesheet';
         button.setAttribute('title', description);
         button.setAttribute('aria-label', description);
     };
@@ -2330,8 +2341,8 @@ button.textContent = label;
     const scheduleTimesheetNavUpdate = () => {
         if (timesheetNavRaf) return;
         timesheetNavRaf = requestAnimationFrame(() => {
-timesheetNavRaf = 0;
-updateTimesheetNavButton();
+            timesheetNavRaf = 0;
+            updateTimesheetNavButton();
         });
     };
 
@@ -2341,7 +2352,7 @@ updateTimesheetNavButton();
         if (nextScrollParent === timesheetNavScrollParent) return;
 
         if (timesheetNavScrollParent) {
-timesheetNavScrollParent.removeEventListener('scroll', scheduleTimesheetNavUpdate);
+            timesheetNavScrollParent.removeEventListener('scroll', scheduleTimesheetNavUpdate);
         }
 
         timesheetNavScrollParent = nextScrollParent;
@@ -2354,22 +2365,22 @@ timesheetNavScrollParent.removeEventListener('scroll', scheduleTimesheetNavUpdat
 
         let button = document.getElementById(TIMESHEET_NAV_BUTTON_ID);
         if (!button || button.tagName.toLowerCase() !== 'c3-button') {
-button?.remove();
-button = document.createElement('c3-button');
-button.id = TIMESHEET_NAV_BUTTON_ID;
-button.className = 'disallow-impersonation-action';
-button.addEventListener('click', event => {
-    event.preventDefault();
-    if (button.dataset.epTarget === 'today') {
-        jumpToToday();
-    } else {
-        jumpToAnalyzer();
-    }
-});
+            button?.remove();
+            button = document.createElement('c3-button');
+            button.id = TIMESHEET_NAV_BUTTON_ID;
+            button.className = 'disallow-impersonation-action';
+            button.addEventListener('click', event => {
+                event.preventDefault();
+                if (button.dataset.epTarget === 'today') {
+                    jumpToToday();
+                } else {
+                    jumpToAnalyzer();
+                }
+            });
         }
 
         if (submitButton.nextElementSibling !== button) {
-submitButton.insertAdjacentElement('afterend', button);
+            submitButton.insertAdjacentElement('afterend', button);
         }
 
         bindTimesheetNavScroll();
@@ -2380,14 +2391,14 @@ submitButton.insertAdjacentElement('afterend', button);
         ensureTimesheetNavButton();
 
         if (!timesheetNavObserver) {
-timesheetNavObserver = new MutationObserver(() => {
-    ensureTimesheetNavButton();
-});
-timesheetNavObserver.observe(document.body, {
-    childList: true,
-    subtree: true
-});
-window.addEventListener('resize', scheduleTimesheetNavUpdate, { passive: true });
+            timesheetNavObserver = new MutationObserver(() => {
+                ensureTimesheetNavButton();
+            });
+            timesheetNavObserver.observe(document.body, {
+                childList: true,
+                subtree: true
+            });
+            window.addEventListener('resize', scheduleTimesheetNavUpdate, { passive: true });
         }
     };
     /* ═══════════════════════════════════════════════════════════════
