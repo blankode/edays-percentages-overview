@@ -1,0 +1,39 @@
+name: Fix Today dark v19.3
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/fix-today-dark-v19-3.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch Today Dark Reader fixes
+        run: python .github/scripts/fix_today_dark_v19_3.py
+
+      - name: Validate
+        run: |
+          node --check script.js
+          grep -q '^// @version      19.3$' script.js
+          grep -q "Preserve eDays Analyzer Pro's Today identity inside Dark Reader" script.js
+          grep -q 'background:linear-gradient(100deg,#172235' script.js
+          grep -q 'DarkReader.enable(DARK_READER_THEME, DARK_READER_FIXES);' script.js
+          if grep -q '^// @require' script.js; then
+            echo 'script.js must remain standalone'
+            exit 1
+          fi
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add script.js
+          git commit -m "Preserve Today highlight in Dark Reader mode" || exit 0
+          git push
