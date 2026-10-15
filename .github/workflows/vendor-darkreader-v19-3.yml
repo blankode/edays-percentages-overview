@@ -49,3 +49,5 @@ jobs:
           git add script.js
           git commit -m "Use official Dark Reader engine in v19.3" || exit 0
           git push
+
+# trigger refresh
