@@ -1,0 +1,196 @@
+name: Rebuild standalone userscript
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/rebuild-standalone-userscript.yml
+
+permissions:
+  contents: write
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Merge v19.2 navigation into standalone script.js
+        shell: python
+        run: |
+          from pathlib import Path
+
+          source_path = Path('script_core.js')
+          output_path = Path('script.js')
+          source = source_path.read_text(encoding='utf-8')
+
+          source = source.replace('// @version      19.1', '// @version      19.2', 1)
+          header_marker = '// ==/UserScript==\n'
+          changelog = '// Changelog v19.2: Unified To today and Back to top into one native eDays c3-button placed immediately after Submit month; removed the separate floating navigation and Jump to today from the Today strip.\n'
+          if changelog not in source:
+              source = source.replace(header_marker, header_marker + changelog, 1)
+
+          jump_markup = '''
+                    <span
+                        class="ep-btn ep-btn-label"
+                        data-action="jump-today"
+                    >
+                        ${icon(
+                            'arrow_down',
+                            13,
+                            T.muted
+                        )}
+                        Jump to today
+                    </span>
+          '''
+          if jump_markup not in source:
+              raise RuntimeError('Jump to today markup not found')
+          source = source.replace(jump_markup, '', 1)
+
+          floating_marker = '       FLOATING ANALYZER BUTTON'
+          boot_marker = '       BOOT'
+          floating_pos = source.index(floating_marker)
+          block_start = source.rfind('    /*', 0, floating_pos)
+          boot_pos = source.index(boot_marker, floating_pos)
+          block_end = source.rfind('    /*', 0, boot_pos)
+          if block_start < 0 or block_end <= block_start:
+              raise RuntimeError('Could not locate floating navigation block')
+
+          navigation_code = r'''    /* ═══════════════════════════════════════════════════════════════
+       UNIFIED TIMESHEET NAVIGATION
+    ═══════════════════════════════════════════════════════════════ */
+    const TIMESHEET_NAV_BUTTON_ID = 'ep-timesheet-nav';
+    let timesheetNavScrollParent = null;
+    let timesheetNavObserver = null;
+    let timesheetNavRaf = 0;
+
+    const getTimesheetHeader = () => document.getElementById('timesheetMonthHeader');
+
+    const getSubmitMonthButton = () => {
+        const header = getTimesheetHeader();
+        if (!header) return null;
+        const buttons = [...header.querySelectorAll('.button_container c3-button')];
+        return buttons.find(button => button.textContent.trim() === 'Submit month')
+            || header.querySelector('.button_container c3-button[accesskey="s"]');
+    };
+
+    const getTodayRow = () => document.querySelector('.today_chip')?.closest('.tt_day_container') || null;
+
+    const updateTimesheetNavButton = () => {
+        const button = document.getElementById(TIMESHEET_NAV_BUTTON_ID);
+        if (!button) return;
+
+        const todayRow = getTodayRow();
+        const header = getTimesheetHeader();
+        let target = 'top';
+
+        if (todayRow) {
+            const triggerLine = Math.max(0, header?.getBoundingClientRect().bottom || 0) + 12;
+            target = todayRow.getBoundingClientRect().top > triggerLine ? 'today' : 'top';
+        }
+
+        const label = target === 'today' ? 'To today' : 'Back to top';
+        if (button.textContent.trim() !== label) {
+            button.textContent = label;
+        }
+        button.dataset.epTarget = target;
+
+        const description = target === 'today'
+            ? 'Jump to today in the current timesheet'
+            : 'Back to the top of the timesheet';
+        button.setAttribute('title', description);
+        button.setAttribute('aria-label', description);
+    };
+
+    const scheduleTimesheetNavUpdate = () => {
+        if (timesheetNavRaf) return;
+        timesheetNavRaf = requestAnimationFrame(() => {
+            timesheetNavRaf = 0;
+            updateTimesheetNavButton();
+        });
+    };
+
+    const bindTimesheetNavScroll = () => {
+        const target = getTodayRow() || document.getElementById('ep13') || document.getElementById('mainTimesheetPanel');
+        const nextScrollParent = target ? getScrollParent(target) : window;
+        if (nextScrollParent === timesheetNavScrollParent) return;
+
+        if (timesheetNavScrollParent) {
+            timesheetNavScrollParent.removeEventListener('scroll', scheduleTimesheetNavUpdate);
+        }
+
+        timesheetNavScrollParent = nextScrollParent;
+        timesheetNavScrollParent.addEventListener('scroll', scheduleTimesheetNavUpdate, { passive: true });
+    };
+
+    const ensureTimesheetNavButton = () => {
+        const submitButton = getSubmitMonthButton();
+        if (!submitButton) return;
+
+        let button = document.getElementById(TIMESHEET_NAV_BUTTON_ID);
+        if (!button || button.tagName.toLowerCase() !== 'c3-button') {
+            button?.remove();
+            button = document.createElement('c3-button');
+            button.id = TIMESHEET_NAV_BUTTON_ID;
+            button.className = 'disallow-impersonation-action';
+            button.addEventListener('click', event => {
+                event.preventDefault();
+                if (button.dataset.epTarget === 'today') {
+                    jumpToToday();
+                } else {
+                    jumpToAnalyzer();
+                }
+            });
+        }
+
+        if (submitButton.nextElementSibling !== button) {
+            submitButton.insertAdjacentElement('afterend', button);
+        }
+
+        bindTimesheetNavScroll();
+        updateTimesheetNavButton();
+    };
+
+    const initTimesheetNavigation = () => {
+        ensureTimesheetNavButton();
+
+        if (!timesheetNavObserver) {
+            timesheetNavObserver = new MutationObserver(() => {
+                ensureTimesheetNavButton();
+            });
+            timesheetNavObserver.observe(document.body, {
+                childList: true,
+                subtree: true
+            });
+            window.addEventListener('resize', scheduleTimesheetNavUpdate, { passive: true });
+        }
+    };
+'''
+
+          source = source[:block_start] + navigation_code + source[block_end:]
+
+          if 'initFloatingAnalyzerButton();' not in source:
+              raise RuntimeError('Floating navigation boot call not found')
+          source = source.replace('initFloatingAnalyzerButton();', 'initTimesheetNavigation();', 1)
+
+          output_path.write_text(source, encoding='utf-8')
+
+      - name: Validate standalone userscript
+        run: |
+          node --check script.js
+          if grep -q '^// @require' script.js; then
+            echo 'script.js must stay standalone; @require found'
+            exit 1
+          fi
+          grep -q '^// @version      19.2$' script.js
+          grep -q "const TIMESHEET_NAV_BUTTON_ID = 'ep-timesheet-nav';" script.js
+          ! grep -q 'Jump to today' script.js
+          ! grep -q 'initFloatingAnalyzerButton' script.js
+
+      - name: Commit generated standalone script
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add script.js
+          git commit -m "Restore standalone v19.2 userscript" || exit 0
+          git push
