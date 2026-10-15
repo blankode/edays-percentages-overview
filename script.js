@@ -2325,7 +2325,7 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
             target = metrics.current >= todayReachedAt ? 'top' : 'today';
         }
 
-        const label = target === 'today' ? 'To today' : 'Back to top';
+        const label = target === 'today' ? '↓ To today' : '↑ To home';
         if (button.textContent.trim() !== label) {
             button.textContent = label;
         }
