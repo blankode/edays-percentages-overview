@@ -9451,6 +9451,7 @@ _______|_______/__/ ____ \\__\\__|___\\__\\__|___\\__\\____
 /* === END VENDORED DARK READER API === */
 
 // Changelog v19.4: Fixed Today highlight styling after refresh when persistent Dark Reader mode is enabled by making stylesheet/theme activation order deterministic.
+// Changelog v19.4: Fixed light-mode switching removing Analyzer styles by recreating protected CSS after Dark Reader is disabled.
 // Changelog v19.3: Uses the bundled official Dark Reader Dynamic Theme engine for site-wide dark mode; keeps the theme control beside Book time off, Analyzer Settings beside navigation, Time Tracking Enhanced branding, and the compact Analyzer layout.
 // Changelog v19.2: Unified To today and Back to top into one native eDays c3-button placed immediately after Submit month; removed the separate floating navigation and Jump to today from the Today strip.
 // Changelog v19.1: Added a subtle full-row Today highlight with blue accent, tinted background, and a stronger Today chip for faster visual scanning.
@@ -10919,23 +10920,29 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
             document.body.classList.remove('ep-site-dark');
         }
 
-        // Keep Analyzer CSS earlier in the cascade. The Today light-theme rules use
-        // !important, so Dark Reader's fixes must be inserted after this stylesheet
-        // to win consistently on both fresh loads and manual theme toggles.
-        injectStyles(T);
-
         try {
             if (typeof DarkReader === 'undefined' || typeof DarkReader.enable !== 'function') {
                 throw new Error('Bundled Dark Reader API is unavailable');
             }
 
             if (T.isDark) {
+                // Dark mode: Analyzer CSS must exist first so Dark Reader's dedicated
+                // Today fixes are inserted later and reliably win the cascade.
+                injectStyles(T);
                 DarkReader.enable(DARK_READER_THEME, DARK_READER_FIXES);
-            } else if (typeof DarkReader.disable === 'function') {
-                DarkReader.disable();
+            } else {
+                // Light mode: DarkReader.disable() removes every style.darkreader,
+                // including our protected Analyzer stylesheet. Disable first, then
+                // recreate the Analyzer CSS so cards/layout never collapse to text.
+                if (typeof DarkReader.disable === 'function') {
+                    DarkReader.disable();
+                }
+                injectStyles(T);
             }
         } catch (error) {
             console.error('[eDays Analyzer Pro] Dark Reader theme error:', error);
+            // Never leave the Analyzer unstyled if Dark Reader fails midway.
+            injectStyles(T);
         }
 
         return T;
