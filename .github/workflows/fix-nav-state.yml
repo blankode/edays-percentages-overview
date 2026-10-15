@@ -16,16 +16,14 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Fix standalone userscript navigation state
-        shell: bash
+        shell: python
         run: |
-          python <<'PY'
           from pathlib import Path
           import re
 
           path = Path('script.js')
           source = path.read_text(encoding='utf-8')
 
-          # Keep this iteration on v19.2.
           source = source.replace('// @version      19.3', '// @version      19.2', 1)
           source = re.sub(r'^// Changelog v19\.3:.*\n', '', source, count=1, flags=re.M)
           source = re.sub(
@@ -36,10 +34,9 @@ jobs:
               flags=re.M
           )
 
-          # Remove the now-unneeded absolute scroll metric helper.
           source, count = re.subn(
-              r"\n    const getScrollMetrics = element => \{.*?\n    \};\n\n    const updateTimesheetNavButton",
-              "\n    const updateTimesheetNavButton",
+              r'\n    const getScrollMetrics = element => \{.*?\n    \};\n\n    const updateTimesheetNavButton',
+              '\n    const updateTimesheetNavButton',
               source,
               count=1,
               flags=re.S
@@ -47,12 +44,9 @@ jobs:
           if count != 1:
               raise RuntimeError('getScrollMetrics block not found')
 
-          old_state = """        if (todayRow) {
-            const metrics = getScrollMetrics(todayRow);
-            const todayReachedAt = Math.max(0, metrics.target - 100);
-            target = metrics.current >= todayReachedAt ? 'top' : 'today';
-        }"""
-          new_state = """        if (todayRow) {
+          source, count = re.subn(
+              r"        if \(todayRow\) \{\n            const metrics = getScrollMetrics\(todayRow\);\n            const todayReachedAt = Math\.max\(0, metrics\.target - 100\);\n            target = metrics\.current >= todayReachedAt \? 'top' : 'today';\n        \}",
+              """        if (todayRow) {
             const scrollParent = getScrollParent(todayRow);
             const viewportTop = scrollParent === window
                 ? 0
@@ -61,12 +55,13 @@ jobs:
             target = todayRow.getBoundingClientRect().top <= todayReachedAt
                 ? 'top'
                 : 'today';
-        }"""
-          if old_state not in source:
+        }""",
+              source,
+              count=1
+          )
+          if count != 1:
               raise RuntimeError('Old navigation state block not found')
-          source = source.replace(old_state, new_state, 1)
 
-          # Re-check state after smooth scrolling has had time to settle.
           old_click = """                if (button.dataset.epTarget === 'today') {
                     jumpToToday();
                 } else {
@@ -86,7 +81,6 @@ jobs:
           source = source.replace(old_click, new_click, 1)
 
           path.write_text(source, encoding='utf-8')
-          PY
 
       - name: Validate userscript
         run: |
