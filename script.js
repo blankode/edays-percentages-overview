@@ -12,6 +12,7 @@
     'use strict';
 
     const NAV_BUTTON_ID = 'ep-timesheet-nav';
+    const LEGACY_NAV_STYLE_ID = 'ep-legacy-nav-hide';
     let boundScrollParent = null;
     let rafId = 0;
 
@@ -74,6 +75,16 @@
             left: scrollParent.scrollLeft,
             behavior: 'smooth'
         });
+    };
+
+    const ensureLegacyNavigationStyle = () => {
+        let style = document.getElementById(LEGACY_NAV_STYLE_ID);
+        if (!style) {
+            style = document.createElement('style');
+            style.id = LEGACY_NAV_STYLE_ID;
+            style.textContent = '#ep-analyzer-float,#ep13 [data-action="jump-today"]{display:none!important;}';
+            document.head.appendChild(style);
+        }
     };
 
     const removeLegacyNavigation = () => {
@@ -177,6 +188,7 @@
     });
 
     const start = () => {
+        ensureLegacyNavigationStyle();
         ensureNavButton();
         observer.observe(document.documentElement, {
             childList: true,
