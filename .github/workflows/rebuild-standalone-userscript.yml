@@ -15,174 +15,179 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Merge v19.2 navigation into standalone script.js
+      - name: Polish standalone v19.2 navigation
         shell: bash
         run: |
           python <<'PY'
           from pathlib import Path
-          import re
+          import textwrap
 
-          source = Path('script_core.js').read_text(encoding='utf-8')
+          path = Path('script.js')
+          source = path.read_text(encoding='utf-8')
 
-          source = source.replace('// @version      19.1', '// @version      19.2', 1)
-          header_marker = '// ==/UserScript==\n'
-          changelog = '// Changelog v19.2: Unified To today and Back to top into one native eDays c3-button placed immediately after Submit month; removed the separate floating navigation and Jump to today from the Today strip.\n'
-          if changelog not in source:
-              source = source.replace(header_marker, header_marker + changelog, 1)
+          nav_pos = source.index('UNIFIED TIMESHEET NAVIGATION')
+          nav_start = source.rfind('    /*', 0, nav_pos)
+          boot_pos = source.index('       BOOT', nav_pos)
+          nav_end = source.rfind('    /*', 0, boot_pos)
 
-          jump_pattern = r'''\n\s*<span\s*\n\s*class="ep-btn ep-btn-label"\s*\n\s*data-action="jump-today"\s*\n\s*>.*?Jump to today\s*\n\s*</span>'''
-          source, jump_count = re.subn(jump_pattern, '', source, count=1, flags=re.S)
-          if jump_count != 1:
-              raise RuntimeError(f'Expected to remove one Jump to today control, removed {jump_count}')
+          nav_body = r'''const TIMESHEET_NAV_BUTTON_ID = 'ep-timesheet-nav';
+          let timesheetNavScrollParent = null;
+          let timesheetNavObserver = null;
+          let timesheetNavRaf = 0;
 
-          floating_pos = source.index('       FLOATING ANALYZER BUTTON')
-          block_start = source.rfind('    /*', 0, floating_pos)
-          boot_pos = source.index('       BOOT', floating_pos)
-          block_end = source.rfind('    /*', 0, boot_pos)
-          if block_start < 0 or block_end <= block_start:
-              raise RuntimeError('Could not locate floating navigation block')
+          const getTimesheetHeader = () => document.getElementById('timesheetMonthHeader');
 
-          navigation_code = '''    /* ═══════════════════════════════════════════════════════════════
-             UNIFIED TIMESHEET NAVIGATION
-          ═══════════════════════════════════════════════════════════════ */
-              const TIMESHEET_NAV_BUTTON_ID = 'ep-timesheet-nav';
-              let timesheetNavScrollParent = null;
-              let timesheetNavObserver = null;
-              let timesheetNavRaf = 0;
+          const getSubmitMonthButton = () => {
+              const header = getTimesheetHeader();
+              if (!header) return null;
+              const buttons = [...header.querySelectorAll('.button_container c3-button')];
+              return buttons.find(button => button.textContent.trim() === 'Submit month')
+                  || header.querySelector('.button_container c3-button[accesskey="s"]');
+          };
 
-              const getTimesheetHeader = () => document.getElementById('timesheetMonthHeader');
+          const getTodayRow = () => document.querySelector('.today_chip')?.closest('.tt_day_container') || null;
 
-              const getSubmitMonthButton = () => {
-                  const header = getTimesheetHeader();
-                  if (!header) return null;
-                  const buttons = [...header.querySelectorAll('.button_container c3-button')];
-                  return buttons.find(button => button.textContent.trim() === 'Submit month')
-                      || header.querySelector('.button_container c3-button[accesskey="s"]');
+          const getScrollMetrics = element => {
+              const scrollParent = getScrollParent(element);
+              if (scrollParent === window) {
+                  return {
+                      scrollParent,
+                      current: window.scrollY,
+                      target: element.getBoundingClientRect().top + window.scrollY
+                  };
+              }
+              return {
+                  scrollParent,
+                  current: scrollParent.scrollTop,
+                  target: element.getBoundingClientRect().top
+                      - scrollParent.getBoundingClientRect().top
+                      + scrollParent.scrollTop
               };
+          };
 
-              const getTodayRow = () => document.querySelector('.today_chip')?.closest('.tt_day_container') || null;
+          const updateTimesheetNavButton = () => {
+              const button = document.getElementById(TIMESHEET_NAV_BUTTON_ID);
+              if (!button) return;
 
-              const updateTimesheetNavButton = () => {
-                  const button = document.getElementById(TIMESHEET_NAV_BUTTON_ID);
-                  if (!button) return;
+              const todayRow = getTodayRow();
+              let target = 'top';
 
-                  const todayRow = getTodayRow();
-                  const header = getTimesheetHeader();
-                  let target = 'top';
+              if (todayRow) {
+                  const metrics = getScrollMetrics(todayRow);
+                  const todayReachedAt = Math.max(0, metrics.target - 100);
+                  target = metrics.current >= todayReachedAt ? 'top' : 'today';
+              }
 
-                  if (todayRow) {
-                      const triggerLine = Math.max(0, header?.getBoundingClientRect().bottom || 0) + 12;
-                      target = todayRow.getBoundingClientRect().top > triggerLine ? 'today' : 'top';
-                  }
+              const label = target === 'today' ? 'To today' : 'Back to top';
+              if (button.textContent.trim() !== label) {
+                  button.textContent = label;
+              }
+              button.dataset.epTarget = target;
 
-                  const label = target === 'today' ? 'To today' : 'Back to top';
-                  if (button.textContent.trim() !== label) {
-                      button.textContent = label;
-                  }
-                  button.dataset.epTarget = target;
+              const description = target === 'today'
+                  ? 'Jump to today in the current timesheet'
+                  : 'Back to the top of the timesheet';
+              button.setAttribute('title', description);
+              button.setAttribute('aria-label', description);
+          };
 
-                  const description = target === 'today'
-                      ? 'Jump to today in the current timesheet'
-                      : 'Back to the top of the timesheet';
-                  button.setAttribute('title', description);
-                  button.setAttribute('aria-label', description);
-              };
-
-              const scheduleTimesheetNavUpdate = () => {
-                  if (timesheetNavRaf) return;
-                  timesheetNavRaf = requestAnimationFrame(() => {
-                      timesheetNavRaf = 0;
-                      updateTimesheetNavButton();
-                  });
-              };
-
-              const bindTimesheetNavScroll = () => {
-                  const target = getTodayRow() || document.getElementById('ep13') || document.getElementById('mainTimesheetPanel');
-                  const nextScrollParent = target ? getScrollParent(target) : window;
-                  if (nextScrollParent === timesheetNavScrollParent) return;
-
-                  if (timesheetNavScrollParent) {
-                      timesheetNavScrollParent.removeEventListener('scroll', scheduleTimesheetNavUpdate);
-                  }
-
-                  timesheetNavScrollParent = nextScrollParent;
-                  timesheetNavScrollParent.addEventListener('scroll', scheduleTimesheetNavUpdate, { passive: true });
-              };
-
-              const ensureTimesheetNavButton = () => {
-                  const submitButton = getSubmitMonthButton();
-                  if (!submitButton) return;
-
-                  let button = document.getElementById(TIMESHEET_NAV_BUTTON_ID);
-                  if (!button || button.tagName.toLowerCase() !== 'c3-button') {
-                      button?.remove();
-                      button = document.createElement('c3-button');
-                      button.id = TIMESHEET_NAV_BUTTON_ID;
-                      button.className = 'disallow-impersonation-action';
-                      button.addEventListener('click', event => {
-                          event.preventDefault();
-                          if (button.dataset.epTarget === 'today') {
-                              jumpToToday();
-                          } else {
-                              jumpToAnalyzer();
-                          }
-                      });
-                  }
-
-                  if (submitButton.nextElementSibling !== button) {
-                      submitButton.insertAdjacentElement('afterend', button);
-                  }
-
-                  bindTimesheetNavScroll();
+          const scheduleTimesheetNavUpdate = () => {
+              if (timesheetNavRaf) return;
+              timesheetNavRaf = requestAnimationFrame(() => {
+                  timesheetNavRaf = 0;
                   updateTimesheetNavButton();
-              };
+              });
+          };
 
-              const initTimesheetNavigation = () => {
-                  ensureTimesheetNavButton();
+          const bindTimesheetNavScroll = () => {
+              const target = getTodayRow() || document.getElementById('ep13') || document.getElementById('mainTimesheetPanel');
+              const nextScrollParent = target ? getScrollParent(target) : window;
+              if (nextScrollParent === timesheetNavScrollParent) return;
 
-                  if (!timesheetNavObserver) {
-                      timesheetNavObserver = new MutationObserver(() => {
-                          ensureTimesheetNavButton();
-                      });
-                      timesheetNavObserver.observe(document.body, {
-                          childList: true,
-                          subtree: true
-                      });
-                      window.addEventListener('resize', scheduleTimesheetNavUpdate, { passive: true });
-                  }
-              };
+              if (timesheetNavScrollParent) {
+                  timesheetNavScrollParent.removeEventListener('scroll', scheduleTimesheetNavUpdate);
+              }
+
+              timesheetNavScrollParent = nextScrollParent;
+              timesheetNavScrollParent.addEventListener('scroll', scheduleTimesheetNavUpdate, { passive: true });
+          };
+
+          const ensureTimesheetNavButton = () => {
+              const submitButton = getSubmitMonthButton();
+              if (!submitButton) return;
+
+              let button = document.getElementById(TIMESHEET_NAV_BUTTON_ID);
+              if (!button || button.tagName.toLowerCase() !== 'c3-button') {
+                  button?.remove();
+                  button = document.createElement('c3-button');
+                  button.id = TIMESHEET_NAV_BUTTON_ID;
+                  button.className = 'disallow-impersonation-action';
+                  button.addEventListener('click', event => {
+                      event.preventDefault();
+                      if (button.dataset.epTarget === 'today') {
+                          jumpToToday();
+                      } else {
+                          jumpToAnalyzer();
+                      }
+                  });
+              }
+
+              if (submitButton.nextElementSibling !== button) {
+                  submitButton.insertAdjacentElement('afterend', button);
+              }
+
+              bindTimesheetNavScroll();
+              updateTimesheetNavButton();
+          };
+
+          const initTimesheetNavigation = () => {
+              ensureTimesheetNavButton();
+
+              if (!timesheetNavObserver) {
+                  timesheetNavObserver = new MutationObserver(() => {
+                      ensureTimesheetNavButton();
+                  });
+                  timesheetNavObserver.observe(document.body, {
+                      childList: true,
+                      subtree: true
+                  });
+                  window.addEventListener('resize', scheduleTimesheetNavUpdate, { passive: true });
+              }
+          };
           '''
+          nav_body = textwrap.dedent(nav_body)
+          nav_code = (
+              '    /* ═══════════════════════════════════════════════════════════════\n'
+              '       UNIFIED TIMESHEET NAVIGATION\n'
+              '    ═══════════════════════════════════════════════════════════════ */\n'
+              + textwrap.indent(nav_body, '    ')
+          )
+          source = source[:nav_start] + nav_code + source[nav_end:]
 
-          navigation_code = '\n'.join(
-              line[12:] if line.startswith('            ') else line
-              for line in navigation_code.splitlines()
-          ) + '\n'
+          css_start_marker = '        #ep-analyzer-float{'
+          css_end_marker = '        @media (max-width:640px){#ep-analyzer-float{bottom:16px;width:44px;height:44px;}}\n'
+          if css_start_marker in source:
+              css_start = source.index(css_start_marker)
+              css_end = source.index(css_end_marker, css_start) + len(css_end_marker)
+              source = source[:css_start] + source[css_end:]
 
-          source = source[:block_start] + navigation_code + source[block_end:]
-
-          if 'initFloatingAnalyzerButton();' not in source:
-              raise RuntimeError('Floating navigation boot call not found')
-          source = source.replace('initFloatingAnalyzerButton();', 'initTimesheetNavigation();', 1)
-
-          Path('script.js').write_text(source, encoding='utf-8')
+          path.write_text(source, encoding='utf-8')
           PY
 
       - name: Validate standalone userscript
         run: |
           node --check script.js
-          if grep -q '^// @require' script.js; then
-            echo 'script.js must stay standalone; @require found'
-            exit 1
-          fi
+          test "$(grep -c '^// @require' script.js || true)" -eq 0
           grep -q '^// @version      19.2$' script.js
           grep -q "const TIMESHEET_NAV_BUTTON_ID = 'ep-timesheet-nav';" script.js
-          ! grep -q 'Jump to today' script.js
-          ! grep -q 'initFloatingAnalyzerButton' script.js
+          test "$(grep -c 'data-action="jump-today"' script.js || true)" -eq 0
+          test "$(grep -c 'initFloatingAnalyzerButton' script.js || true)" -eq 0
+          test "$(grep -c '#ep-analyzer-float' script.js || true)" -eq 0
 
-      - name: Commit generated standalone script
+      - name: Commit polished standalone script
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add script.js
-          git commit -m "Restore standalone v19.2 userscript" || exit 0
+          git commit -m "Polish unified timesheet navigation" || exit 0
           git push
