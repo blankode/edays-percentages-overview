@@ -6,7 +6,7 @@
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // ==/UserScript==
-// Changelog v19.2: Unified native timesheet navigation after Submit month with ↓ To today / ↑ To home; removed the separate floating navigation and Today-strip jump action.
+// Changelog v19.2: Unified To today and Back to top into one native eDays c3-button placed immediately after Submit month; removed the separate floating navigation and Jump to today from the Today strip.
 // Changelog v19.1: Added a subtle full-row Today highlight with blue accent, tinted background, and a stronger Today chip for faster visual scanning.
 // Changelog v19.0: Replaced the inline Back to Analyzer button with a floating down-arrow that appears after scrolling and returns to the analyzer.
 // Changelog v18.9: Added persistent Analyzer Settings for Office Target and Mandatory Break, with validation, live recalculation, and reset-to-defaults support.
@@ -2294,84 +2294,48 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
 
     const getTodayRow = () => document.querySelector('.today_chip')?.closest('.tt_day_container') || null;
 
-    const getTimesheetNavState = () => {
-        const todayRow = getTodayRow();
-        if (!todayRow) return 'top';
-
-        const scrollParent = getScrollParent(todayRow);
-        const viewportTop = scrollParent === window
-            ? 0
-            : scrollParent.getBoundingClientRect().top;
-        const todayReachedAt = viewportTop + 110;
-
-        return todayRow.getBoundingClientRect().top <= todayReachedAt
-            ? 'top'
-            : 'today';
-    };
-
-    const getTimesheetNavLabel = target => target === 'today'
-        ? '↓ To today'
-        : '↑ To home';
-
-    const configureTimesheetNavButton = (button, target) => {
-        const label = getTimesheetNavLabel(target);
-        const description = target === 'today'
-            ? 'Jump to today in the current timesheet'
-            : 'Back to the top of the timesheet';
-
-        button.dataset.epTarget = target;
-
-        // c3-button reads its light-DOM label when first connected. Never rewrite
-        // child text after connection: that would trigger our body MutationObserver
-        // and can create a self-sustaining render loop in eDays.
-        if (!button.isConnected && button.textContent.trim() !== label) {
-            button.textContent = label;
+    const getScrollMetrics = element => {
+        const scrollParent = getScrollParent(element);
+        if (scrollParent === window) {
+            return {
+                scrollParent,
+                current: window.scrollY,
+                target: element.getBoundingClientRect().top + window.scrollY
+            };
         }
-
-        button.setAttribute('title', description);
-        button.setAttribute('aria-label', description);
-    };
-
-    const createTimesheetNavButton = target => {
-        const button = document.createElement('c3-button');
-        button.id = TIMESHEET_NAV_BUTTON_ID;
-        button.className = 'disallow-impersonation-action';
-
-        // Configure the light-DOM label BEFORE insertion. eDays' c3-button
-        // initializes from its existing child text when it is connected.
-        configureTimesheetNavButton(button, target);
-
-        button.addEventListener('click', event => {
-            event.preventDefault();
-            if (button.dataset.epTarget === 'today') {
-                jumpToToday();
-            } else {
-                jumpToAnalyzer();
-            }
-            setTimeout(scheduleTimesheetNavUpdate, 350);
-            setTimeout(scheduleTimesheetNavUpdate, 900);
-        });
-
-        return button;
+        return {
+            scrollParent,
+            current: scrollParent.scrollTop,
+            target: element.getBoundingClientRect().top
+                - scrollParent.getBoundingClientRect().top
+                + scrollParent.scrollTop
+        };
     };
 
     const updateTimesheetNavButton = () => {
         const button = document.getElementById(TIMESHEET_NAV_BUTTON_ID);
         if (!button) return;
 
-        const target = getTimesheetNavState();
-        const label = getTimesheetNavLabel(target);
+        const todayRow = getTodayRow();
+        let target = 'top';
 
-        // Once connected, c3-button may manage/transform its own child content.
-        // Only recreate when the navigation TARGET changes. Comparing or rewriting
-        // textContent here can make the MutationObserver continuously replace it.
-        if (button.dataset.epTarget !== target) {
-            const replacement = createTimesheetNavButton(target);
-            button.replaceWith(replacement);
-            return;
+        if (todayRow) {
+            const metrics = getScrollMetrics(todayRow);
+            const todayReachedAt = Math.max(0, metrics.target - 100);
+            target = metrics.current >= todayReachedAt ? 'top' : 'today';
         }
 
-        configureTimesheetNavButton(button, target);
+        const label = target === 'today' ? 'To today' : 'Back to top';
+        if (button.textContent.trim() !== label) {
+            button.textContent = label;
+        }
+        button.dataset.epTarget = target;
+
+        const description = target === 'today'
+            ? 'Jump to today in the current timesheet'
+            : 'Back to the top of the timesheet';
+        button.setAttribute('title', description);
+        button.setAttribute('aria-label', description);
     };
 
     const scheduleTimesheetNavUpdate = () => {
@@ -2402,7 +2366,17 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
         let button = document.getElementById(TIMESHEET_NAV_BUTTON_ID);
         if (!button || button.tagName.toLowerCase() !== 'c3-button') {
             button?.remove();
-            button = createTimesheetNavButton(getTimesheetNavState());
+            button = document.createElement('c3-button');
+            button.id = TIMESHEET_NAV_BUTTON_ID;
+            button.className = 'disallow-impersonation-action';
+            button.addEventListener('click', event => {
+                event.preventDefault();
+                if (button.dataset.epTarget === 'today') {
+                    jumpToToday();
+                } else {
+                    jumpToAnalyzer();
+                }
+            });
         }
 
         if (submitButton.nextElementSibling !== button) {
