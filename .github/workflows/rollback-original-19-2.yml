@@ -1,0 +1,38 @@
+name: Rollback original 19.2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/rollback-original-19-2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restore exact original 19.2 blob
+        run: |
+          git cat-file blob 0a58f4264a5f81bcbe3005ebcd4833d4a9819b4b > script.js
+          test "$(git hash-object script.js)" = "0a58f4264a5f81bcbe3005ebcd4833d4a9819b4b"
+          grep -q '^// @version      19.2$' script.js
+          grep -q "const label = target === 'today' ? 'To today' : 'Back to top';" script.js
+          node --check script.js
+          if grep -q '^// @require' script.js; then
+            echo 'script.js must remain standalone'
+            exit 1
+          fi
+
+      - name: Commit rollback
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add script.js
+          git commit -m "Rollback script.js to original 19.2" || exit 0
+          git push
