@@ -1,13 +1,12 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      19.3
+// @version      19.2
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // ==/UserScript==
-// Changelog v19.3: Navigation button now shows ↑ To home when returning upward and ↓ To today when jumping to today.
-// Changelog v19.2: Unified To today and Back to top into one native eDays c3-button placed immediately after Submit month; removed the separate floating navigation and Jump to today from the Today strip.
+// Changelog v19.2: Unified native timesheet navigation after Submit month with ↓ To today / ↑ To home; removed the separate floating navigation and Today-strip jump action.
 // Changelog v19.1: Added a subtle full-row Today highlight with blue accent, tinted background, and a stronger Today chip for faster visual scanning.
 // Changelog v19.0: Replaced the inline Back to Analyzer button with a floating down-arrow that appears after scrolling and returns to the analyzer.
 // Changelog v18.9: Added persistent Analyzer Settings for Office Target and Mandatory Break, with validation, live recalculation, and reset-to-defaults support.
@@ -2295,24 +2294,6 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
 
     const getTodayRow = () => document.querySelector('.today_chip')?.closest('.tt_day_container') || null;
 
-    const getScrollMetrics = element => {
-        const scrollParent = getScrollParent(element);
-        if (scrollParent === window) {
-            return {
-                scrollParent,
-                current: window.scrollY,
-                target: element.getBoundingClientRect().top + window.scrollY
-            };
-        }
-        return {
-            scrollParent,
-            current: scrollParent.scrollTop,
-            target: element.getBoundingClientRect().top
-                - scrollParent.getBoundingClientRect().top
-                + scrollParent.scrollTop
-        };
-    };
-
     const updateTimesheetNavButton = () => {
         const button = document.getElementById(TIMESHEET_NAV_BUTTON_ID);
         if (!button) return;
@@ -2321,9 +2302,14 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
         let target = 'top';
 
         if (todayRow) {
-            const metrics = getScrollMetrics(todayRow);
-            const todayReachedAt = Math.max(0, metrics.target - 100);
-            target = metrics.current >= todayReachedAt ? 'top' : 'today';
+            const scrollParent = getScrollParent(todayRow);
+            const viewportTop = scrollParent === window
+                ? 0
+                : scrollParent.getBoundingClientRect().top;
+            const todayReachedAt = viewportTop + 110;
+            target = todayRow.getBoundingClientRect().top <= todayReachedAt
+                ? 'top'
+                : 'today';
         }
 
         const label = target === 'today' ? '↓ To today' : '↑ To home';
@@ -2374,8 +2360,12 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
                 event.preventDefault();
                 if (button.dataset.epTarget === 'today') {
                     jumpToToday();
+                    setTimeout(scheduleTimesheetNavUpdate, 350);
+                    setTimeout(scheduleTimesheetNavUpdate, 900);
                 } else {
                     jumpToAnalyzer();
+                    setTimeout(scheduleTimesheetNavUpdate, 350);
+                    setTimeout(scheduleTimesheetNavUpdate, 900);
                 }
             });
         }
