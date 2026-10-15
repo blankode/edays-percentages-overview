@@ -3,204 +3,2426 @@
 // @namespace    http://tampermonkey.net/
 // @version      19.2
 // @match        https://*.e-days.com/*
-// @require      https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script_core.js?v=19.2
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // ==/UserScript==
-// Changelog v19.2: Replaced the separate floating Back to top and Today-strip jump controls with one native eDays c3-button beside Submit month. The button switches between To today and Back to top based on scroll position.
+// Changelog v19.2: Unified To today and Back to top into one native eDays c3-button placed immediately after Submit month; removed the separate floating navigation and Jump to today from the Today strip.
+// Changelog v19.1: Added a subtle full-row Today highlight with blue accent, tinted background, and a stronger Today chip for faster visual scanning.
+// Changelog v19.0: Replaced the inline Back to Analyzer button with a floating down-arrow that appears after scrolling and returns to the analyzer.
+// Changelog v18.9: Added persistent Analyzer Settings for Office Target and Mandatory Break, with validation, live recalculation, and reset-to-defaults support.
+// Changelog v18.8: Made the mandatory break configurable and included the missing break in Today buffer calculations so the predicted post-clock-out deficit is visible.
+// Changelog v18.7: Unified exact office-time calculations across Office Target and Buffer & Outlook, fixed formatter initialization, and added mandatory 30-minute break handling to Today/leave-at time.
+// Changelog v18.6: Buffer & Outlook now show exact days/hours/minutes, keep values on one line without resizing chips, and hide zero-value units such as 0d, 0h, and 0m.
+// Changelog v18.5: Fixed buffer calculation to take only surplus/discrepancy into account.
+// Changelog v18.4: Fixed percentage discrepancy across categories.
+// Changelog v18.3: Fixed Buffer & Outlook to include today’s positive or negative variance in the current banked balance while preserving the pre-today buffer for the “Include buffer” option.
+// Changelog v18.2: Unified button styling and hover behaviour, including the Back to Analyzer button.
+// Changelog v18.2: Fixed Back to Analyzer scrolling so it no longer causes persistent horizontal page/title-bar shifting.
+// Changelog v18.1: Office Target ring now derives office minutes from each day's own logged periods
+// Changelog v18.1: instead of scaling by the recorded/rawTotal reconciliation factor, which could
+// Changelog v18.1: round already-banked office minutes DOWN whenever a later day's activity was logged.
+// Changelog v18.1: "Office Days Needed" / "WFH Days Available" chips now show exact hours (e.g. "3h 30m")
+// Changelog v18.1: and relabel to "...Time Needed/Available" whenever the remaining amount is <= 1 day.
+// Changelog v18.0: Correct half-day AM/PM vacation handling across Today, buffer, remaining time, and Office Planner calculations.
+// Changelog v18.0: Day capacity is now 8h normally, 4h for AM/PM absences, and 0h for full absences/holidays/weekends.
+// Changelog v18.0: Planner uses unique full-date keys, respects remaining daily capacity, and no longer treats every future day as an 8h slot.
+// Changelog v18.0: Today leave-at time is shown only while a time period is actively open.
+// Changelog v17.9: Fixed buffer calculation to use the true 8-hour daily target and prevent today's buffer from being double-counted.
+// Changelog v17.8: Buttons now use blue styling in the light theme and orange styling in the dark theme.
+/* ══ DEFAULT SETTINGS ══ */
+const DEFAULT_OFF_TARGET = 60;               // Office target (% of rota hours)
+const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full working day
 (function() {
     'use strict';
+    /* ═══════════════════════════════════════════════════════════════
+       LOCALSTORAGE KEYS
+    ═══════════════════════════════════════════════════════════════ */
+    const LS = {
+        THEME: 'ep-theme-override',
+        TODAY_BUF: 'ep-today-buffer',
+        PLANNER_OPEN: 'ep-planner-open',
+        OFF_TARGET: 'ep-office-target',
+        MANDATORY_BREAK: 'ep-mandatory-break',
+    };
 
-    const NAV_BUTTON_ID = 'ep-timesheet-nav';
-    const LEGACY_NAV_STYLE_ID = 'ep-legacy-nav-hide';
-    let boundScrollParent = null;
-    let rafId = 0;
+    const readNumericSetting = (key, fallback, min, max) => {
+        const raw = localStorage.getItem(key);
+        if (raw === null) return fallback;
+        const value = Number(raw);
+        if (!Number.isFinite(value)) return fallback;
+        return Math.max(min, Math.min(max, value));
+    };
 
+    let offTarget = readNumericSetting(
+        LS.OFF_TARGET,
+        DEFAULT_OFF_TARGET,
+        0,
+        100
+    );
+
+    let mandatoryBreakMinutes = readNumericSetting(
+        LS.MANDATORY_BREAK,
+        DEFAULT_MANDATORY_BREAK_MINUTES,
+        0,
+        480
+    );
+    /* ═══════════════════════════════════════════════════════════════
+       THEME
+    ═══════════════════════════════════════════════════════════════ */
+    const getPageBrightness = () => {
+        const candidates = [
+            document.body,
+            document.documentElement,
+            document.getElementById('mainTimesheetPanel'),
+            document.querySelector('.timesheet_container'),
+            document.querySelector('.main-content'),
+            document.querySelector('#content'),
+        ].filter(Boolean);
+        for (const el of candidates) {
+            const bg = getComputedStyle(el).backgroundColor;
+            const m = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+            if (!m) continue;
+            const [, r, g, b] = m.map(Number);
+            if (r === 0 && g === 0 && b === 0) continue;
+            return 0.299 * r + 0.587 * g + 0.114 * b;
+        }
+        return 255;
+    };
+    const buildTheme = () => {
+        const isDark = getPageBrightness() < 100;
+        return isDark ? {
+            isDark,
+            bg: '#181818',
+            surface: '#242424',
+            border: 'rgba(255,255,255,0.08)',
+            text: '#e8e8e8',
+            muted: '#888888',
+            faint: 'rgba(255,255,255,0.04)',
+            barTrack: 'rgba(255,255,255,0.07)',
+            chipBg: 'rgba(255,255,255,0.03)',
+            shadow: '0 4px 24px rgba(0,0,0,0.4)',
+            ringTrack: 'rgba(255,255,255,0.12)',
+        } : {
+            isDark,
+            bg: '#ffffff',
+            surface: '#f7f7f7',
+            border: 'rgba(0,0,0,0.08)',
+            text: '#111827',
+            muted: '#6b7280',
+            faint: 'rgba(0,0,0,0.03)',
+            barTrack: 'rgba(0,0,0,0.07)',
+            chipBg: 'rgba(0,0,0,0.03)',
+            shadow: '0 2px 12px rgba(0,0,0,0.10)',
+            ringTrack: 'rgba(0,0,0,0.12)',
+        };
+    };
+    let themeOverride = localStorage.getItem(LS.THEME) || null;
+    const getTheme = () => {
+        if (themeOverride === 'dark') return {
+            isDark: true,
+            bg: '#181818',
+            surface: '#242424',
+            border: 'rgba(255,255,255,0.08)',
+            text: '#e8e8e8',
+            muted: '#888888',
+            faint: 'rgba(255,255,255,0.04)',
+            barTrack: 'rgba(255,255,255,0.07)',
+            chipBg: 'rgba(255,255,255,0.03)',
+            shadow: '0 4px 24px rgba(0,0,0,0.4)',
+            ringTrack: 'rgba(255,255,255,0.12)'
+        };
+        if (themeOverride === 'light') return {
+            isDark: false,
+            bg: '#ffffff',
+            surface: '#f7f7f7',
+            border: 'rgba(0,0,0,0.08)',
+            text: '#111827',
+            muted: '#6b7280',
+            faint: 'rgba(0,0,0,0.03)',
+            barTrack: 'rgba(0,0,0,0.07)',
+            chipBg: 'rgba(0,0,0,0.03)',
+            shadow: '0 2px 12px rgba(0,0,0,0.10)',
+            ringTrack: 'rgba(0,0,0,0.12)'
+        };
+        return buildTheme();
+    };
+    /* ═══════════════════════════════════════════════════════════════
+       UTILITIES
+    ═══════════════════════════════════════════════════════════════ */
+    const timeToMinutes = t => {
+        if (!t) return 0;
+        const [h, m] = t.split(':').map(Number);
+        return h * 60 + (m || 0);
+    };
+    const STANDARD_DAY_MINUTES = 480;
+    const HALF_DAY_MINUTES = STANDARD_DAY_MINUTES / 2;
+    const round1 = value => Math.round((value + Number.EPSILON) * 10) / 10;
+    const fmtHours = hours => {
+        const rounded = round1(hours);
+        return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+    };
+    const fmt = mins => {
+        const rounded = Math.round(mins || 0);
+        const sign = rounded < 0 ? '-' : '';
+        const abs = Math.abs(rounded);
+        const h = Math.floor(abs / 60);
+        const m = abs % 60;
+        return m === 0 ? `${sign}${h}h` : `${sign}${h}h ${String(m).padStart(2, '0')}m`;
+    };
+    const fmtDaysAndTime = mins => {
+        const total = Math.max(0, Math.round(mins || 0));
+        if (total === 0) {
+            return '';
+        }
+        const wholeDays = Math.floor(total / STANDARD_DAY_MINUTES);
+        const remainder = total % STANDARD_DAY_MINUTES;
+        const hours = Math.floor(remainder / 60);
+        const minutes = remainder % 60;
+        const parts = [];
+        if (wholeDays > 0) {
+            parts.push(`${wholeDays}d`);
+        }
+        if (hours > 0) {
+            parts.push(`${hours}h`);
+        }
+        if (minutes > 0) {
+            parts.push(`${minutes}m`);
+        }
+        return parts.join(' ');
+    };
+    const parseTime = value => {
+        const m = (value || '').match(/([+-]?)(\d+):(\d{2})/);
+        if (!m) return 0;
+        const mins = parseInt(m[2], 10) * 60 + parseInt(m[3], 10);
+        return m[1] === '-' ? -mins : mins;
+    };
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    const formatClock = date => date.toLocaleTimeString('en-GB', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+    });
+    /* ═══════════════════════════════════════════════════════════════
+       SCROLL HELPERS
+    ═══════════════════════════════════════════════════════════════ */
     const getScrollParent = el => {
-        let parent = el?.parentElement || null;
-        while (parent) {
-            const style = getComputedStyle(parent);
-            if (/(auto|scroll)/.test(`${style.overflow}${style.overflowY}`)) {
-                return parent;
+        let p = el.parentElement;
+        while (p) {
+            const {
+                overflow,
+                overflowY
+            } = getComputedStyle(p);
+            if (/(auto|scroll)/.test(overflow + overflowY)) {
+                return p;
             }
-            parent = parent.parentElement;
+            p = p.parentElement;
         }
         return window;
     };
+    const jumpToToday = () => {
+        const c = document.querySelector('.today_chip');
+        if (c) {
+            const d = c.closest('.tt_day_container');
+            if (d) {
+                const sp = getScrollParent(d);
+                const offset = 80;
+                if (sp === window) {
+                    const y = d.getBoundingClientRect().top + window.scrollY - offset;
+                    window.scrollTo({
+                        top: y,
+                        behavior: 'smooth'
+                    });
+                } else {
+                    const y = d.getBoundingClientRect().top - sp.getBoundingClientRect().top + sp.scrollTop - offset;
+                    sp.scrollTo({
+                        top: y,
+                        behavior: 'smooth'
+                    });
+                }
+            }
+        }
+    };
+    const jumpToAnalyzer = () => {
+        const el = document.getElementById('ep13');
+        if (!el) return;
+        const sp = getScrollParent(el);
+        const offset = 75;
+        if (sp === window) {
+            const left = window.scrollX;
+            const top = el.getBoundingClientRect().top + window.scrollY - offset;
+            window.scrollTo({
+                top,
+                left,
+                behavior: 'smooth'
+            });
+        } else {
+            const left = sp.scrollLeft;
+            const top = el.getBoundingClientRect().top - sp.getBoundingClientRect().top + sp.scrollTop - offset;
+            sp.scrollTo({
+                top,
+                left,
+                behavior: 'smooth'
+            });
+        }
+    };
+    /* ═══════════════════════════════════════════════════════════════
+       PERIOD / DAY HELPERS
+    ═══════════════════════════════════════════════════════════════ */
+    const getDayLabel = dayEl => dayEl.querySelector('.timesheet_day_text')?.innerText?.trim() || '';
+    const getDayTotalMinutes = dayEl => timeToMinutes(dayEl.querySelector('.duration_hours')?.innerText?.trim() || '');
+    const getPeriodTimeValues = periodEl => {
+        const inputs = periodEl.querySelectorAll('input[type="time"]');
+        let start = inputs[0]?.value || '';
+        let end = inputs[1]?.value || '';
+        if (!start) {
+            const lbl = periodEl.querySelector('label.hiddenLabel')?.innerText || '';
+            const m = lbl.match(/(\d{1,2}:\d{2})\s+to(?:\s+(\d{1,2}:\d{2}))?/i);
+            if (m) {
+                start = m[1] || '';
+                end = m[2] || '';
+            }
+        }
+        return {
+            start,
+            end
+        };
+    };
+    const isOpenPeriod = periodEl => {
+        const {
+            start,
+            end
+        } = getPeriodTimeValues(periodEl);
+        return !!start && !end;
+    };
+    const getPeriodMinutes = (periodEl, allowOpen = false) => {
+        const {
+            start,
+            end
+        } = getPeriodTimeValues(periodEl);
+        if (!start) return 0;
+        let effectiveEnd = end;
+        if (!effectiveEnd) {
+            if (!allowOpen) return 0;
+            const n = new Date();
+            effectiveEnd = `${String(n.getHours()).padStart(2, '0')}:` + `${String(n.getMinutes()).padStart(2, '0')}`;
+        }
+        const d = timeToMinutes(effectiveEnd) - timeToMinutes(start);
+        return d > 0 ? d : 0;
+    };
+    const getAbsenceInfo = dayEl => {
+        const text = dayEl.querySelector('.absence_detail_text')?.innerText?.trim() || '';
+        const halfMatch = text.match(/:\s*(AM|PM)\s*$/i);
+        const halfDayPart = halfMatch ? halfMatch[1].toUpperCase() : null;
+        const isHalfDay = !!halfDayPart;
+        const isHoliday = /holiday/i.test(text);
+        const isFullAbsence = !!text && !isHalfDay;
+        return {
+            text,
+            isHalfDay,
+            halfDayPart,
+            isHoliday,
+            isFullAbsence
+        };
+    };
+    const getDayName = dayEl => (getDayLabel(dayEl).split(/\s+/)[0] || '').replace(/[^A-Za-z]/g, '');
+    const isWeekendDay = dayEl => {
+        const name = getDayName(dayEl);
+        return name === 'Saturday' || name === 'Sunday';
+    };
+    const getDayWorkTargetMinutes = dayEl => {
+        if (isWeekendDay(dayEl)) return 0;
+        const absence = getAbsenceInfo(dayEl);
+        if (absence.isHalfDay) {
+            return HALF_DAY_MINUTES;
+        }
+        if (absence.isFullAbsence || absence.isHoliday) {
+            return 0;
+        }
+        return STANDARD_DAY_MINUTES;
+    };
+    const parseDayDate = label => {
+        const m = (label || '').match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/);
+        if (!m) return null;
+        const day = Number(m[1]);
+        const month = Number(m[2]);
+        const year = Number(m[3]);
+        const date = new Date(year, month - 1, day);
+        if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+            return null;
+        }
+        return date;
+    };
+    const getDateKey = (date, fallback) => {
+        if (!date) return fallback;
+        return (`${date.getFullYear()}-` + `${String(date.getMonth() + 1).padStart(2, '0')}-` + `${String(date.getDate()).padStart(2, '0')}`);
+    };
+    const getLocalDayStamp = date => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+    const getLiveDayMinutes = dayEl => {
+        const saved = getDayTotalMinutes(dayEl);
+        if (!dayEl.querySelector('.today_chip')) {
+            return saved;
+        }
+        let live = 0;
+        dayEl.querySelectorAll('.tt_period_container').forEach(p => {
+            live += getPeriodMinutes(p, true);
+        });
+        return Math.max(saved, live);
+    };
+    const getObservedBreakMinutes = dayEl => {
+        const periods = [...dayEl.querySelectorAll('.tt_period_container')].map(p => {
+            const {
+                start,
+                end
+            } = getPeriodTimeValues(p);
+            if (!start) {
+                return null;
+            }
+            return {
+                start: timeToMinutes(start),
+                end: end ? timeToMinutes(end) : null
+            };
+        }).filter(Boolean).sort((a, b) => a.start - b.start);
+        let breakMinutes = 0;
+        for (let i = 1; i < periods.length; i++) {
+            const previous = periods[i - 1];
+            const current = periods[i];
+            if (previous.end === null) {
+                continue;
+            }
+            breakMinutes += Math.max(0, current.start - previous.end);
+        }
+        return breakMinutes;
+    };
+    const getRequiredMandatoryBreakMinutes = dayEl => {
+        const target = getDayWorkTargetMinutes(dayEl);
+        return target >= STANDARD_DAY_MINUTES ? mandatoryBreakMinutes : 0;
+    };
+
+    const getMissingMandatoryBreakMinutes = dayEl => {
+        const requiredBreak = getRequiredMandatoryBreakMinutes(dayEl);
+        const observedBreak = getObservedBreakMinutes(dayEl);
+        return Math.max(0, requiredBreak - observedBreak);
+    };
+    /* ═══════════════════════════════════════════════════════════════
+       ICONS
+    ═══════════════════════════════════════════════════════════════ */
+    const ICONS = {
+        office: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 21h18v-2H3v2zm0-4h18v-2H3v2zm0-4h18v-2H3v2zm0-4h18V7H3v2zm0-6v2h18V3H3z"/></svg>`,
+        laptop: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 18c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z"/></svg>`,
+        flight: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>`,
+        block: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-4H7l5-8v4h4l-5 8z"/></svg>`,
+        timer: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M15 1H9v2h6V1zm-4 13h2V8h-2v6zm8.03-6.61l1.42-1.42c-.43-.51-.9-.99-1.41-1.41l-1.42 1.42C16.07 4.74 14.12 4 12 4c-4.97 0-9 4.03-9 9s4.02 9 9 9 9-4.03 9-9c0-2.12-.74-4.07-1.97-5.61zM12 20c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg>`,
+        trending_up: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 6l2.29 2.29-4.88 4.88-4-4L2 16.59 3.41 18l6-6 4 4 6.3-6.29L22 12V6z"/></svg>`,
+        trending_down: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 18l2.29-2.29-4.88-4.88-4 4L2 7.41 3.41 6l6 6 4-4 6.3 6.29L22 12v6z"/></svg>`,
+        trending_flat: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M22 12l-4-4v3H3v2h15v3z"/></svg>`,
+        check: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>`,
+        warning: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>`,
+        calendar: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17 12h-5v5h5v-5zM16 1v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-1V1h-2zm3 18H5V8h14v11z"/></svg>`,
+        today: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-1V1h-2zm0 16H5V8h14v11zM7 10h5v5H7z"/></svg>`,
+        flag: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>`,
+        savings: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.5 2C6.81 2 3 5.81 3 10.5S6.81 19 11.5 19h.5v3c4.86-2.34 8-7 8-11.5C20 5.81 16.19 2 11.5 2zm1 14.5h-2v-2h2v2zm0-4h-2c0-3.25 3-3 3-5 0-1.1-.9-2-2-2s-2 .9-2 2h-2c0-2.21 1.79-4 4-4s4 1.79 4 4c0 2.5-3 2.75-3 5z"/></svg>`,
+        sun: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.79 1.42-1.41zM4 10.5H1v2h3v-2zm9-9.95h-2V3.5h2V.55zm7.45 3.91l-1.41-1.41-1.79 1.79 1.41 1.41 1.79-1.79zm-3.21 13.7l1.79 1.8 1.41-1.41-1.8-1.79-1.4 1.4zM20 10.5v2h3v-2h-3zm-8-5c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm-1 16.95h2V19.5h-2v2.95zm-7.45-3.91l1.41 1.41 1.79-1.8-1.41-1.41-1.79 1.8z"/></svg>`,
+        moon: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1z"/></svg>`,
+        arrow_down: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 12l-1.41-1.41L13 16.17V4h-2v12.17l-5.58-5.59L4 12l8 8 8-8z"/></svg>`,
+        arrow_up: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z"/></svg>`,
+        chevron_down: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>`,
+        chevron_up: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6 1.41 1.41z"/></svg>`,
+        settings: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.43 12.98c.04-.32.07-.65.07-.98s-.03-.66-.08-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.37-.31-.6-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98L14.5 2.42A.488.488 0 0 0 14 2h-4c-.25 0-.46.18-.49.42L9.13 5.07c-.61.25-1.17.59-1.69.98l-2.49-1a.49.49 0 0 0-.6.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.05.32-.08.66-.08.98s.03.66.08.98l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46c.12.22.37.31.6.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.58 1.69-.98l2.49 1c.23.08.48 0 .6-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.11-1.65zM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5z"/></svg>`,
+    };
+    const icon = (name, size = 14, color = '#fff') => `<span style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;color:${color};flex-shrink:0;">${ICONS[name] || ''}</span>`;
+    const iconBadge = (name, bg, size = 28) => `<span style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;background:${bg};border-radius:7px;flex-shrink:0;color:#fff;">${ICONS[name] || ''}</span>`;
+    /* ═══════════════════════════════════════════════════════════════
+       OFFICE TARGET COLOR / RING
+    ═══════════════════════════════════════════════════════════════ */
+    const getOffColor = p => p >= 100 ? '#22c55e' : p >= 85 ? '#84cc16' : p >= 65 ? '#eab308' : p >= 45 ? '#f97316' : '#ef4444';
+    const ring = ({
+        r = 54,
+        pct,
+        color,
+        sw = 6,
+        trackColor
+    }) => {
+        const circ = 2 * Math.PI * r;
+        const dash = clamp(pct, 0, 100) / 100 * circ;
+        const cx = r + sw + 1;
+        const sz = cx * 2;
+        return `
+            <svg
+                viewBox="0 0 ${sz} ${sz}"
+                style="transform:rotate(-90deg);"
+            >
+                <circle
+                    cx="${cx}"
+                    cy="${cx}"
+                    r="${r}"
+                    fill="none"
+                    stroke="${trackColor}"
+                    stroke-width="${sw}"
+                />
+                <circle
+                    cx="${cx}"
+                    cy="${cx}"
+                    r="${r}"
+                    fill="none"
+                    stroke="${color}"
+                    stroke-width="${sw}"
+                    stroke-dasharray="${dash.toFixed(2)} ${circ.toFixed(2)}"
+                    stroke-linecap="round"
+                />
+            </svg>
+        `;
+    };
+    /* ═══════════════════════════════════════════════════════════════
+       DATA GATHERING
+    ═══════════════════════════════════════════════════════════════ */
+    const getSummaryData = () => {
+        const d = {
+            recorded: 0,
+            rota: 0,
+            absences: 0,
+            holidays: 0,
+            difference: 0
+        };
+        document.querySelectorAll('.desktop_summary .summary_block').forEach(block => {
+            const spans = block.querySelectorAll('span');
+            if (spans.length < 2) return;
+            const mins = parseTime(spans[0].innerText.trim());
+            const lbl = spans[1].innerText.trim();
+            if (lbl.includes('Time recorded')) {
+                d.recorded = mins;
+            }
+            if (lbl.includes('Rota')) {
+                d.rota = Math.abs(mins);
+            }
+            if (lbl.includes('Absences')) {
+                d.absences = Math.abs(mins);
+            }
+            if (lbl.includes('Public holidays')) {
+                d.holidays = Math.abs(mins);
+            }
+            if (lbl.includes('Difference')) {
+                d.difference = mins;
+            }
+        });
+        return d;
+    };
+    const isSummaryReady = () => {
+        const blocks = document.querySelectorAll('.desktop_summary .summary_block');
+        return blocks.length > 0;
+    };
+    const getActivityData = () => {
+        const actMap = {
+            'Office': 0,
+            'Mobile Working': 0,
+            'Business Travel': 0,
+            'No Activity': 0
+        };
+        let rawTotal = 0;
+        let workedDays = 0;
+        document.querySelectorAll('.tt_day_container').forEach(day => {
+            let worked = false;
+            const allowOpen = !!day.querySelector('.today_chip');
+            day.querySelectorAll('.tt_period_container').forEach(p => {
+                const dur = getPeriodMinutes(p, allowOpen);
+                if (dur <= 0) return;
+                worked = true;
+                const act = p.querySelector('.chosen-single span')?.innerText.trim() || 'No Activity';
+                if (!(act in actMap)) {
+                    actMap[act] = 0;
+                }
+                actMap[act] += dur;
+                rawTotal += dur;
+            });
+            if (worked) {
+                workedDays++;
+            }
+        });
+        return {
+            actMap,
+            rawTotal,
+            workedDays
+        };
+    };
+    const getDetailedDayData = () => {
+        const allDayEls = [...document.querySelectorAll('.tt_day_container')];
+        const markerTodayIdx = allDayEls.findIndex(d => d.querySelector('.today_chip'));
+        const nowStamp = getLocalDayStamp(new Date());
+        const days = allDayEls.map((day, idx) => {
+            const label = getDayLabel(day);
+            const parts = label.split(/\s+/);
+            const dayName = (parts[0] || '').replace(/[^A-Za-z]/g, '');
+            const parsedDate = parseDayDate(label);
+            let dateNum = parsedDate?.getDate() || 0;
+            if (!dateNum) {
+                for (let i = 1; i < parts.length; i++) {
+                    const n = parseInt(parts[i], 10);
+                    if (!isNaN(n) && n >= 1 && n <= 31) {
+                        dateNum = n;
+                        break;
+                    }
+                }
+            }
+            if (!dateNum) {
+                const txt = day.querySelector('[class*="date"]')?.innerText || '';
+                const m = txt.match(/\d+/);
+                if (m) {
+                    dateNum = parseInt(m[0], 10);
+                }
+            }
+            const DOW_MAP = {
+                Sunday: 0,
+                Monday: 1,
+                Tuesday: 2,
+                Wednesday: 3,
+                Thursday: 4,
+                Friday: 5,
+                Saturday: 6
+            };
+            const dayOfWeek = parsedDate ? parsedDate.getDay() : (DOW_MAP[dayName] ?? -1);
+            const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+            const absence = getAbsenceInfo(day);
+            const workTargetMins = getDayWorkTargetMinutes(day);
+            let isToday = !!day.querySelector('.today_chip');
+            let isPast = false;
+            let isFuture = false;
+            if (parsedDate) {
+                const stamp = getLocalDayStamp(parsedDate);
+                isToday = isToday || stamp === nowStamp;
+                isPast = stamp < nowStamp;
+                isFuture = stamp > nowStamp;
+            } else if (markerTodayIdx !== -1) {
+                isToday = idx === markerTodayIdx;
+                isPast = idx < markerTodayIdx;
+                isFuture = idx > markerTodayIdx;
+            }
+            const totalMins = getLiveDayMinutes(day);
+            let officeMins = 0;
+            let wfhMins = 0;
+            let hasOffice = false;
+            let hasWFH = false;
+            day.querySelectorAll('.tt_period_container').forEach(p => {
+                const dur = getPeriodMinutes(p, isToday);
+                if (dur <= 0) return;
+                const act = p.querySelector('.chosen-single span')?.innerText.trim() || '';
+                if (act === 'Office') {
+                    officeMins += dur;
+                    hasOffice = true;
+                }
+                if (act === 'Mobile Working') {
+                    wfhMins += dur;
+                    hasWFH = true;
+                }
+            });
+            return {
+                key: getDateKey(parsedDate, `idx-${idx}`),
+                label,
+                date: parsedDate,
+                dayName,
+                dateNum,
+                dayOfWeek,
+                isWeekend,
+                absenceText: absence.text,
+                isAbsent: absence.isFullAbsence && !absence.isHoliday,
+                isHoliday: absence.isHoliday,
+                isHalfDay: absence.isHalfDay,
+                halfDayPart: absence.halfDayPart,
+                isToday,
+                isPast,
+                isFuture,
+                totalMins,
+                officeMins,
+                wfhMins,
+                hasOffice,
+                hasWFH,
+                workTargetMins,
+                remainingWorkMins: Math.max(0, workTargetMins - totalMins),
+                isWorkable: workTargetMins > 0,
+                weekIndex: 0,
+                el: day
+            };
+        });
+        let weekIdx = 0;
+        days.forEach((d, i) => {
+            if (i > 0 && d.dayOfWeek === 1 && days[i - 1].dayOfWeek !== 1) {
+                weekIdx++;
+            }
+            d.weekIndex = weekIdx;
+        });
+        return days;
+    };
+    const getDayStats = summary => {
+        const realRota = Math.max(0, summary.rota - summary.absences - summary.holidays);
+        const days = getDetailedDayData();
+        const workableDays = days.filter(d => d.isWorkable).length;
+        const workableMinutes = days.reduce(
+            (sum, d) => sum + d.workTargetMins, 0);
+        const workedDays = days.filter(d => !d.isWeekend && d.totalMins > 0).length;
+        const progressPct = realRota > 0 ? (summary.recorded / realRota) * 100 : 0;
+        const remainingMinutes = Math.max(0, realRota - summary.recorded);
+        const daysLeft = remainingMinutes > 0 ? round1(Math.ceil(remainingMinutes / HALF_DAY_MINUTES) / 2) : 0;
+        const hasToday = days.some(d => d.isToday);
+        let bufferMinutes;
+        let priorBufferMinutes;
+        if (!hasToday) {
+            bufferMinutes = summary.difference;
+            priorBufferMinutes = summary.difference;
+        } else {
+            bufferMinutes = 0;
+            priorBufferMinutes = 0;
+            days.forEach(d => {
+                if (d.isFuture) return;
+                if (d.isAbsent || d.isHoliday) {
+                    return;
+                }
+                const target = d.workTargetMins;
+                const worked = d.totalMins;
+                /*
+                 * Buffer is a variance bank, not a countdown.
+                 * A workable day with no recorded time is assumed
+                 * to have met its target, so only real deviations
+                 * from the target affect the balance.
+                 */
+                if (d.isPast) {
+                    const effectiveWorked = worked > 0 ? worked : target;
+                    const diff = effectiveWorked - target;
+                    bufferMinutes += diff;
+                    priorBufferMinutes += diff;
+                } else if (d.isToday) {
+                    if (worked <= 0) return;
+                    const isRunning = [...d.el.querySelectorAll('.tt_period_container')].some(isOpenPeriod);
+                    const missingBreakMinutes = getMissingMandatoryBreakMinutes(d.el);
+                    const effectiveWorked = Math.max(0, worked - missingBreakMinutes);
+                    /*
+                     * Keep the buffer neutral while today's normal target has not
+                     * yet been reached. Once it is reached, predict the balance
+                     * eDays will show after applying any still-missing mandatory break.
+                     *
+                     * Example with an 8h target and 30m mandatory break:
+                     * 8h00 worked, no break -> -30m
+                     * 8h15 worked, no break -> -15m
+                     * 8h30 worked, no break -> 0m
+                     */
+                    const todayDiff = isRunning && worked < target ? 0 : effectiveWorked - target;
+                    bufferMinutes += todayDiff;
+                }
+            });
+            bufferMinutes = Math.round(bufferMinutes);
+            priorBufferMinutes = Math.round(priorBufferMinutes);
+        }
+        return {
+            workableDays,
+            workableMinutes,
+            workableHours: round1(workableMinutes / 60),
+            daysLeft,
+            remainingMinutes,
+            workedDays,
+            progressPct,
+            bufferMinutes,
+            priorBufferMinutes,
+            realRota
+        };
+    };
+    const getTodayInfo = () => {
+        const el = [...document.querySelectorAll('.tt_day_container')].find(d => d.querySelector('.today_chip'));
+        if (!el) return null;
+        let workedMinutes = 0;
+        let isRunning = false;
+        el.querySelectorAll('.tt_period_container').forEach(p => {
+            workedMinutes += getPeriodMinutes(p, true);
+            if (isOpenPeriod(p)) {
+                isRunning = true;
+            }
+        });
+        workedMinutes = Math.max(workedMinutes, getDayTotalMinutes(el));
+        const absence = getAbsenceInfo(el);
+        return {
+            el,
+            workedMinutes,
+            targetMinutes: getDayWorkTargetMinutes(el),
+            absenceText: absence.text,
+            isHalfDay: absence.isHalfDay,
+            halfDayPart: absence.halfDayPart,
+            isHoliday: absence.isHoliday,
+            isFullAbsence: absence.isFullAbsence,
+            isRunning
+        };
+    };
+    const getTodayMinutes = () => getTodayInfo()?.workedMinutes || 0;
+    const hasTodayOnPage = () => !!document.querySelector('.today_chip');
+    /* ═══════════════════════════════════════════════════════════════
+       HOURS-BASED SCHEDULE PLANNER
+    ═══════════════════════════════════════════════════════════════ */
+    const buildHoursSchedulePlan = ({
+        days,
+        officeHoursStillNeeded
+    }) => {
+        if (officeHoursStillNeeded <= 0) {
+            return new Map();
+        }
+        const future = days.filter(d => (d.isFuture || d.isToday) && d.isWorkable && d.remainingWorkMins > 0);
+        if (!future.length) {
+            return new Map();
+        }
+        let remaining = round1(officeHoursStillNeeded);
+        const weekMap = new Map();
+        future.forEach(d => {
+            const wk = d.weekIndex;
+            if (!weekMap.has(wk)) {
+                weekMap.set(wk, []);
+            }
+            weekMap.get(wk).push(d);
+        });
+        const DOW_PREF = {
+            3: 0,
+            2: 1,
+            4: 2,
+            1: 3,
+            5: 4
+        };
+        weekMap.forEach(w => w.sort(
+            (a, b) => (DOW_PREF[a.dayOfWeek] ?? 9) - (DOW_PREF[b.dayOfWeek] ?? 9)));
+        const weeks = [...weekMap.entries()].sort(
+            (a, b) => a[0] - b[0]);
+        const planned = new Map();
+        weeks.forEach(
+            ([, wdays], wi) => {
+                if (remaining <= 0) {
+                    return;
+                }
+                const weeksLeft = weeks.length - wi;
+                const quota = round1(Math.ceil(
+                    (remaining / weeksLeft) * 10) / 10);
+                let assigned = 0;
+                for (const d of wdays) {
+                    if (remaining <= 0 || assigned >= quota) {
+                        break;
+                    }
+                    const capacityH = round1(d.remainingWorkMins / 60);
+                    if (capacityH <= 0) {
+                        continue;
+                    }
+                    const h = round1(Math.min(capacityH, remaining, quota - assigned));
+                    if (h <= 0) {
+                        continue;
+                    }
+                    planned.set(d.key, h);
+                    assigned = round1(assigned + h);
+                    remaining = round1(Math.max(0, remaining - h));
+                }
+            });
+        return planned;
+    };
+    /* ═══════════════════════════════════════════════════════════════
+       STYLES
+    ═══════════════════════════════════════════════════════════════ */
+    const STYLE_ID = 'edays-pro-v18-styles';
+    const injectStyles = T => {
+        let s = document.getElementById(STYLE_ID);
+        if (!s) {
+            s = document.createElement('style');
+            s.id = STYLE_ID;
+            document.head.appendChild(s);
+        }
+        s.textContent = `
+        #ep13{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:${T.bg};border-radius:14px;padding:14px 16px 12px;margin:0 0 16px;color:${T.text};}
+        #ep13 .ep-hdr{display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid ${T.border};}
+        #ep13 .ep-hdr-logo{width:30px;height:30px;background:linear-gradient(135deg,#3b82f6,#a855f7);border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+        #ep13 .ep-hdr-title{font-size:17px;font-weight:700;letter-spacing:-0.3px;color:${T.text};}
+        #ep13 .ep-hdr-right{margin-left:auto;display:flex;align-items:center;gap:8px;}
+        #ep13 .ep-hdr-date{font-size:13px;color:${T.muted};letter-spacing:0.5px;display:flex;align-items:center;gap:5px;}
+        #ep13 .ep-pulse{width:6px;height:6px;border-radius:50%;background:#22c55e;animation:ep-pulse 3.5s ease-in-out infinite;}
+        @keyframes ep-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.65)}}
+        #ep13 .ep-btn{display:inline-flex;align-items:center;gap:5px;margin-left:8px;height:20px;margin-top:4px;cursor:pointer;text-align:left;border:1px solid #bcc1c2;box-shadow:0 2px 3px rgba(0,0,0,.1);border-radius:5px;padding:3px 4px;font-size:12px;font-weight:500;background:transparent;color:inherit;transition:background .15s,color .15s,border-color .15s;user-select:none;white-space:nowrap;}
+        #ep13 .ep-btn > span{color:#inherit!important;}
+        #ep13 .ep-btn-icon{width:26px;height:26px;padding:0;justify-content:center;}
+        #ep13 .ep-btn-label{padding:3px 4px;}
+        #ep13 .ep-btn-pill{padding:3px 6px;gap:6px;}
+        #ep13 .ep-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
+        #ep13 .ep-card{background:${T.surface};border:1px solid ${T.border};border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px;min-width:0;}
+        #ep13 .ep-card-title{font-size:11px;font-weight:700;letter-spacing:1.1px;text-transform:uppercase;color:${T.muted};}
+        #ep13 .ep-act-row{display:flex;align-items:center;gap:8px;}
+        #ep13 .ep-act-info{flex:1;min-width:0;}
+        #ep13 .ep-act-name{font-size:13px;font-weight:600;color:${T.text};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3;}
+        #ep13 .ep-act-meta{font-size:12px;color:${T.muted};line-height:1.3;}
+        #ep13 .ep-bar{height:3px;background:${T.barTrack};border-radius:3px;margin-top:3px;overflow:hidden;}
+        #ep13 .ep-bar-fill{height:100%;border-radius:3px;}
+        #ep13 .ep-divider{height:1px;background:${T.border};margin:2px 0;}
+        #ep13 .ep-total-row{display:flex;justify-content:space-between;align-items:center;}
+        #ep13 .ep-total-label{font-size:12px;color:${T.muted};}
+        #ep13 .ep-total-val{font-size:13px;font-weight:600;color:${T.text};}
+        #ep13 .ep-ring-card{align-items:center;text-align:center;}
+        #ep13 .ep-ring-wrap{position:relative;display:flex;align-items:center;justify-content:center;width:122px;height:122px;flex-shrink:0;}
+        #ep13 .ep-ring-wrap svg{position:absolute;top:0;left:0;width:122px;height:122px;}
+        #ep13 .ep-ring-center{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;}
+        #ep13 .ep-ring-pct{font-size:26px;font-weight:700;letter-spacing:-0.5px;line-height:1;}
+        #ep13 .ep-ring-lbl{font-size:10px;color:${T.muted};letter-spacing:0.8px;text-transform:uppercase;margin-top:1px;}
+        #ep13 .ep-stat-row{display:flex;justify-content:space-between;width:100%;}
+        #ep13 .ep-stat-k{font-size:12px;color:${T.muted};}
+        #ep13 .ep-stat-v{font-size:12px;font-weight:600;color:${T.text};}
+        #ep13 .ep-hint{font-size:12px;color:${T.muted};display:flex;align-items:center;gap:4px;margin-top:2px;}
+        #ep13 .ep-buf-top{display:flex;align-items:center;gap:8px;}
+        #ep13 .ep-buf-val{font-size:26px;font-weight:800;letter-spacing:-1px;line-height:1;}
+        #ep13 .ep-buf-val.pos{color:#22c55e;}
+        #ep13 .ep-buf-val.neg{color:#ef4444;}
+        #ep13 .ep-buf-val.zer{color:${T.muted};}
+        #ep13 .ep-buf-sub{font-size:12px;color:${T.muted};line-height:1.4;}
+        #ep13 .ep-chip-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+        #ep13 .ep-chip{background:${T.chipBg};border:1px solid ${T.border};border-radius:7px;padding:7px 8px;text-align:center;}
+        #ep13 .ep-chip-val{font-size:20px;font-weight:700;line-height:1;color:${T.text};}
+        #ep13 .ep-chip-lbl{font-size:10px;color:${T.muted};text-transform:uppercase;letter-spacing:0.8px;margin-top:2px;}
+        #ep13 .ep-prog-wrap{width:100%;}
+        #ep13 .ep-prog-hdr{display:flex;justify-content:space-between;font-size:11px;color:${T.muted};margin-bottom:4px;}
+        #ep13 .ep-prog-track{height:5px;background:${T.barTrack};border-radius:5px;overflow:hidden;}
+        #ep13 .ep-prog-fill{height:100%;border-radius:5px;background:linear-gradient(90deg,#3b82f6,#a855f7);}
+        #ep13 .ep-notice{display:flex;align-items:center;gap:5px;font-size:12px;color:${T.muted};}
+        #ep13 .ep-notice.warn{color:#ef4444;}
+        #ep13 .ep-notice.good{color:#22c55e;}
+        #ep13 .ep-notices{display:flex;flex-direction:column;gap:4px;}
+        #ep13 .ep-today-strip{margin-top:10px;background:${T.surface};border:1px solid ${T.border};border-radius:10px;padding:10px 14px;display:flex;align-items:center;gap:16px;}
+        #ep13 .ep-today-label{display:flex;align-items:center;gap:8px;flex-shrink:0;}
+        #ep13 .ep-today-label-text{font-size:11px;font-weight:700;letter-spacing:1.1px;text-transform:uppercase;color:${T.muted};white-space:nowrap;}
+        #ep13 .ep-today-centre{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;}
+        #ep13 .ep-today-nums-row{display:flex;align-items:baseline;gap:6px;}
+        #ep13 .ep-today-done{font-size:20px;font-weight:800;letter-spacing:-0.5px;line-height:1;color:${T.text};}
+        #ep13 .ep-today-sep{font-size:13px;color:${T.muted};}
+        #ep13 .ep-today-total{font-size:13px;color:${T.muted};}
+        #ep13 .ep-today-rem{font-size:12px;color:${T.muted};margin-left:6px;display:flex;align-items:center;gap:4px;}
+        #ep13 .ep-today-rem.done{color:#22c55e;}
+        #ep13 .ep-today-track{height:5px;background:${T.barTrack};border-radius:5px;overflow:hidden;}
+        #ep13 .ep-today-fill{height:100%;border-radius:5px;transition:width .4s ease;}
+        #ep13 .ep-today-actions{display:flex;align-items:center;gap:6px;flex-shrink:0;}
+        #ep13 .ep-toggle-track{display:inline-block;width:28px;height:16px;border-radius:8px;position:relative;vertical-align:middle;flex-shrink:0;transition:background .2s;}
+        #ep13 .ep-toggle-thumb{position:absolute;width:12px;height:12px;background:#fff;border-radius:50%;top:2px;box-shadow:0 1px 2px rgba(0,0,0,0.25);transition:left .2s;}
+
+        /* TODAY HIGHLIGHT — native eDays row */
+        .tt_day_container:has(.today_chip){
+            position:relative;
+            z-index:2;
+            background:linear-gradient(100deg,#eef6ff 0%,#f3f2ff 55%,#f8fbff 100%)!important;
+            border-radius:7px!important;
+            outline:1px solid rgba(37,99,235,.52);
+            outline-offset:-1px;
+            box-shadow:
+                inset 4px 0 0 #2563eb,
+                0 5px 16px rgba(37,99,235,.12),
+                0 1px 3px rgba(15,23,42,.08)!important;
+            margin-bottom:12px!important;
+        }
+
+        /* Header gets a stronger tint so Today reads immediately when scanning the month. */
+        .timesheet_day_header.timesheet_today{
+            background:linear-gradient(90deg,#dbeafe 0%,#e8efff 58%,#f4f8ff 100%)!important;
+            border-color:rgba(37,99,235,.38)!important;
+            padding-left:10px!important;
+            box-sizing:border-box!important;
+            transition:background .18s ease,box-shadow .18s ease;
+        }
+        .timesheet_day_header.timesheet_today .timesheet_day_text{
+            font-weight:750!important;
+            color:#172554!important;
+        }
+
+        /* Carry the Today treatment through the complete editable area, not only the header. */
+        .timesheet_day_header.timesheet_today + .tt_day_inner_container{
+            background:linear-gradient(100deg,#eff6ff 0%,#f5f3ff 58%,#fafcff 100%)!important;
+            border-color:rgba(59,130,246,.26)!important;
+            padding-left:10px!important;
+            padding-right:5px!important;
+            box-sizing:border-box!important;
+        }
+
+        /* Keep native eDays working-period cards untouched.
+           Today differentiation is applied only to the surrounding day structure. */
+        .timesheet_day_header.timesheet_today + .tt_day_inner_container .tt_break_container,
+        .timesheet_day_header.timesheet_today + .tt_day_inner_container .tt_total_container{
+            background:rgba(255,255,255,.20)!important;
+        }
+
+        /* Compact Today pill: visible, but no longer taller than the header content. */
+        .timesheet_day_header.timesheet_today .today_chip{
+            display:inline-flex!important;
+            align-items:center!important;
+            justify-content:center!important;
+            gap:5px!important;
+            height:20px!important;
+            min-height:20px!important;
+            line-height:16px!important;
+            padding:1px 8px!important;
+            box-sizing:border-box!important;
+            border:1px solid rgba(37,99,235,.38)!important;
+            border-radius:999px!important;
+            background:linear-gradient(135deg,#3b82f6,#2563eb)!important;
+            color:#fff!important;
+            font-size:11px!important;
+            font-weight:700!important;
+            letter-spacing:.15px!important;
+            box-shadow:0 2px 6px rgba(37,99,235,.20)!important;
+        }
+        .timesheet_day_header.timesheet_today .today_chip::before{
+            content:'';
+            width:5px;
+            height:5px;
+            flex:0 0 5px;
+            border-radius:50%;
+            background:#fff;
+            box-shadow:0 0 0 2px rgba(255,255,255,.18);
+        }
+
+        /* Fallback for browsers without :has(): header + body still remain highlighted. */
+        @supports not selector(:has(*)){
+            .timesheet_day_header.timesheet_today{
+                box-shadow:inset 4px 0 0 #2563eb;
+            }
+            .timesheet_day_header.timesheet_today + .tt_day_inner_container{
+                box-shadow:inset 4px 0 0 #2563eb;
+            }
+        }
+
+        /* EMPTY STATE */
+        #ep13 .ep-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:28px 16px;text-align:center;}
+        #ep13 .ep-empty-icon{width:44px;height:44px;background:${T.surface};border:1px solid ${T.border};border-radius:12px;display:flex;align-items:center;justify-content:center;}
+        #ep13 .ep-empty-title{font-size:15px;font-weight:700;color:${T.text};}
+        #ep13 .ep-empty-sub{font-size:13px;color:${T.muted};line-height:1.5;max-width:340px;}
+
+        /* OFFICE PLANNER */
+        #ep13 .ep-planner-toggle{margin-top:8px;display:flex;align-items:center;gap:8px;padding:8px 14px;background:${T.surface};border:1px solid ${T.border};border-radius:10px;cursor:pointer;user-select:none;transition:background .15s;}
+        #ep13 .ep-planner-toggle:hover{background:${T.isDark?'rgba(255,255,255,0.06)':'rgba(0,0,0,0.04)'};}
+        #ep13 .ep-planner-toggle-label{flex:1;font-size:12px;font-weight:600;letter-spacing:0.8px;text-transform:uppercase;color:${T.muted};}
+        #ep13 .ep-planner-toggle-sub{font-size:11px;font-weight:400;color:${T.muted};opacity:.7;letter-spacing:0;text-transform:none;}
+        #ep13 .ep-planner-panel{overflow:hidden;max-height:0;opacity:0;transition:max-height .35s ease,opacity .25s ease,margin-top .25s ease;margin-top:0;}
+        #ep13 .ep-planner-panel.open{max-height:3000px;opacity:1;margin-top:8px;}
+        #ep13 .ep-planner-inner{background:${T.surface};border:1px solid ${T.border};border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:14px;}
+
+        /* SCHEDULE */
+        #ep13 .ep-sched-section{display:flex;flex-direction:column;gap:10px;}
+        #ep13 .ep-sched-hdr{display:flex;align-items:center;gap:6px;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:${T.muted};}
+        #ep13 .ep-sched-legend{display:flex;gap:12px;flex-wrap:wrap;}
+        #ep13 .ep-sched-leg-item{display:flex;align-items:center;gap:5px;font-size:11px;color:${T.muted};}
+        #ep13 .ep-sched-leg-dot{width:10px;height:10px;border-radius:3px;flex-shrink:0;}
+        #ep13 .ep-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;}
+        #ep13 .ep-cal-dow{font-size:9px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:${T.muted};text-align:center;padding:2px 0 4px;}
+        #ep13 .ep-cal-day{aspect-ratio:1;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;position:relative;transition:transform .1s;flex-direction:column;gap:1px;}
+        #ep13 .ep-cal-day.ep-cal-empty{background:transparent;}
+        #ep13 .ep-cal-day.ep-cal-weekend{background:${T.chipBg};color:${T.muted};opacity:.4;}
+        #ep13 .ep-cal-day.ep-cal-absent{background:${T.chipBg};color:${T.muted};opacity:.5;}
+        #ep13 .ep-cal-day.ep-cal-done-off{background:rgba(34,197,94,.18);color:#22c55e;border:1px solid rgba(34,197,94,.3);}
+        #ep13 .ep-cal-day.ep-cal-done-wfh{background:rgba(168,85,247,.15);color:#a855f7;border:1px solid rgba(168,85,247,.25);}
+        #ep13 .ep-cal-day.ep-cal-done-any{background:rgba(100,116,139,.15);color:${T.muted};}
+        #ep13 .ep-cal-day.ep-cal-plan-off{background:rgba(59,130,246,.18);color:#3b82f6;border:1px solid rgba(59,130,246,.35);}
+        #ep13 .ep-cal-day.ep-cal-plan-wfh{background:${T.chipBg};color:${T.muted};border:1px solid ${T.border};}
+        #ep13 .ep-cal-day.ep-cal-today{outline:2px solid #f59e0b;outline-offset:1px;}
+        #ep13 .ep-cal-day .ep-cal-hrs{font-size:8px;opacity:.75;line-height:1;}
+        #ep13 .ep-week-rows{display:flex;flex-direction:column;gap:5px;}
+        #ep13 .ep-week-row{display:flex;align-items:center;gap:6px;}
+        #ep13 .ep-week-label{font-size:10px;color:${T.muted};font-weight:600;min-width:30px;letter-spacing:.5px;}
+        #ep13 .ep-week-days{display:flex;gap:3px;flex:1;}
+        #ep13 .ep-week-day-pill{flex:1;padding:4px 2px;border-radius:5px;text-align:center;font-size:10px;font-weight:700;letter-spacing:.3px;display:flex;flex-direction:column;align-items:center;gap:1px;}
+        #ep13 .ep-week-day-pill .ep-pill-sub{font-size:8px;font-weight:400;opacity:.8;}
+        #ep13 .ep-week-day-pill.ep-wp-office{background:rgba(59,130,246,.2);color:#3b82f6;}
+        #ep13 .ep-week-day-pill.ep-wp-done{background:rgba(34,197,94,.18);color:#22c55e;}
+        #ep13 .ep-week-day-pill.ep-wp-wfh{background:${T.chipBg};color:${T.muted};}
+        #ep13 .ep-week-day-pill.ep-wp-off{background:transparent;color:${T.muted};opacity:.35;}
+        #ep13 .ep-week-day-pill.ep-wp-absent{background:${T.chipBg};color:${T.muted};opacity:.4;font-size:9px;}
+        #ep13 .ep-week-row-summary{font-size:11px;color:${T.muted};min-width:100px;text-align:right;}
+        #ep13 .ep-week-row-summary span{color:${T.text};font-weight:600;}
+        #ep13 .ep-hours-progress{display:flex;flex-direction:column;gap:4px;}
+        #ep13 .ep-hours-prog-hdr{display:flex;justify-content:space-between;font-size:11px;color:${T.muted};}
+        #ep13 .ep-hours-prog-track{height:6px;background:${T.barTrack};border-radius:6px;overflow:hidden;display:flex;}
+        #ep13 .ep-hours-prog-done{height:100%;background:linear-gradient(90deg,#22c55e,#84cc16);}
+        #ep13 .ep-hours-prog-plan{height:100%;background:linear-gradient(90deg,#3b82f6,#6366f1);}
+        #ep13 .ep-sched-stat{background:${T.chipBg};border:1px solid ${T.border};border-radius:8px;padding:9px 10px;text-align:center;}
+        #ep13 .ep-sched-stat-val{font-size:18px;font-weight:700;line-height:1;}
+        #ep13 .ep-sched-stat-lbl{font-size:10px;color:${T.muted};text-transform:uppercase;letter-spacing:.8px;margin-top:3px;}
+        #ep13 .ep-btn:hover{background:${T.isDark?'#fff':'#F0F0F0'}!important;color:${T.isDark?'#111':'inherit'}!important;border-color:${T.isDark?'#fff':'#bcc1c2'}!important;}
+        #ep-analyzer-float{position:fixed;left:0;right:auto;bottom:24px;width:46px;height:46px;display:flex;align-items:center;justify-content:center;padding:0;border:1px solid ${T.isDark?'rgba(255,255,255,.16)':'rgba(0,0,0,.08)'};border-radius:50%;background:${T.isDark?'#f59e0b':'#3b82f6'};color:#fff;box-shadow:0 8px 24px rgba(0,0,0,.24);cursor:pointer;z-index:999998;opacity:0;pointer-events:none;transform:translateY(12px) scale(.92);transition:opacity .2s ease,transform .2s ease,box-shadow .15s ease,filter .15s ease,left .12s ease;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;}
+        #ep-analyzer-float.visible{opacity:1;pointer-events:auto;transform:translateY(0) scale(1);}
+        #ep-analyzer-float:hover{filter:brightness(1.08);box-shadow:0 10px 28px rgba(0,0,0,.30);}
+        #ep-analyzer-float:active{transform:translateY(1px) scale(.97);}
+        #ep-analyzer-float:focus-visible{outline:3px solid ${T.isDark?'rgba(245,158,11,.35)':'rgba(59,130,246,.35)'};outline-offset:3px;}
+        #ep-analyzer-float svg{width:21px;height:21px;display:block;}
+        @media (max-width:640px){#ep-analyzer-float{bottom:16px;width:44px;height:44px;}}
+
+        /* SETTINGS MODAL */
+        .ep-settings-overlay{position:fixed;inset:0;z-index:999999;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.55);}
+        .ep-settings-modal{width:min(420px,calc(100vw - 32px));background:${T.bg};color:${T.text};border:1px solid ${T.border};border-radius:12px;box-shadow:${T.shadow};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;overflow:hidden;}
+        .ep-settings-hdr{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid ${T.border};}
+        .ep-settings-title{font-size:15px;font-weight:700;flex:1;}
+        .ep-settings-close{border:0;background:transparent;color:${T.muted};font-size:22px;line-height:1;cursor:pointer;padding:4px 6px;border-radius:6px;}
+        .ep-settings-close:hover{background:${T.faint};color:${T.text};}
+        .ep-settings-body{padding:16px;display:flex;flex-direction:column;gap:14px;}
+        .ep-settings-field{display:flex;flex-direction:column;gap:5px;}
+        .ep-settings-label{font-size:12px;font-weight:700;color:${T.text};}
+        .ep-settings-help{font-size:11px;color:${T.muted};line-height:1.4;}
+        .ep-settings-input-wrap{display:flex;align-items:center;gap:8px;}
+        .ep-settings-input{flex:1;min-width:0;background:${T.surface};color:${T.text};border:1px solid ${T.border};border-radius:7px;padding:8px 10px;font-size:14px;outline:none;}
+        .ep-settings-input:focus{border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.15);}
+        .ep-settings-unit{font-size:12px;color:${T.muted};min-width:54px;}
+        .ep-settings-error{display:none;font-size:12px;color:#ef4444;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:7px;padding:8px 10px;}
+        .ep-settings-actions{display:flex;justify-content:space-between;gap:8px;padding:12px 16px;border-top:1px solid ${T.border};}
+        .ep-settings-actions-right{display:flex;gap:8px;margin-left:auto;}
+        .ep-settings-btn{border:1px solid ${T.border};background:${T.surface};color:${T.text};border-radius:7px;padding:7px 10px;font-size:12px;font-weight:600;cursor:pointer;}
+        .ep-settings-btn:hover{background:${T.faint};}
+        .ep-settings-btn.primary{background:#3b82f6;border-color:#3b82f6;color:#fff;}
+        .ep-settings-btn.primary:hover{background:#2563eb;}
+        `;
+    };
+    /* ═══════════════════════════════════════════════════════════════
+       ACTIVITY CONFIG
+    ═══════════════════════════════════════════════════════════════ */
+    const ACT_CFG = {
+        'Office': {
+            icon: 'office',
+            grad: 'linear-gradient(135deg,#3b82f6,#06b6d4)',
+            bg: '#1776cf'
+        },
+        'Mobile Working': {
+            icon: 'laptop',
+            grad: 'linear-gradient(135deg,#ec4899,#f97316)',
+            bg: '#9d174d'
+        },
+        'Business Travel': {
+            icon: 'flight',
+            grad: 'linear-gradient(135deg,#a855f7,#7c3aed)',
+            bg: '#6b21a8'
+        },
+        'No Activity': {
+            icon: 'block',
+            grad: 'linear-gradient(135deg,#374151,#111827)',
+            bg: '#374151'
+        },
+    };
+    const FALLBACK_CFG = {
+        icon: 'timer',
+        grad: 'linear-gradient(135deg,#64748b,#334155)',
+        bg: '#475569'
+    };
+    /* ═══════════════════════════════════════════════════════════════
+       SCHEDULE SECTION HTML
+    ═══════════════════════════════════════════════════════════════ */
+    const buildScheduleSection = ({
+        T,
+        days,
+        officeHoursNeeded,
+        alreadyDoneOfficeHours
+    }) => {
+        const stillNeeded = round1(Math.max(0, officeHoursNeeded - alreadyDoneOfficeHours));
+        const plannedMap = buildHoursSchedulePlan({
+            days,
+            officeHoursStillNeeded: stillNeeded
+        });
+        const plannedTotalH = round1(
+            [...plannedMap.values()].reduce(
+                (a, b) => a + b, 0));
+        const totalWorkableHours = round1(days.reduce(
+            (sum, d) => sum + d.workTargetMins, 0) / 60);
+        const donePct = officeHoursNeeded > 0 ? (alreadyDoneOfficeHours / officeHoursNeeded) * 100 : 0;
+        const planPct = officeHoursNeeded > 0 ? (plannedTotalH / officeHoursNeeded) * 100 : 0;
+        const totalOfficeH = round1(alreadyDoneOfficeHours + plannedTotalH);
+        const nonOfficeH = round1(Math.max(0, totalWorkableHours - totalOfficeH));
+        const pctOffice = totalWorkableHours > 0 ? Math.round(
+            (totalOfficeH / totalWorkableHours) * 100) : 0;
+        let html = `
+            <div class="ep-sched-section">
+                <div class="ep-sched-hdr">
+                    ${icon('calendar',12,T.muted)}
+                    Office Schedule
+                    &nbsp;·&nbsp;
+                    <strong style="color:${T.text}">
+                        ${fmtHours(officeHoursNeeded)}h needed
+                    </strong>
+                    &nbsp;·&nbsp;
+                    ${fmtHours(alreadyDoneOfficeHours)}h done
+                    &nbsp;·&nbsp;
+                    ${fmtHours(stillNeeded)}h remaining
+                </div>
+
+                <div class="ep-hours-progress">
+                    <div class="ep-hours-prog-hdr">
+                        <span>Hours progress</span>
+                        <span style="color:${T.text};font-weight:600;">
+                            ${fmtHours(alreadyDoneOfficeHours)}h /
+                            ${fmtHours(officeHoursNeeded)}h
+                        </span>
+                    </div>
+
+                    <div class="ep-hours-prog-track">
+                        <div
+                            class="ep-hours-prog-done"
+                            style="width:${clamp(donePct,0,100).toFixed(1)}%;"
+                        ></div>
+
+                        <div
+                            class="ep-hours-prog-plan"
+                            style="width:${clamp(Math.min(planPct,100-donePct),0,100).toFixed(1)}%;"
+                        ></div>
+                    </div>
+
+                    <div class="ep-sched-legend">
+                        <span class="ep-sched-leg-item">
+                            <span class="ep-sched-leg-dot" style="background:#22c55e;"></span>
+                            Done (${fmtHours(alreadyDoneOfficeHours)}h)
+                        </span>
+
+                        <span class="ep-sched-leg-item">
+                            <span class="ep-sched-leg-dot" style="background:#3b82f6;"></span>
+                            Planned (${fmtHours(plannedTotalH)}h)
+                        </span>
+
+                        <span class="ep-sched-leg-item">
+                            <span class="ep-sched-leg-dot" style="background:#a855f7;"></span>
+                            WFH done
+                        </span>
+
+                        <span class="ep-sched-leg-item">
+                            <span
+                                class="ep-sched-leg-dot"
+                                style="background:${T.isDark?'rgba(255,255,255,0.15)':'rgba(0,0,0,0.12)'};"
+                            ></span>
+                            Non-office/flex
+                        </span>
+                    </div>
+                </div>
+        `;
+        html += `<div class="ep-cal-grid">`;
+        ['M', 'T', 'W', 'T', 'F', 'S', 'S'].forEach(d => html += `<div class="ep-cal-dow">${d}</div>`);
+        const firstDow = days[0]?.dayOfWeek ?? 1;
+        const colOffset = firstDow === 0 ? 6 : firstDow - 1;
+        for (let i = 0; i < colOffset; i++) {
+            html += `<div class="ep-cal-day ep-cal-empty"></div>`;
+        }
+        days.forEach(d => {
+            if (!d.dateNum) {
+                html += `<div class="ep-cal-day ep-cal-empty"></div>`;
+                return;
+            }
+            let cls = 'ep-cal-day ';
+            let hrsLbl = '';
+            if (d.isWeekend) {
+                cls += 'ep-cal-weekend';
+            } else if (d.isAbsent || d.isHoliday) {
+                cls += 'ep-cal-absent';
+            } else if (d.hasOffice) {
+                cls += 'ep-cal-done-off';
+                const extraPlanH = plannedMap.get(d.key) || 0;
+                hrsLbl = `<span class="ep-cal-hrs">` + `${fmtHours(d.officeMins / 60)}h` + `${extraPlanH > 0 ? ` +${fmtHours(extraPlanH)}h` : ''}` + `</span>`;
+            } else if (d.hasWFH && (d.isPast || d.isToday)) {
+                cls += 'ep-cal-done-wfh';
+            } else if (d.isPast || d.isToday) {
+                cls += 'ep-cal-done-any';
+            } else if (plannedMap.has(d.key)) {
+                cls += 'ep-cal-plan-off';
+                hrsLbl = `<span class="ep-cal-hrs">` + `${fmtHours(plannedMap.get(d.key))}h` + `</span>`;
+            } else {
+                cls += 'ep-cal-plan-wfh';
+            }
+            if (!hrsLbl && d.isHalfDay) {
+                hrsLbl = `<span class="ep-cal-hrs">` + `${d.halfDayPart} vac` + `</span>`;
+            }
+            if (d.isToday) {
+                cls += ' ep-cal-today';
+            }
+            const title = d.absenceText ? `${d.label} · ${d.absenceText} · ${fmt(d.workTargetMins)} work target` : d.label;
+            html += `<div class="${cls}" title="${title}">` + `${d.dateNum}${hrsLbl}` + `</div>`;
+        });
+        html += `</div>`;
+        const weekBuckets = new Map();
+        days.forEach(d => {
+            if (d.isWeekend || !d.dateNum) {
+                return;
+            }
+            const wk = d.weekIndex;
+            if (!weekBuckets.has(wk)) {
+                weekBuckets.set(wk,
+                    []);
+            }
+            weekBuckets.get(wk).push(d);
+        });
+        const DNAMES = {
+            1: 'Mon',
+            2: 'Tue',
+            3: 'Wed',
+            4: 'Thu',
+            5: 'Fri'
+        };
+        html += `<div class="ep-week-rows">`;
+        let wn = 0;
+        weekBuckets.forEach(wdays => {
+            wn++;
+            const offDoneH = wdays.reduce(
+                (s, d) => s + (d.officeMins || 0), 0) / 60;
+            const plannedH = wdays.reduce(
+                (s, d) => s + (plannedMap.get(d.key) || 0), 0);
+            const slotMap = new Map(wdays.map(d => [
+                d.dayOfWeek,
+                d
+            ]));
+            html += `<div class="ep-week-row">` + `<div class="ep-week-label">W${wn}</div>` + `<div class="ep-week-days">`;
+            [1, 2, 3, 4, 5].forEach(dow => {
+                const d = slotMap.get(dow);
+                if (!d) {
+                    html += `<div class="ep-week-day-pill ep-wp-off">—</div>`;
+                    return;
+                }
+                let cls = 'ep-week-day-pill ';
+                let sub = '';
+                if (d.isAbsent || d.isHoliday) {
+                    cls += 'ep-wp-absent';
+                } else if (d.hasOffice) {
+                    cls += 'ep-wp-done';
+                    const extraPlanH = plannedMap.get(d.key) || 0;
+                    sub = `<span class="ep-pill-sub">` + `${fmtHours(d.officeMins / 60)}h` + `${extraPlanH > 0 ? ` +${fmtHours(extraPlanH)}h` : ''}` + `${d.isHalfDay ? ' · ½ day' : ''}` + `</span>`;
+                } else if (plannedMap.has(d.key)) {
+                    cls += 'ep-wp-office';
+                    sub = `<span class="ep-pill-sub">` + `${fmtHours(plannedMap.get(d.key))}h` + `${d.isHalfDay ? ' · ½ day' : ''}` + `</span>`;
+                } else if (d.hasWFH) {
+                    cls += 'ep-wp-wfh';
+                    sub = `<span class="ep-pill-sub">` + `WFH` + `${d.isHalfDay ? ' · ½ day' : ''}` + `</span>`;
+                } else {
+                    cls += 'ep-wp-wfh';
+                    if (d.isHalfDay) {
+                        sub = `<span class="ep-pill-sub">` + `${d.halfDayPart} vac · 4h` + `</span>`;
+                    }
+                }
+                html += `<div class="${cls}" title="${d.label}${d.absenceText ? ' · ' + d.absenceText : ''}">` + `${DNAMES[dow]}` + `${sub}` + `</div>`;
+            });
+            html += `</div>` + `<div class="ep-week-row-summary">` + `<span>${fmtHours(round1(offDoneH + plannedH))}h</span> office` + `</div>` + `</div>`;
+        });
+        html += `</div>`;
+        html += `
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <div class="ep-sched-stat" style="flex:1;min-width:70px;">
+                    <div class="ep-sched-stat-val" style="color:#22c55e;">
+                        ${fmtHours(alreadyDoneOfficeHours)}h
+                    </div>
+                    <div class="ep-sched-stat-lbl">Done ✓</div>
+                </div>
+
+                <div class="ep-sched-stat" style="flex:1;min-width:70px;">
+                    <div class="ep-sched-stat-val" style="color:#3b82f6;">
+                        ${fmtHours(plannedTotalH)}h
+                    </div>
+                    <div class="ep-sched-stat-lbl">Planned</div>
+                </div>
+
+                <div class="ep-sched-stat" style="flex:1;min-width:70px;">
+                    <div class="ep-sched-stat-val" style="color:#a855f7;">
+                        ${fmtHours(nonOfficeH)}h
+                    </div>
+                    <div class="ep-sched-stat-lbl">Non-office/Flex</div>
+                </div>
+
+                <div class="ep-sched-stat" style="flex:1;min-width:70px;">
+                    <div
+                        class="ep-sched-stat-val"
+                        style="color:${pctOffice >= offTarget ? '#22c55e' : '#f59e0b'};"
+                    >
+                        ${pctOffice}%
+                    </div>
+                    <div class="ep-sched-stat-lbl">vs target</div>
+                </div>
+            </div>
+        </div>`;
+        return html;
+    };
+    /* ═══════════════════════════════════════════════════════════════
+       OFFICE PLANNER PANEL HTML
+    ═══════════════════════════════════════════════════════════════ */
+    const buildOfficePlannerPanel = ({
+        T,
+        ds,
+        days
+    }) => {
+        const isOpen = localStorage.getItem(LS.PLANNER_OPEN) === 'true';
+        const officeHoursNeeded = round1(
+            (ds.realRota * (offTarget / 100)) / 60);
+        const alreadyDoneOfficeHours = round1(days.filter(d => d.hasOffice && (d.isPast || d.isToday)).reduce(
+            (s, d) => s + d.officeMins, 0) / 60);
+        let html = `
+            <div
+                class="ep-planner-toggle"
+                data-action="planner-toggle"
+                role="button"
+                tabindex="0"
+            >
+                ${iconBadge(
+                    'calendar',
+                    'linear-gradient(135deg,#3b82f6,#a855f7)',
+                    26
+                )}
+
+                <span class="ep-planner-toggle-label">
+                    Office Planner
+                    <span class="ep-planner-toggle-sub">
+                        · ${fmtHours(officeHoursNeeded)}h needed this month
+                    </span>
+                </span>
+
+                ${icon(
+                    isOpen
+                        ? 'chevron_up'
+                        : 'chevron_down',
+                    14,
+                    T.muted
+                )}
+            </div>
+
+            <div
+                class="ep-planner-panel${isOpen ? ' open' : ''}"
+                id="ep-planner-panel"
+            >
+                <div class="ep-planner-inner">
+        `;
+        html += buildScheduleSection({
+            T,
+            days,
+            officeHoursNeeded,
+            alreadyDoneOfficeHours
+        });
+        html += `</div></div>`;
+        return html;
+    };
+    const buildTodayStrip = ({
+        T,
+        ds
+    }) => {
+        const today = getTodayInfo();
+        if (!today) return '';
+        const todayBufOn = localStorage.getItem(LS.TODAY_BUF) === 'true';
+        const scheduledTarget = today.targetMinutes;
+        let effTarget = scheduledTarget;
+        if (todayBufOn && scheduledTarget > 0) {
+            effTarget = Math.max(0, scheduledTarget - ds.priorBufferMinutes);
+            if (today.isHalfDay) {
+                effTarget = Math.min(scheduledTarget, effTarget);
+            }
+        }
+        const todayWorked = today.workedMinutes;
+        const isDayOff = scheduledTarget === 0;
+        /*
+         * Use the same mandatory-break calculation as Buffer.
+         * Real clock-out gaps count toward the configured break requirement.
+         */
+        const missingBreakMinutes = isDayOff ? 0 : getMissingMandatoryBreakMinutes(today.el);
+        /*
+         * Break time does not count as working time, therefore the missing
+         * mandatory break is added to the amount of elapsed time still needed.
+         */
+        const todayRemaining = Math.max(0, effTarget - todayWorked + missingBreakMinutes);
+        const todayDone = isDayOff || todayRemaining === 0;
+        /*
+         * Progress represents how close we are to actually being allowed
+         * to finish the day, including any still-missing mandatory break.
+         */
+        const effectiveCompleted = Math.max(0, effTarget - todayRemaining);
+        const todayPct = isDayOff ? 100 : (effTarget > 0 ? Math.min(100,
+            (effectiveCompleted / effTarget) * 100) : 100);
+        const leaveAt = today.isRunning && todayRemaining > 0 ? new Date(Date.now() + todayRemaining * 60000) : null;
+        let statusHtml;
+        if (isDayOff) {
+            statusHtml = `<span class="ep-today-rem done">` + `${icon('check',12,'#22c55e')} ` + `${today.absenceText || 'Non-working day'}` + `</span>`;
+        } else if (effTarget === 0 && todayBufOn) {
+            statusHtml = `<span class="ep-today-rem done">` + `${icon('check',12,'#22c55e')} ` + `Covered by buffer` + `</span>`;
+        } else if (todayDone) {
+            statusHtml = `<span class="ep-today-rem done">` + `${icon('check',12,'#22c55e')} ` + `Day complete!` + `</span>`;
+        } else {
+            statusHtml = `<span class="ep-today-rem">` + `${icon('timer',12,T.muted)} ` + `${fmt(todayRemaining)} left` + `${leaveAt ? ` - leave at ${formatClock(leaveAt)}` : ''}` + `</span>`;
+        }
+        const targetSuffix = today.isHalfDay && today.absenceText ? ` <span style="opacity:.75;">· ${today.absenceText}</span>` : '';
+        return `
+            <div class="ep-today-strip">
+                <div class="ep-today-label">
+                    ${iconBadge(
+                        'timer',
+                        '#1776cf',
+                        26
+                    )}
+                    <span class="ep-today-label-text">
+                        Today
+                    </span>
+                </div>
+
+                <div class="ep-today-centre">
+                    <div class="ep-today-nums-row">
+                        <span class="ep-today-done">
+                            ${fmt(todayWorked)}
+                        </span>
+
+                        <span class="ep-today-sep">/</span>
+
+                        <span class="ep-today-total">
+                            ${fmt(effTarget)}${targetSuffix}
+                        </span>
+
+                        ${statusHtml}
+                    </div>
+
+                    <div class="ep-today-track">
+                        <div
+                            class="ep-today-fill"
+                            style="width:${todayPct.toFixed(1)}%;background:${todayDone ? '#22c55e' : '#3b82f6'};"
+                        ></div>
+                    </div>
+                </div>
+
+                <div class="ep-today-actions">
+                    ${
+                        scheduledTarget > 0
+                            ? `
+                                <span
+                                    class="ep-btn ep-btn-pill"
+                                    data-action="buf-toggle"
+                                >
+                                    <span
+                                        class="ep-toggle-track"
+                                        style="background:${todayBufOn ? '#3b82f6' : T.barTrack};"
+                                    >
+                                        <span
+                                            class="ep-toggle-thumb"
+                                            style="left:${todayBufOn ? '14px' : '2px'};"
+                                        ></span>
+                                    </span>
+                                    Include buffer
+                                </span>
+                            `
+                            : ''
+                    }
+                </div>
+            </div>
+        `;
+    };
+    let settingsKeyHandler = null;
+
+    const closeSettingsModal = () => {
+        document.getElementById('ep-settings-overlay')?.remove();
+        if (settingsKeyHandler) {
+            document.removeEventListener('keydown', settingsKeyHandler);
+            settingsKeyHandler = null;
+        }
+    };
+
+    const openSettingsModal = () => {
+        closeSettingsModal();
+        const T = getTheme();
+        injectStyles(T);
+        const overlay = document.createElement('div');
+        overlay.id = 'ep-settings-overlay';
+        overlay.className = 'ep-settings-overlay';
+        overlay.innerHTML = `
+            <form class="ep-settings-modal" id="ep-settings-form">
+                <div class="ep-settings-hdr">
+                    ${icon('settings',16,T.muted)}
+                    <div class="ep-settings-title">Analyzer Settings</div>
+                    <button type="button" class="ep-settings-close" id="ep-settings-close" aria-label="Close settings">×</button>
+                </div>
+
+                <div class="ep-settings-body">
+                    <div class="ep-settings-field">
+                        <label class="ep-settings-label" for="ep-setting-office-target">Office target</label>
+                        <div class="ep-settings-input-wrap">
+                            <input class="ep-settings-input" id="ep-setting-office-target" type="number" min="0" max="100" step="1" value="${offTarget}" required>
+                            <span class="ep-settings-unit">%</span>
+                        </div>
+                        <div class="ep-settings-help">Percentage of rota hours that should be completed in the office.</div>
+                    </div>
+
+                    <div class="ep-settings-field">
+                        <label class="ep-settings-label" for="ep-setting-break">Mandatory break</label>
+                        <div class="ep-settings-input-wrap">
+                            <input class="ep-settings-input" id="ep-setting-break" type="number" min="0" max="480" step="1" value="${mandatoryBreakMinutes}" required>
+                            <span class="ep-settings-unit">minutes</span>
+                        </div>
+                        <div class="ep-settings-help">Applied to full working days. Real clock-out gaps count toward this value.</div>
+                    </div>
+
+                    <div class="ep-settings-error" id="ep-settings-error" role="alert"></div>
+                </div>
+
+                <div class="ep-settings-actions">
+                    <button type="button" class="ep-settings-btn" id="ep-settings-reset">Reset defaults</button>
+                    <div class="ep-settings-actions-right">
+                        <button type="button" class="ep-settings-btn" id="ep-settings-cancel">Cancel</button>
+                        <button type="submit" class="ep-settings-btn primary">Save</button>
+                    </div>
+                </div>
+            </form>
+        `;
+        document.body.appendChild(overlay);
+
+        const form = overlay.querySelector('#ep-settings-form');
+        const officeInput = overlay.querySelector('#ep-setting-office-target');
+        const breakInput = overlay.querySelector('#ep-setting-break');
+        const errorEl = overlay.querySelector('#ep-settings-error');
+
+        const showError = message => {
+            errorEl.textContent = message;
+            errorEl.style.display = 'block';
+        };
+
+        const applyAndClose = () => {
+            closeSettingsModal();
+            renderUI();
+        };
+
+        form.addEventListener('submit', e => {
+            e.preventDefault();
+            const nextOffTarget = Number(officeInput.value);
+            const nextBreak = Number(breakInput.value);
+
+            if (!Number.isFinite(nextOffTarget) || nextOffTarget < 0 || nextOffTarget > 100) {
+                showError('Office target must be between 0 and 100%.');
+                officeInput.focus();
+                return;
+            }
+
+            if (!Number.isFinite(nextBreak) || nextBreak < 0 || nextBreak > 480) {
+                showError('Mandatory break must be between 0 and 480 minutes.');
+                breakInput.focus();
+                return;
+            }
+
+            offTarget = nextOffTarget;
+            mandatoryBreakMinutes = Math.round(nextBreak);
+            localStorage.setItem(LS.OFF_TARGET, String(offTarget));
+            localStorage.setItem(LS.MANDATORY_BREAK, String(mandatoryBreakMinutes));
+            applyAndClose();
+        });
+
+        overlay.querySelector('#ep-settings-reset').addEventListener('click', () => {
+            localStorage.removeItem(LS.OFF_TARGET);
+            localStorage.removeItem(LS.MANDATORY_BREAK);
+            offTarget = DEFAULT_OFF_TARGET;
+            mandatoryBreakMinutes = DEFAULT_MANDATORY_BREAK_MINUTES;
+            applyAndClose();
+        });
+
+        overlay.querySelector('#ep-settings-close').addEventListener('click', closeSettingsModal);
+        overlay.querySelector('#ep-settings-cancel').addEventListener('click', closeSettingsModal);
+        overlay.addEventListener('click', e => {
+            if (e.target === overlay) closeSettingsModal();
+        });
+
+        settingsKeyHandler = e => {
+            if (e.key === 'Escape') closeSettingsModal();
+        };
+        document.addEventListener('keydown', settingsKeyHandler);
+
+        officeInput.focus();
+        officeInput.select();
+    };
+
+    /* ═══════════════════════════════════════════════════════════════
+       INTERACTIONS
+    ═══════════════════════════════════════════════════════════════ */
+    const bindInteractions = container => {
+        container.querySelectorAll('[data-action]').forEach(el => {
+            el.addEventListener('click', e => {
+                e.preventDefault();
+                const action = el.dataset.action;
+                if (action === 'jump-today') {
+                    jumpToToday();
+                }
+                if (action === 'jump-analyzer') {
+                    jumpToAnalyzer();
+                }
+                if (action === 'settings-open') {
+                    openSettingsModal();
+                }
+                if (action === 'theme-toggle') {
+                    themeOverride = el.dataset.theme;
+                    localStorage.setItem(LS.THEME, themeOverride);
+                    renderUI();
+                }
+                if (action === 'buf-toggle') {
+                    localStorage.setItem(LS.TODAY_BUF, String(localStorage.getItem(LS.TODAY_BUF) !== 'true'));
+                    renderUI();
+                }
+                if (action === 'planner-toggle') {
+                    localStorage.setItem(LS.PLANNER_OPEN, String(localStorage.getItem(LS.PLANNER_OPEN) !== 'true'));
+                    renderUI();
+                }
+            });
+        });
+    };
+    /* ═══════════════════════════════════════════════════════════════
+       MAIN RENDER
+    ═══════════════════════════════════════════════════════════════ */
+    const renderUI = () => {
+        const T = getTheme();
+        injectStyles(T);
+        const mainPanel = document.getElementById('mainTimesheetPanel');
+        if (!mainPanel) return;
+        let container = document.getElementById('ep13');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'ep13';
+            mainPanel.insertBefore(container, mainPanel.firstChild);
+        }
+        if (!isSummaryReady()) {
+            container.innerHTML = `<div class="ep-hdr">` + `<div class="ep-hdr-logo">${icon('timer',16)}</div>` + `<div class="ep-hdr-title">eDays Analyzer Pro</div>` + `<div class="ep-hdr-date"><span class="ep-pulse"></span> Loading…</div>` + `</div>`;
+            return;
+        }
+        const summary = getSummaryData();
+        const {
+            actMap,
+            rawTotal
+        } = getActivityData();
+        const dateStr = new Date().toLocaleDateString('en-GB', {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric'
+        }).toUpperCase();
+        if (!summary.recorded && !rawTotal) {
+            const ds = getDayStats(summary);
+            const detailedDays = getDetailedDayData();
+            const nextTheme = T.isDark ? 'light' : 'dark';
+            container.innerHTML = `
+                <div class="ep-hdr">
+                    <div class="ep-hdr-logo">
+                        ${icon('timer',16)}
+                    </div>
+
+                    <div class="ep-hdr-title">
+                        eDays Analyzer Pro
+                    </div>
+
+                    <div class="ep-hdr-right">
+                        <span
+                            class="ep-btn ep-btn-icon"
+                            data-action="settings-open"
+                            title="Analyzer settings"
+                        >
+                            ${icon(
+                                'settings',
+                                14,
+                                T.muted
+                            )}
+                        </span>
+
+                        <span
+                            class="ep-btn ep-btn-icon"
+                            data-action="theme-toggle"
+                            data-theme="${nextTheme}"
+                            title="${T.isDark ? 'Light' : 'Dark'} theme"
+                        >
+                            ${icon(
+                                T.isDark
+                                    ? 'sun'
+                                    : 'moon',
+                                14,
+                                T.muted
+                            )}
+                        </span>
+
+                        <div class="ep-hdr-date">
+                            <span class="ep-pulse"></span>
+                            ${dateStr}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="ep-empty">
+                    <div class="ep-empty-icon">
+                        ${icon(
+                            'calendar',
+                            22,
+                            T.muted
+                        )}
+                    </div>
+
+                    <div class="ep-empty-title">
+                        New month — no entries yet
+                    </div>
+
+                    <div class="ep-empty-sub">
+                        Start logging time in eDays and the dashboard will populate automatically. The Office Planner is still available below.
+                    </div>
+                </div>
+            `;
+            container.innerHTML += buildTodayStrip({
+                T,
+                ds
+            });
+            container.innerHTML += buildOfficePlannerPanel({
+                T,
+                ds,
+                days: detailedDays
+            });
+            bindInteractions(container);
+            return;
+        }
+        const realRota = Math.max(0, summary.rota - summary.absences - summary.holidays);
+        const days = getDetailedDayData();
+        /*
+         * FIX:
+         * Exact Office minutes are authoritative.
+         * They are read directly from the individual Office periods
+         * and are not scaled by the raw/summary reconciliation factor.
+         */
+        const officeMins = days.reduce(
+            (s, d) => (d.hasOffice && (d.isPast || d.isToday)) ? s + d.officeMins : s, 0);
+        /*
+         * FIX:
+         * Reconcile all NON-OFFICE activity around the exact Office
+         * value so Activity Breakdown always totals exactly the same
+         * number of minutes as eDays "Time recorded".
+         */
+        const recordedMins = Math.round(summary.recorded);
+        const remainingRecordedMins = Math.max(0, recordedMins - officeMins);
+        const nonOfficeRaw = Object.entries(actMap).filter(
+            ([name, mins]) => name !== 'Office' && mins > 0);
+        const rawNonOfficeTotal = nonOfficeRaw.reduce(
+            (s, [, mins]) => s + mins, 0);
+        let nonOfficeActs = [];
+        if (rawNonOfficeTotal > 0 && remainingRecordedMins > 0) {
+            const scaled = nonOfficeRaw.map(
+                (
+                    [name, mins], index) => {
+                    const exact = (mins / rawNonOfficeTotal) * remainingRecordedMins;
+                    const adj = Math.floor(exact);
+                    return {
+                        name,
+                        adj,
+                        remainder: exact - adj,
+                        index
+                    };
+                });
+            /*
+             * Largest-remainder distribution:
+             * after flooring the scaled non-Office categories,
+             * distribute any missing minute(s) to the categories
+             * with the largest fractional remainder.
+             */
+            let leftover = remainingRecordedMins - scaled.reduce(
+                (s, a) => s + a.adj, 0);
+            [...scaled].sort(
+                (a, b) => (b.remainder - a.remainder) || (a.index - b.index)).forEach(a => {
+                if (leftover <= 0) {
+                    return;
+                }
+                a.adj += 1;
+                leftover -= 1;
+            });
+            nonOfficeActs = scaled.map(
+                ({
+                    name,
+                    adj
+                }) => ({
+                    name,
+                    adj
+                }));
+        } else if (remainingRecordedMins > 0) {
+            /*
+             * Safety fallback:
+             * if eDays has recorded minutes but no identifiable
+             * non-Office category, preserve the exact total as
+             * "No Activity".
+             */
+            nonOfficeActs = [{
+                name: 'No Activity',
+                adj: remainingRecordedMins
+            }];
+        }
+        const acts = [...(officeMins > 0 ? [{
+            name: 'Office',
+            adj: officeMins
+        }] : []), ...nonOfficeActs].filter(a => a.adj > 0).sort(
+            (a, b) => b.adj - a.adj);
+        const totalActMins = acts.reduce(
+            (s, a) => s + a.adj, 0);
+        const targetMins = realRota * (offTarget / 100);
+        const officePct = targetMins > 0 ? (officeMins / targetMins) * 100 : 0;
+        const officeActPct = realRota > 0 ? (officeMins / realRota) * 100 : 0;
+        const rotaPct = realRota > 0 ? (summary.recorded / realRota) * 100 : 0;
+        const ds = getDayStats(summary);
+        const offColor = getOffColor(officePct);
+        const rotaColor = rotaPct >= 100 ? '#22c55e' : rotaPct >= 80 ? '#3b82f6' : '#f59e0b';
+        const nextTheme = T.isDark ? 'light' : 'dark';
+        let html = `
+            <div class="ep-hdr">
+                <div class="ep-hdr-logo">
+                    ${icon('timer',16)}
+                </div>
+
+                <div class="ep-hdr-title">
+                    eDays Analyzer Pro
+                </div>
+
+                <div class="ep-hdr-right">
+                    <span
+                        class="ep-btn ep-btn-icon"
+                        data-action="settings-open"
+                        title="Analyzer settings"
+                    >
+                        ${icon(
+                            'settings',
+                            14,
+                            T.muted
+                        )}
+                    </span>
+
+                    <span
+                        class="ep-btn ep-btn-icon"
+                        data-action="theme-toggle"
+                        data-theme="${nextTheme}"
+                        title="${T.isDark ? 'Light' : 'Dark'} theme"
+                    >
+                        ${icon(
+                            T.isDark
+                                ? 'sun'
+                                : 'moon',
+                            14,
+                            T.muted
+                        )}
+                    </span>
+
+                    <div class="ep-hdr-date">
+                        <span class="ep-pulse"></span>
+                        ${dateStr}
+                    </div>
+                </div>
+            </div>
+
+            <div class="ep-grid">
+        `;
+        /* Card 1 */
+        const totalActPct = realRota > 0 ? (totalActMins / realRota) * 100 : 0;
+        html += `<div class="ep-card">` + `<div class="ep-card-title">Activity Breakdown</div>`;
+        acts.forEach(({
+            name,
+            adj
+        }) => {
+            const cfg = ACT_CFG[name] || FALLBACK_CFG;
+            const pct = realRota > 0 ? (adj / realRota) * 100 : 0;
+            html += `<div class="ep-act-row">` + `${iconBadge(cfg.icon,cfg.bg,26)}` + `<div class="ep-act-info">` + `<div class="ep-act-name">${name}</div>` + `<div class="ep-act-meta">${fmt(adj)} · ${pct.toFixed(0)}%</div>` + `<div class="ep-bar">` + `<div class="ep-bar-fill" style="width:${clamp(pct,0,100)}%;background:${cfg.grad};"></div>` + `</div>` + `</div>` + `</div>`;
+        });
+        html += `<div class="ep-divider"></div>` + `<div class="ep-total-row">` + `<span class="ep-total-label">Total logged</span>` + `<span class="ep-total-val">${fmt(totalActMins)} (${totalActPct.toFixed(0)}%)</span>` + `</div>` + `<div class="ep-bar">` + `<div class="ep-bar-fill" style="width:${clamp(totalActPct,0,100)}%;background:linear-gradient(90deg,#3b82f6,#a855f7);"></div>` + `</div>` + `</div>`;
+        /* Card 2 */
+        const offRemMins = Math.max(0, Math.ceil(targetMins - officeMins));
+        const offRemDays = offRemMins > 0 ? round1(Math.ceil(offRemMins / HALF_DAY_MINUTES) / 2) : 0;
+        const officeChipVal = fmtDaysAndTime(offRemMins);
+        html += `
+            <div class="ep-card ep-ring-card">
+                <div class="ep-card-title">
+                    Office Target · ${offTarget}%
+                </div>
+
+                <div class="ep-ring-wrap">
+                    ${ring({
+                        r: 54,
+                        pct: officePct,
+                        color: offColor,
+                        sw: 6,
+                        trackColor: T.ringTrack
+                    })}
+
+                    <div class="ep-ring-center">
+                        <span
+                            class="ep-ring-pct"
+                            style="color:${offColor}"
+                        >
+                            ${officePct.toFixed(0)}%
+                        </span>
+
+                        <span class="ep-ring-lbl">
+                            of target
+                        </span>
+                    </div>
+                </div>
+
+                <div class="ep-stat-row">
+                    <span class="ep-stat-k">
+                        Actual
+                    </span>
+
+                    <span class="ep-stat-v">
+                        ${officeActPct.toFixed(0)}% of rota
+                    </span>
+                </div>
+
+                <div class="ep-stat-row">
+                    <span class="ep-stat-k">
+                        Logged
+                    </span>
+
+                    <span class="ep-stat-v">
+                        ${fmt(officeMins)}
+                    </span>
+                </div>
+
+                <div class="ep-stat-row">
+                    <span class="ep-stat-k">
+                        Target
+                    </span>
+
+                    <span class="ep-stat-v">
+                        ${fmt(targetMins)}
+                    </span>
+                </div>
+
+                ${
+                    officePct < 100
+                        ? `
+                            <div class="ep-hint">
+                                ${icon(
+                                    'today',
+                                    12,
+                                    T.muted
+                                )}
+
+<span>
+    ${officeChipVal} needed in office to hit ${offTarget}%
+</span>
+                            </div>
+                        `
+                        : `
+                            <div
+                                class="ep-hint"
+                                style="color:#22c55e"
+                            >
+                                ${icon(
+                                    'check',
+                                    12,
+                                    '#22c55e'
+                                )}
+
+                                <span>
+                                    Office target met!
+                                </span>
+                            </div>
+                        `
+                }
+            </div>
+        `;
+        /* Card 3 */
+        html += `
+            <div class="ep-card ep-ring-card">
+                <div class="ep-card-title">
+                    Time vs Rota
+                </div>
+
+                <div class="ep-ring-wrap">
+                    ${ring({
+                        r: 54,
+                        pct: rotaPct,
+                        color: rotaColor,
+                        sw: 6,
+                        trackColor: T.ringTrack
+                    })}
+
+                    <div class="ep-ring-center">
+                        <span
+                            class="ep-ring-pct"
+                            style="color:${rotaColor}"
+                        >
+                            ${rotaPct.toFixed(0)}%
+                        </span>
+
+                        <span class="ep-ring-lbl">
+                            rota
+                        </span>
+                    </div>
+                </div>
+
+                <div class="ep-stat-row">
+                    <span class="ep-stat-k">
+                        Recorded
+                    </span>
+
+                    <span class="ep-stat-v">
+                        ${fmt(summary.recorded)}
+                    </span>
+                </div>
+
+                <div class="ep-stat-row">
+                    <span class="ep-stat-k">
+                        Real Rota
+                    </span>
+
+                    <span class="ep-stat-v">
+                        ${fmt(realRota)}
+                    </span>
+                </div>
+
+                <div class="ep-stat-row">
+                    <span class="ep-stat-k">
+                        Absences
+                    </span>
+
+                    <span class="ep-stat-v">
+                        ${fmt(summary.absences)}
+                    </span>
+                </div>
+
+                <div class="ep-stat-row">
+                    <span class="ep-stat-k">
+                        Holidays
+                    </span>
+
+                    <span class="ep-stat-v">
+                        ${fmt(summary.holidays)}
+                    </span>
+                </div>
+
+                <div class="ep-stat-row">
+                    <span class="ep-stat-k">
+                        Days worked
+                    </span>
+
+                    <span class="ep-stat-v">
+                        ${ds.workedDays}d
+                    </span>
+                </div>
+            </div>
+        `;
+        /* Card 4 */
+        const wfhDaysAvailable = Math.max(0, ds.daysLeft - offRemDays);
+        const wfhAvailableMins = Math.max(0, ds.remainingMinutes - offRemMins);
+        /*
+         * Display exact time instead of decimal / half-day values.
+         *
+         * Examples:
+         * 2 days + 4 hours       -> 2d 4h
+         * 3 days + 3h 30m       -> 3d 3h 30m
+         * exactly 2 days         -> 2d
+         * <= 1 day               -> exact hours, e.g. 6h 30m
+         */
+        const officeChipLbl = offRemMins <= STANDARD_DAY_MINUTES ? 'Office Time Needed' : 'Office Days Needed';
+        const wfhChipVal = fmtDaysAndTime(wfhAvailableMins);
+        const wfhChipLbl = wfhAvailableMins <= STANDARD_DAY_MINUTES ? 'WFH Time Available' : 'WFH Days Available';
+        const officeChipCompact = officeChipVal.includes(' ');
+        const wfhChipCompact = wfhChipVal.includes(' ');
+        const bc = ds.bufferMinutes > 0 ? 'pos' : ds.bufferMinutes < 0 ? 'neg' : 'zer';
+        const bi = ds.bufferMinutes > 0 ? 'trending_up' : ds.bufferMinutes < 0 ? 'trending_down' : 'trending_flat';
+        const bCol = ds.bufferMinutes > 0 ? '#22c55e' : ds.bufferMinutes < 0 ? '#ef4444' : T.muted;
+        html += `
+            <div class="ep-card">
+                <div class="ep-card-title">
+                    Buffer &amp; Outlook
+                </div>
+
+                <div class="ep-buf-top">
+                    ${icon(
+                        bi,
+                        20,
+                        bCol
+                    )}
+
+                    <span class="ep-buf-val ${bc}">
+                        ${fmt(ds.bufferMinutes)}
+                    </span>
+
+                    <span class="ep-buf-sub">
+                        ${ds.bufferMinutes >= 0 ? 'ahead of' : 'behind'}
+                        scheduled daily target
+                        <br>
+                        to date
+                    </span>
+                </div>
+
+                <div class="ep-chip-grid">
+                    <div class="ep-chip">
+                        <div class="ep-chip-val">
+                            ${ds.workableDays}
+                        </div>
+
+                        <div class="ep-chip-lbl">
+                            Workable
+                        </div>
+                    </div>
+
+<div class="ep-chip" style="min-width:0;overflow:hidden;">
+    <div
+        class="ep-chip-val"
+        style="color:#3b82f6;white-space:nowrap;overflow:hidden;${offRemDays <= 1 || officeChipVal.includes(' ') ? 'font-size:14px;' : ''}"
+    >
+        ${officeChipVal}
+    </div>
+
+    <div class="ep-chip-lbl">
+        ${officeChipLbl}
+    </div>
+</div>
+
+                    <div class="ep-chip">
+                        <div
+                            class="ep-chip-val"
+                            style="color:#a855f7"
+                        >
+                            ${ds.daysLeft}
+                        </div>
+
+                        <div class="ep-chip-lbl">
+                            Days Left
+                        </div>
+                    </div>
+
+<div class="ep-chip" style="min-width:0;overflow:hidden;">
+    <div
+        class="ep-chip-val"
+        style="color:#f59e0b;white-space:nowrap;overflow:hidden;${wfhDaysAvailable <= 1 || wfhChipVal.includes(' ') ? 'font-size:14px;' : ''}"
+    >
+        ${wfhChipVal}
+    </div>
+
+    <div class="ep-chip-lbl">
+        ${wfhChipLbl}
+    </div>
+</div>
+                </div>
+
+                <div class="ep-prog-wrap">
+                    <div class="ep-prog-hdr">
+                        <span>
+                            Month progress
+                        </span>
+
+                        <span>
+                            ${ds.progressPct.toFixed(0)}%
+                        </span>
+                    </div>
+
+                    <div class="ep-prog-track">
+                        <div
+                            class="ep-prog-fill"
+                            style="width:${clamp(ds.progressPct,0,100).toFixed(1)}%"
+                        ></div>
+                    </div>
+                </div>
+
+                <div class="ep-notices">
+                    ${
+                        ds.remainingMinutes > 0
+                            ? `
+                                <div class="ep-notice">
+                                    ${icon(
+                                        'calendar',
+                                        12,
+                                        T.muted
+                                    )}
+
+                                    <span>
+                                        ${ds.daysLeft}d equivalent left
+                                        · ${fmt(ds.remainingMinutes)} remaining
+                                    </span>
+                                </div>
+                            `
+                            : ''
+                    }
+
+                    ${
+                        ds.bufferMinutes > 0
+                            ? `
+                                <div class="ep-notice good">
+                                    ${icon(
+                                        'savings',
+                                        12,
+                                        '#22c55e'
+                                    )}
+
+                                    <span>
+                                        ${fmt(ds.bufferMinutes)} banked
+                                    </span>
+                                </div>
+                            `
+                            : ds.bufferMinutes < 0
+                                ? `
+                                    <div class="ep-notice warn">
+                                        ${icon(
+                                            'warning',
+                                            12,
+                                            '#ef4444'
+                                        )}
+
+                                        <span>
+                                            ${fmt(Math.abs(ds.bufferMinutes))} deficit
+                                        </span>
+                                    </div>
+                                `
+                                : `
+                                    <div class="ep-notice">
+                                        ${icon(
+                                            'flag',
+                                            12,
+                                            T.muted
+                                        )}
+
+                                        <span>
+                                            Exactly on target!
+                                        </span>
+                                    </div>
+                                `
+                    }
+
+                    <div class="ep-notice">
+                        ${icon(
+                            'flag',
+                            12,
+                            T.muted
+                        )}
+
+                        <span>
+                            Month target:
+                            ${fmt(ds.realRota)}
+                        </span>
+                    </div>
+                </div>
+            </div>
+        `;
+        html += `</div>`;
+        html += buildTodayStrip({
+            T,
+            ds
+        });
+        html += buildOfficePlannerPanel({
+            T,
+            ds,
+            days
+        });
+        container.innerHTML = html;
+        bindInteractions(container);
+    };
+    /* ═══════════════════════════════════════════════════════════════
+   UNIFIED TIMESHEET NAVIGATION
+═══════════════════════════════════════════════════════════════ */
+    const TIMESHEET_NAV_BUTTON_ID = 'ep-timesheet-nav';
+    let timesheetNavScrollParent = null;
+    let timesheetNavObserver = null;
+    let timesheetNavRaf = 0;
 
     const getTimesheetHeader = () => document.getElementById('timesheetMonthHeader');
 
     const getSubmitMonthButton = () => {
         const header = getTimesheetHeader();
         if (!header) return null;
-
         const buttons = [...header.querySelectorAll('.button_container c3-button')];
         return buttons.find(button => button.textContent.trim() === 'Submit month')
-            || header.querySelector('.button_container c3-button[accesskey="s"]');
+|| header.querySelector('.button_container c3-button[accesskey="s"]');
     };
 
     const getTodayRow = () => document.querySelector('.today_chip')?.closest('.tt_day_container') || null;
-    const getTopTarget = () => document.getElementById('ep13') || document.getElementById('mainTimesheetPanel');
 
-    const getHeaderOffset = () => {
-        const header = getTimesheetHeader();
-        return header ? Math.max(80, Math.ceil(header.getBoundingClientRect().height) + 12) : 80;
-    };
-
-    const scrollToElement = target => {
-        if (!target) return;
-
-        const scrollParent = getScrollParent(target);
-        const offset = getHeaderOffset();
-
-        if (scrollParent === window) {
-            const top = Math.max(0, target.getBoundingClientRect().top + window.scrollY - offset);
-            window.scrollTo({
-                top,
-                left: window.scrollX,
-                behavior: 'smooth'
-            });
-            return;
-        }
-
-        const top = Math.max(
-            0,
-            target.getBoundingClientRect().top
-                - scrollParent.getBoundingClientRect().top
-                + scrollParent.scrollTop
-                - offset
-        );
-        scrollParent.scrollTo({
-            top,
-            left: scrollParent.scrollLeft,
-            behavior: 'smooth'
-        });
-    };
-
-    const ensureLegacyNavigationStyle = () => {
-        let style = document.getElementById(LEGACY_NAV_STYLE_ID);
-        if (!style) {
-            style = document.createElement('style');
-            style.id = LEGACY_NAV_STYLE_ID;
-            style.textContent = '#ep-analyzer-float,#ep13 [data-action="jump-today"]{display:none!important;}';
-            document.head.appendChild(style);
-        }
-    };
-
-    const removeLegacyNavigation = () => {
-        document.getElementById('ep-analyzer-float')?.remove();
-        document.querySelectorAll('#ep13 [data-action="jump-today"]').forEach(button => button.remove());
-    };
-
-    const setNavState = button => {
+    const updateTimesheetNavButton = () => {
+        const button = document.getElementById(TIMESHEET_NAV_BUTTON_ID);
         if (!button) return;
 
         const todayRow = getTodayRow();
         const header = getTimesheetHeader();
-        let mode = 'top';
+        let target = 'top';
 
         if (todayRow) {
-            const headerBottom = header ? Math.max(0, header.getBoundingClientRect().bottom) : 0;
-            const triggerLine = headerBottom + 12;
-            mode = todayRow.getBoundingClientRect().top <= triggerLine ? 'top' : 'today';
+const triggerLine = Math.max(0, header?.getBoundingClientRect().bottom || 0) + 12;
+target = todayRow.getBoundingClientRect().top > triggerLine ? 'today' : 'top';
         }
 
-        const label = mode === 'today' ? 'To today' : 'Back to top';
+        const label = target === 'today' ? 'To today' : 'Back to top';
         if (button.textContent.trim() !== label) {
-            button.textContent = label;
+button.textContent = label;
         }
-        if (button.dataset.epTarget !== mode) {
-            button.dataset.epTarget = mode;
-        }
+        button.dataset.epTarget = target;
 
-        const description = mode === 'today'
-            ? 'Jump to today in the current timesheet'
-            : 'Back to the top of the timesheet';
-        if (button.getAttribute('title') !== description) {
-            button.setAttribute('title', description);
-            button.setAttribute('aria-label', description);
-        }
+        const description = target === 'today'
+? 'Jump to today in the current timesheet'
+: 'Back to the top of the timesheet';
+        button.setAttribute('title', description);
+        button.setAttribute('aria-label', description);
     };
 
-    const scheduleStateUpdate = () => {
-        if (rafId) return;
-        rafId = requestAnimationFrame(() => {
-            rafId = 0;
-            setNavState(document.getElementById(NAV_BUTTON_ID));
+    const scheduleTimesheetNavUpdate = () => {
+        if (timesheetNavRaf) return;
+        timesheetNavRaf = requestAnimationFrame(() => {
+timesheetNavRaf = 0;
+updateTimesheetNavButton();
         });
     };
 
-    const bindScrollUpdates = () => {
-        const target = getTodayRow() || getTopTarget();
+    const bindTimesheetNavScroll = () => {
+        const target = getTodayRow() || document.getElementById('ep13') || document.getElementById('mainTimesheetPanel');
         const nextScrollParent = target ? getScrollParent(target) : window;
-        if (nextScrollParent === boundScrollParent) return;
+        if (nextScrollParent === timesheetNavScrollParent) return;
 
-        if (boundScrollParent) {
-            boundScrollParent.removeEventListener('scroll', scheduleStateUpdate);
+        if (timesheetNavScrollParent) {
+timesheetNavScrollParent.removeEventListener('scroll', scheduleTimesheetNavUpdate);
         }
 
-        boundScrollParent = nextScrollParent;
-        boundScrollParent.addEventListener('scroll', scheduleStateUpdate, { passive: true });
+        timesheetNavScrollParent = nextScrollParent;
+        timesheetNavScrollParent.addEventListener('scroll', scheduleTimesheetNavUpdate, { passive: true });
     };
 
-    const ensureNavButton = () => {
-        removeLegacyNavigation();
-
+    const ensureTimesheetNavButton = () => {
         const submitButton = getSubmitMonthButton();
         if (!submitButton) return;
 
-        let button = document.getElementById(NAV_BUTTON_ID);
+        let button = document.getElementById(TIMESHEET_NAV_BUTTON_ID);
         if (!button || button.tagName.toLowerCase() !== 'c3-button') {
-            button?.remove();
-            button = document.createElement('c3-button');
-            button.id = NAV_BUTTON_ID;
-            button.className = 'disallow-impersonation-action';
-            button.addEventListener('click', event => {
-                event.preventDefault();
-
-                if (button.dataset.epTarget === 'today') {
-                    const todayRow = getTodayRow();
-                    if (todayRow) {
-                        scrollToElement(todayRow);
-                        return;
-                    }
-                }
-
-                const topTarget = getTopTarget();
-                if (topTarget) {
-                    scrollToElement(topTarget);
-                } else {
-                    window.scrollTo({ top: 0, left: window.scrollX, behavior: 'smooth' });
-                }
-            });
+button?.remove();
+button = document.createElement('c3-button');
+button.id = TIMESHEET_NAV_BUTTON_ID;
+button.className = 'disallow-impersonation-action';
+button.addEventListener('click', event => {
+    event.preventDefault();
+    if (button.dataset.epTarget === 'today') {
+        jumpToToday();
+    } else {
+        jumpToAnalyzer();
+    }
+});
         }
 
         if (submitButton.nextElementSibling !== button) {
-            submitButton.insertAdjacentElement('afterend', button);
+submitButton.insertAdjacentElement('afterend', button);
         }
 
-        bindScrollUpdates();
-        setNavState(button);
+        bindTimesheetNavScroll();
+        updateTimesheetNavButton();
     };
 
-    const observer = new MutationObserver(() => {
-        ensureNavButton();
-    });
+    const initTimesheetNavigation = () => {
+        ensureTimesheetNavButton();
 
-    const start = () => {
-        ensureLegacyNavigationStyle();
-        ensureNavButton();
-        observer.observe(document.documentElement, {
-            childList: true,
-            subtree: true
-        });
-        window.addEventListener('resize', scheduleStateUpdate, { passive: true });
-        setInterval(ensureNavButton, 5000);
+        if (!timesheetNavObserver) {
+timesheetNavObserver = new MutationObserver(() => {
+    ensureTimesheetNavButton();
+});
+timesheetNavObserver.observe(document.body, {
+    childList: true,
+    subtree: true
+});
+window.addEventListener('resize', scheduleTimesheetNavUpdate, { passive: true });
+        }
     };
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', start, { once: true });
-    } else {
-        start();
-    }
+    /* ═══════════════════════════════════════════════════════════════
+       BOOT
+    ═══════════════════════════════════════════════════════════════ */
+    const boot = () => {
+        const tick = setInterval(
+            () => {
+                if (document.querySelector('.tt_day_container') && document.querySelector('.desktop_summary')) {
+                    clearInterval(tick);
+                    renderUI();
+                    initTimesheetNavigation();
+                    let debounce = null;
+                    const observer = new MutationObserver(mutations => {
+                        const ep = document.getElementById('ep13');
+                        if (mutations.every(m => ep && (ep.contains(m.target) || ep === m.target))) {
+                            return;
+                        }
+                        clearTimeout(debounce);
+                        debounce = setTimeout(
+                            () => {
+                                renderUI();
+                            }, 600);
+                    });
+                    const panel = document.getElementById('mainTimesheetPanel');
+                    if (panel) {
+                        observer.observe(panel, {
+                            childList: true,
+                            subtree: true,
+                            characterData: true
+                        });
+                    }
+                    setInterval(renderUI, 30000);
+                }
+            }, 800);
+    };
+    boot();
 })();
