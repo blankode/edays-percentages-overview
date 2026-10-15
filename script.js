@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      19.2
+// @version      19.3
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // ==/UserScript==
+// Changelog v19.3: Navigation button now shows ↑ To home when returning upward and ↓ To today when jumping to today.
 // Changelog v19.2: Unified To today and Back to top into one native eDays c3-button placed immediately after Submit month; removed the separate floating navigation and Jump to today from the Today strip.
 // Changelog v19.1: Added a subtle full-row Today highlight with blue accent, tinted background, and a stronger Today chip for faster visual scanning.
 // Changelog v19.0: Replaced the inline Back to Analyzer button with a floating down-arrow that appears after scrolling and returns to the analyzer.
@@ -2325,7 +2326,7 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
             target = metrics.current >= todayReachedAt ? 'top' : 'today';
         }
 
-        const label = target === 'today' ? 'To today' : 'Back to top';
+        const label = target === 'today' ? '↓ To today' : '↑ To home';
         if (button.textContent.trim() !== label) {
             button.textContent = label;
         }
