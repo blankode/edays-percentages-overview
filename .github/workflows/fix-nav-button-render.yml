@@ -1,0 +1,37 @@
+name: Fix native nav button rendering
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/fix-nav-button-render.yml
+      - .github/scripts/fix_nav_button_render.py
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch standalone userscript
+        run: python .github/scripts/fix_nav_button_render.py
+      - name: Validate standalone userscript
+        run: |
+          node --check script.js
+          grep -q '^// @version      19.2$' script.js
+          grep -q "createTimesheetNavButton" script.js
+          grep -q "↓ To today" script.js
+          grep -q "↑ To home" script.js
+          if grep -q '^// @require' script.js; then
+            echo 'script.js must remain standalone'
+            exit 1
+          fi
+      - name: Commit fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add script.js
+          git commit -m "Fix native navigation button text rendering" || exit 0
+          git push
