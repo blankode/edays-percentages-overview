@@ -2320,7 +2320,14 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
             : 'Back to the top of the timesheet';
 
         button.dataset.epTarget = target;
-        button.textContent = label;
+
+        // c3-button reads its light-DOM label when first connected. Never rewrite
+        // child text after connection: that would trigger our body MutationObserver
+        // and can create a self-sustaining render loop in eDays.
+        if (!button.isConnected && button.textContent.trim() !== label) {
+            button.textContent = label;
+        }
+
         button.setAttribute('title', description);
         button.setAttribute('aria-label', description);
     };
@@ -2355,10 +2362,10 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
         const target = getTimesheetNavState();
         const label = getTimesheetNavLabel(target);
 
-        // Do not mutate the text of an already-connected c3-button. Some eDays
-        // builds cache the initial light-DOM label. Recreate only when state/text
-        // changes so the native component initializes with the correct label.
-        if (button.dataset.epTarget !== target || button.textContent.trim() !== label) {
+        // Once connected, c3-button may manage/transform its own child content.
+        // Only recreate when the navigation TARGET changes. Comparing or rewriting
+        // textContent here can make the MutationObserver continuously replace it.
+        if (button.dataset.epTarget !== target) {
             const replacement = createTimesheetNavButton(target);
             button.replaceWith(replacement);
             return;
