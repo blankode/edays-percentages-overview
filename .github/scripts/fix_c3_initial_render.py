@@ -132,3 +132,5 @@ if '// @version      19.2' not in s:
     raise RuntimeError('Expected version 19.2')
 
 p.write_text(s, encoding='utf-8')
+
+# trigger
