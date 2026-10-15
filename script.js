@@ -1044,11 +1044,26 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
         #timesheetMonthHeader h2 .ep-enhanced-text{
             margin-left:6px;
             font-weight:800;
-            background:linear-gradient(135deg,#3b82f6,#a855f7);
+            background:linear-gradient(90deg,#3b82f6 0%,#a855f7 35%,#22d3ee 65%,#3b82f6 100%);
+            background-size:260% 100%;
+            background-position:0% 50%;
             -webkit-background-clip:text;
             background-clip:text;
             color:transparent!important;
             -webkit-text-fill-color:transparent;
+            animation:ep-enhanced-gradient 4.8s ease-in-out infinite;
+            will-change:background-position;
+        }
+        @keyframes ep-enhanced-gradient{
+            0%{background-position:0% 50%;}
+            50%{background-position:100% 50%;}
+            100%{background-position:0% 50%;}
+        }
+        @media (prefers-reduced-motion: reduce){
+            #timesheetMonthHeader h2 .ep-enhanced-text{
+                animation:none!important;
+                background-position:50% 50%;
+            }
         }
         #ep-site-theme-action{margin:0;}
 
