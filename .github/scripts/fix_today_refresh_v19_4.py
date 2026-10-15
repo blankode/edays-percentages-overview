@@ -8,7 +8,7 @@ if '// @version      19.3' not in s:
 
 s = s.replace('// @version      19.3', '// @version      19.4', 1)
 
-old_changelog = "// Changelog v19.3: Extended persistent light/dark theming across the eDays site shell, moved the theme control beside Book time off, moved Analyzer Settings beside timesheet navigation, added Time Tracking Enhanced branding, and removed the Analyzer header."
+old_changelog = "// Changelog v19.3: Uses the bundled official Dark Reader Dynamic Theme engine for site-wide dark mode; keeps the theme control beside Book time off, Analyzer Settings beside navigation, Time Tracking Enhanced branding, and the compact Analyzer layout."
 new_changelog = "// Changelog v19.4: Fixed Today highlight styling after refresh when persistent Dark Reader mode is enabled by making stylesheet/theme activation order deterministic.\n" + old_changelog
 if old_changelog not in s:
     raise RuntimeError('v19.3 changelog anchor not found')
@@ -56,10 +56,9 @@ new = '''    const applySiteTheme = () => {
             document.body.classList.remove('ep-site-dark');
         }
 
-        // Important: keep the Analyzer stylesheet in the document BEFORE Dark
-        // Reader enables its Dynamic Theme. Our Today light-theme rules use
-        // !important, so Dark Reader's fixes must be inserted later in cascade
-        // order to win consistently on a fresh page load as well as on toggles.
+        // Keep Analyzer CSS earlier in the cascade. The Today light-theme rules use
+        // !important, so Dark Reader's fixes must be inserted after this stylesheet
+        // to win consistently on both fresh loads and manual theme toggles.
         injectStyles(T);
 
         try {
