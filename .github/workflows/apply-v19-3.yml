@@ -1,0 +1,42 @@
+name: Apply v19.3
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/apply-v19-3.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply v19.3 patch
+        run: python .github/scripts/apply_v19_3.py
+
+      - name: Validate userscript
+        run: |
+          node --check script.js
+          grep -q '^// @version      19.3$' script.js
+          grep -q "SITE_THEME_ACTION_ID" script.js
+          grep -q "TIMESHEET_SETTINGS_BUTTON_ID" script.js
+          grep -q "ep-enhanced-text" script.js
+          grep -q "↓ To today" script.js
+          grep -q "↑ To home" script.js
+          grep -q "button.textContent = getTimesheetNavLabel(target);" script.js
+          if grep -q '^// @require' script.js; then
+            echo 'script.js must remain standalone'
+            exit 1
+          fi
+
+      - name: Commit v19.3
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add script.js
+          git commit -m "Release v19.3 site-wide theme enhancements" || exit 0
+          git push
