@@ -15,7 +15,7 @@
 
 **A Tampermonkey userscript that overlays a live analytics dashboard on top of eDays — showing office attendance, time vs rota, buffer, and day counts at a glance.**
 
-[![Version](https://img.shields.io/badge/version-19.4-6366f1?style=flat-square&labelColor=0f0f0f)](https://github.com/blankode/edays-percentages-overview)
+[![Version](https://img.shields.io/badge/version-19.5-6366f1?style=flat-square&labelColor=0f0f0f)](https://github.com/blankode/edays-percentages-overview)
 [![Platform](https://img.shields.io/badge/platform-Tampermonkey-f59e0b?style=flat-square&labelColor=0f0f0f)](https://www.tampermonkey.net/)
 [![License](https://img.shields.io/badge/license-MIT-22c55e?style=flat-square&labelColor=0f0f0f)](LICENSE)
 [![Site](https://img.shields.io/badge/works%20on-e--days.com-3b82f6?style=flat-square&labelColor=0f0f0f)](https://e-days.com)
@@ -150,6 +150,7 @@ Tested on `*.e-days.com` monthly timesheet view.
 
 | Version | Changes |
 |---|---|
+| **19.5** | Removed the white flash when refreshing with persistent dark mode enabled by starting at `document-start` with a temporary dark bootstrap that hands off to Dark Reader once the page is ready. Added a fail-safe bootstrap timeout and deferred normal app startup until `<head>`/`<body>` exist. Also fixed the **Include buffer** toggle in dark mode with explicit themed button, track, thumb, hover, and on/off states. |
 | **19.4** | Fixed the custom **Today** highlight disappearing after refreshing eDays while persistent Dark Reader mode was already enabled. Analyzer CSS is now established before Dark Reader activates, making cascade order deterministic so the dedicated dark-mode Today row/header/chip overrides render correctly on both fresh loads and manual theme toggles. |
 | **19.3** | Expanded light/dark theming from the Analyzer to the full eDays site and moved the theme control beside **Book time off** using native eDays button styling. Replaced the hand-maintained dark CSS with the bundled official **Dark Reader 4.9.133 Dynamic Theme engine** for consistent theming across pages and dynamically rendered components; removed the whole-page theme observer that could slow or freeze the site. Added **Time Tracking Enhanced** branding with an animated blue/purple/cyan gradient, moved Analyzer Settings beside the Today/Home navigation as an icon-only native button, removed the old Analyzer header/separator, and added dedicated Dark Reader fixes so the custom Today row/header/chip styling remains visually distinct in dark mode. |
 | **19.2** | Unified Today / Back to top navigation into one native eDays `c3-button` placed immediately after Submit month. The button switches between **To today** and **Back to top** based on scroll position; the old floating button and Today-strip jump action are removed. |
