@@ -1,11 +1,54 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      19.4
+// @version      19.5
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
+// @run-at       document-start
 // ==/UserScript==
+
+/* v19.5 — prevent a white first paint when persisted dark mode is enabled. */
+const EP_DARK_BOOTSTRAP_ID = 'ep-dark-bootstrap';
+const EP_DARK_BOOTSTRAP_CLASS = 'ep-dark-bootstrapping';
+const EP_DARK_BOOTSTRAP_KEY = 'ep-theme-override';
+const EP_DARK_BOOTSTRAP_TIMEOUT_MS = 5000;
+
+const clearEarlyDarkBootstrap = () => {
+    const root = document.documentElement;
+    if (root) {
+        root.classList.remove(EP_DARK_BOOTSTRAP_CLASS);
+        root.style.removeProperty('background-color');
+        root.style.removeProperty('color-scheme');
+    }
+    document.getElementById(EP_DARK_BOOTSTRAP_ID)?.remove();
+};
+
+(() => {
+    try {
+        if (localStorage.getItem(EP_DARK_BOOTSTRAP_KEY) !== 'dark') return;
+        const root = document.documentElement;
+        if (!root) return;
+
+        root.classList.add(EP_DARK_BOOTSTRAP_CLASS);
+        root.style.setProperty('background-color', '#181a1b', 'important');
+        root.style.setProperty('color-scheme', 'dark');
+
+        const style = document.createElement('style');
+        style.id = EP_DARK_BOOTSTRAP_ID;
+        style.textContent = `
+            html{background:#181a1b!important;color-scheme:dark!important;}
+            body{background:#181a1b!important;}
+            html.${EP_DARK_BOOTSTRAP_CLASS} body{visibility:hidden!important;}
+        `;
+        (document.head || root).appendChild(style);
+
+        // Safety valve: never leave eDays hidden if startup is interrupted.
+        window.setTimeout(clearEarlyDarkBootstrap, EP_DARK_BOOTSTRAP_TIMEOUT_MS);
+    } catch (_) {
+        clearEarlyDarkBootstrap();
+    }
+})();
 
 /* === VENDORED DARK READER API 4.9.133 (MIT) === */
 /*
@@ -9450,6 +9493,7 @@ _______|_______/__/ ____ \\__\\__|___\\__\\__|___\\__\\____
 });
 /* === END VENDORED DARK READER API === */
 
+// Changelog v19.5: Eliminated the persisted-dark white flash on refresh with a document-start bootstrap and fixed Include buffer control rendering in dark mode.
 // Changelog v19.4: Fixed Today highlight styling after refresh when persistent Dark Reader mode is enabled by making stylesheet/theme activation order deterministic.
 // Changelog v19.4: Fixed light-mode switching removing Analyzer styles by recreating protected CSS after Dark Reader is disabled.
 // Changelog v19.3: Uses the bundled official Dark Reader Dynamic Theme engine for site-wide dark mode; keeps the theme control beside Book time off, Analyzer Settings beside navigation, Time Tracking Enhanced branding, and the compact Analyzer layout.
@@ -10339,8 +10383,13 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
         #ep13 .ep-today-track{height:5px;background:${T.barTrack};border-radius:5px;overflow:hidden;}
         #ep13 .ep-today-fill{height:100%;border-radius:5px;transition:width .4s ease;}
         #ep13 .ep-today-actions{display:flex;align-items:center;gap:6px;flex-shrink:0;}
-        #ep13 .ep-toggle-track{display:inline-block;width:28px;height:16px;border-radius:8px;position:relative;vertical-align:middle;flex-shrink:0;transition:background .2s;}
+        #ep13 .ep-toggle-track{display:inline-block;width:28px;height:16px;border-radius:8px;position:relative;vertical-align:middle;flex-shrink:0;transition:background .2s,border-color .2s;}
         #ep13 .ep-toggle-thumb{position:absolute;width:12px;height:12px;background:#fff;border-radius:50%;top:2px;box-shadow:0 1px 2px rgba(0,0,0,0.25);transition:left .2s;}
+        #ep13 .ep-buffer-toggle{background:${T.isDark?'#25282a':'transparent'}!important;color:${T.text}!important;border-color:${T.isDark?'#4b5054':'#bcc1c2'}!important;}
+        #ep13 .ep-buffer-toggle:hover{background:${T.isDark?'#303436':'#f0f0f0'}!important;color:${T.text}!important;border-color:${T.isDark?'#666d72':'#bcc1c2'}!important;}
+        #ep13 .ep-buffer-toggle.is-off .ep-toggle-track{background:${T.isDark?'#4b5155':'rgba(0,0,0,.16)'}!important;box-shadow:inset 0 0 0 1px ${T.isDark?'rgba(255,255,255,.08)':'rgba(0,0,0,.06)'};}
+        #ep13 .ep-buffer-toggle.is-on .ep-toggle-track{background:#3b82f6!important;box-shadow:inset 0 0 0 1px rgba(147,197,253,.25);}
+        #ep13 .ep-buffer-toggle .ep-toggle-thumb{background:${T.isDark?'#f3f4f6':'#fff'}!important;box-shadow:0 1px 3px rgba(0,0,0,.38)!important;}
 
         /* TODAY HIGHLIGHT — native eDays row */
         .tt_day_container:has(.today_chip){
@@ -10930,7 +10979,14 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
                 // Today fixes are inserted later and reliably win the cascade.
                 injectStyles(T);
                 DarkReader.enable(DARK_READER_THEME, DARK_READER_FIXES);
+
+                // Keep the early dark bootstrap in place through the next two paint
+                // opportunities so users never see the original white eDays theme.
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(clearEarlyDarkBootstrap);
+                });
             } else {
+                clearEarlyDarkBootstrap();
                 // Light mode: DarkReader.disable() removes every style.darkreader,
                 // including our protected Analyzer stylesheet. Disable first, then
                 // recreate the Analyzer CSS so cards/layout never collapse to text.
@@ -10941,8 +10997,9 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
             }
         } catch (error) {
             console.error('[eDays Analyzer Pro] Dark Reader theme error:', error);
-            // Never leave the Analyzer unstyled if Dark Reader fails midway.
+            // Never leave the Analyzer unstyled or the page bootstrap-hidden.
             injectStyles(T);
+            clearEarlyDarkBootstrap();
         }
 
         return T;
@@ -11478,13 +11535,10 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
                         scheduledTarget > 0
                             ? `
                                 <span
-                                    class="ep-btn ep-btn-pill"
+                                    class="ep-btn ep-btn-pill ep-buffer-toggle ${todayBufOn ? 'is-on' : 'is-off'}"
                                     data-action="buf-toggle"
                                 >
-                                    <span
-                                        class="ep-toggle-track"
-                                        style="background:${todayBufOn ? '#3b82f6' : T.barTrack};"
-                                    >
+                                    <span class="ep-toggle-track">
                                         <span
                                             class="ep-toggle-thumb"
                                             style="left:${todayBufOn ? '14px' : '2px'};"
@@ -12491,6 +12545,13 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
        BOOT
     ═══════════════════════════════════════════════════════════════ */
     const boot = () => {
+        // @run-at document-start is required for the anti-flash bootstrap. Defer
+        // the normal application boot until eDays has created head and body.
+        if (!document.head || !document.body) {
+            requestAnimationFrame(boot);
+            return;
+        }
+
         initSiteEnhancements();
         const tick = setInterval(
             () => {
