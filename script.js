@@ -10386,6 +10386,7 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
             overflow:hidden;
             z-index:2;
         }
+        #ep13 .ep-office-celebration .tenor-gif-embed > a{display:none!important;}
         #ep13 .ep-office-celebration .tenor-gif-embed iframe{
             max-width:82px!important;
             max-height:56px!important;
@@ -10400,6 +10401,8 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
             line-height:1.15;
             font-weight:800;
             color:#16a34a!important;
+            text-decoration:none!important;
+            z-index:1;
         }
         #ep13 .ep-office-gif-shell:has(.tenor-gif-embed iframe) .ep-office-gif-fallback{
             visibility:hidden;
@@ -12354,7 +12357,7 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
 <div class="ep-chip${officeTargetReached ? ' ep-office-celebration' : ''}" style="min-width:0;overflow:hidden;">
     ${officeTargetReached ? `
         <div class="ep-office-gif-shell">
-            <span class="ep-office-gif-fallback" title="Congratulations! Office target achieved">🎉 Well done!</span>
+            <a class="ep-office-gif-fallback" href="${OFFICE_CELEBRATION_GIF_URL}" target="_blank" rel="noopener noreferrer" title="Congratulations! Office target achieved — view the GIF">🎉 Well done!</a>
             <div class="tenor-gif-embed"
                  data-postid="${OFFICE_CELEBRATION_GIF_ID}"
                  data-share-method="host"
