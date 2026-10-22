@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      19.6
+// @version      19.7
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
@@ -9493,6 +9493,7 @@ _______|_______/__/ ____ \\__\\__|___\\__\\__|___\\__\\____
 });
 /* === END VENDORED DARK READER API === */
 
+// Changelog v19.7: Fix Today and Buffer break deduction. Use eDays' Breaks hour/minute selectors when nonzero; when 00:00, subtract the configured mandatory break instead of treating gaps between working periods as the break. Show net worked time and consistent remaining/leave time in expanded and minimized Today views.
 // Changelog v19.6: Promoted tested compact dashboard from script_mini.js into the main userscript. Added persistent Minimize/Expand control immediately after native Analyzer Settings, a four-metric compact view (Today, Office Target, Buffer, Month Progress), and compact Include buffer control; restored expanded-mode matching background, spacing, alignment and inner card borders without a visible outer border.
 // Changelog v19.5: Eliminated the persisted-dark white flash on refresh with a document-start bootstrap and fixed Include buffer control rendering in dark mode.
 // Changelog v19.4: Fixed Today highlight styling after refresh when persistent Dark Reader mode is enabled by making stylesheet/theme activation order deterministic.
@@ -9862,40 +9863,27 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
         });
         return Math.max(saved, live);
     };
-    const getObservedBreakMinutes = dayEl => {
-        const periods = [...dayEl.querySelectorAll('.tt_period_container')].map(p => {
-            const {
-                start,
-                end
-            } = getPeriodTimeValues(p);
-            if (!start) {
-                return null;
-            }
-            return {
-                start: timeToMinutes(start),
-                end: end ? timeToMinutes(end) : null
-            };
-        }).filter(Boolean).sort((a, b) => a.start - b.start);
-        let breakMinutes = 0;
-        for (let i = 1; i < periods.length; i++) {
-            const previous = periods[i - 1];
-            const current = periods[i];
-            if (previous.end === null) {
-                continue;
-            }
-            breakMinutes += Math.max(0, current.start - previous.end);
-        }
-        return breakMinutes;
-    };
     const getRequiredMandatoryBreakMinutes = dayEl => {
         const target = getDayWorkTargetMinutes(dayEl);
         return target >= STANDARD_DAY_MINUTES ? mandatoryBreakMinutes : 0;
     };
 
-    const getMissingMandatoryBreakMinutes = dayEl => {
-        const requiredBreak = getRequiredMandatoryBreakMinutes(dayEl);
-        const observedBreak = getObservedBreakMinutes(dayEl);
-        return Math.max(0, requiredBreak - observedBreak);
+    // v19.7: eDays' Breaks selector is authoritative. Period-to-period
+    // clock-out gaps must NOT silently satisfy the selected break, because
+    // eDays reports period working hours separately from the Breaks control.
+    // 00:00 means use the configurable mandatory-break default (30 min).
+    const getTodayBreakDeductionMinutes = dayEl => {
+        const selects = dayEl.querySelectorAll('.tt_break_container .breaks_timepicker select');
+        if (selects.length >= 2) {
+            const hours = Number(selects[0].value);
+            const minutes = Number(selects[1].value);
+            if (Number.isInteger(hours) && Number.isInteger(minutes) &&
+                hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) {
+                const selectedBreak = hours * 60 + minutes;
+                if (selectedBreak > 0) return selectedBreak;
+            }
+        }
+        return getRequiredMandatoryBreakMinutes(dayEl);
     };
     /* ═══════════════════════════════════════════════════════════════
        ICONS
@@ -10184,17 +10172,14 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
                 } else if (d.isToday) {
                     if (worked <= 0) return;
                     const isRunning = [...d.el.querySelectorAll('.tt_period_container')].some(isOpenPeriod);
-                    const missingBreakMinutes = getMissingMandatoryBreakMinutes(d.el);
-                    const effectiveWorked = Math.max(0, worked - missingBreakMinutes);
+                    const breakDeductionMinutes = getTodayBreakDeductionMinutes(d.el);
+                    const effectiveWorked = Math.max(0, worked - breakDeductionMinutes);
                     /*
-                     * Keep the buffer neutral while today's normal target has not
-                     * yet been reached. Once it is reached, predict the balance
-                     * eDays will show after applying any still-missing mandatory break.
-                     *
-                     * Example with an 8h target and 30m mandatory break:
-                     * 8h00 worked, no break -> -30m
-                     * 8h15 worked, no break -> -15m
-                     * 8h30 worked, no break -> 0m
+                     * Keep the buffer neutral while today is actively running
+                     * below its gross target. Once it is reached (or clocked out),
+                     * deduct the eDays Breaks selector if nonzero, otherwise the
+                     * configured mandatory-break default. Never infer this deduction
+                     * from the gaps between separate periods.
                      */
                     const todayDiff = isRunning && worked < target ? 0 : effectiveWorked - target;
                     bufferMinutes += todayDiff;
@@ -10229,9 +10214,13 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
         });
         workedMinutes = Math.max(workedMinutes, getDayTotalMinutes(el));
         const absence = getAbsenceInfo(el);
+        const breakMinutes = getTodayBreakDeductionMinutes(el);
+        const netWorkedMinutes = Math.max(0, workedMinutes - breakMinutes);
         return {
             el,
             workedMinutes,
+            netWorkedMinutes,
+            breakMinutes,
             targetMinutes: getDayWorkTargetMinutes(el),
             absenceText: absence.text,
             isHalfDay: absence.isHalfDay,
@@ -11498,22 +11487,15 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
                 effTarget = Math.min(scheduledTarget, effTarget);
             }
         }
-        const todayWorked = today.workedMinutes;
+        const todayWorked = today.netWorkedMinutes;
         const isDayOff = scheduledTarget === 0;
-        /*
-         * Use the same mandatory-break calculation as Buffer.
-         * Real clock-out gaps count toward the configured break requirement.
-         */
-        const missingBreakMinutes = isDayOff ? 0 : getMissingMandatoryBreakMinutes(today.el);
-        /*
-         * Break time does not count as working time, therefore the missing
-         * mandatory break is added to the amount of elapsed time still needed.
-         */
-        const todayRemaining = Math.max(0, effTarget - todayWorked + missingBreakMinutes);
+        // Today displays effective worked time after the eDays break deduction.
+        // Subtract it once at the source; don't add it again to remaining time.
+        const todayRemaining = Math.max(0, effTarget - todayWorked);
         const todayDone = isDayOff || todayRemaining === 0;
         /*
-         * Progress represents how close we are to actually being allowed
-         * to finish the day, including any still-missing mandatory break.
+         * Progress uses worked minutes after the break entered in eDays
+         * (or the configured default when its Breaks control is 00:00).
          */
         const effectiveCompleted = Math.max(0, effTarget - todayRemaining);
         const todayPct = isDayOff ? 100 : (effTarget > 0 ? Math.min(100,
@@ -11773,10 +11755,9 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
                 target=Math.max(0,dailyTarget-ds.priorBufferMinutes);
                 if(today.isHalfDay)target=Math.min(dailyTarget,target);
             }
-            const missingBreak=dailyTarget===0?0:getMissingMandatoryBreakMinutes(today.el);
-            const remaining=Math.max(0,target-today.workedMinutes+missingBreak);
+            const remaining=Math.max(0,target-today.netWorkedMinutes);
             const leaveAt=today.isRunning&&remaining>0?formatClock(new Date(Date.now()+remaining*60000)):null;
-            todayValue=`${fmt(today.workedMinutes)} / ${fmt(target)}`;
+            todayValue=`${fmt(today.netWorkedMinutes)} / ${fmt(target)}`;
             todayDetails=dailyTarget===0?(today.absenceText||'Non-working day')
                 :target===0&&includeBuffer&&remaining===0?'Covered by buffer'
                 :remaining===0?'Day complete'
