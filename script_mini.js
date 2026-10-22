@@ -10394,7 +10394,7 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
         #ep13 .ep-buffer-toggle .ep-toggle-thumb{background:${T.isDark?'#f3f4f6':'#fff'}!important;box-shadow:0 1px 3px rgba(0,0,0,.38)!important;}
 
         /* Mini-only summary styling */
-        #ep13.ep-mini-mode{padding:8px 10px;margin:0 0 10px;border:1px solid ${T.border};border-radius:10px;}
+        #ep13.ep-mini-mode{padding:8px 10px;margin:0 0 10px;border:none;outline:none;box-shadow:none;border-radius:10px;}
         #ep13 .ep-mini-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;}
         #ep13 .ep-mini-tile{min-width:0;display:flex;flex-direction:column;gap:4px;background:${T.surface};border:1px solid ${T.border};border-radius:8px;padding:8px 10px;}
         #ep13 .ep-mini-heading{display:flex;align-items:center;justify-content:space-between;gap:4px;min-width:0;min-height:16px;}
