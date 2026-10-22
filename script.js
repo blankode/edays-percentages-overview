@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      19.5
+// @version      19.6
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
@@ -9493,6 +9493,7 @@ _______|_______/__/ ____ \\__\\__|___\\__\\__|___\\__\\____
 });
 /* === END VENDORED DARK READER API === */
 
+// Changelog v19.6: Promoted tested compact dashboard from script_mini.js into the main userscript. Added persistent Minimize/Expand control immediately after native Analyzer Settings, a four-metric compact view (Today, Office Target, Buffer, Month Progress), and compact Include buffer control; restored expanded-mode matching background, spacing, alignment and inner card borders without a visible outer border.
 // Changelog v19.5: Eliminated the persisted-dark white flash on refresh with a document-start bootstrap and fixed Include buffer control rendering in dark mode.
 // Changelog v19.4: Fixed Today highlight styling after refresh when persistent Dark Reader mode is enabled by making stylesheet/theme activation order deterministic.
 // Changelog v19.4: Fixed light-mode switching removing Analyzer styles by recreating protected CSS after Dark Reader is disabled.
@@ -9530,12 +9531,14 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
     ═══════════════════════════════════════════════════════════════ */
     const LS = {
         THEME: 'ep-theme-override',
+        MINI_MODE: 'ep-mini-mode',
         TODAY_BUF: 'ep-today-buffer',
         PLANNER_OPEN: 'ep-planner-open',
         OFF_TARGET: 'ep-office-target',
         MANDATORY_BREAK: 'ep-mandatory-break',
     };
 
+    let miniMode = localStorage.getItem(LS.MINI_MODE) === 'true';
     const readNumericSetting = (key, fallback, min, max) => {
         const raw = localStorage.getItem(key);
         if (raw === null) return fallback;
@@ -10391,6 +10394,22 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
         #ep13 .ep-buffer-toggle.is-on .ep-toggle-track{background:#3b82f6!important;box-shadow:inset 0 0 0 1px rgba(147,197,253,.25);}
         #ep13 .ep-buffer-toggle .ep-toggle-thumb{background:${T.isDark?'#f3f4f6':'#fff'}!important;box-shadow:0 1px 3px rgba(0,0,0,.38)!important;}
 
+        /* Mini-only summary styling */
+        #ep13.ep-mini-mode{background:${T.bg}!important;padding:14px 16px 12px!important;margin:0 0 16px!important;border:0!important;outline:0!important;box-shadow:none!important;border-radius:14px!important;}
+        #ep13 .ep-mini-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;}
+        #ep13 .ep-mini-tile{min-width:0;display:flex;flex-direction:column;gap:4px;background:${T.surface};border:1px solid ${T.border};border-radius:8px;padding:8px 10px;}
+        #ep13 .ep-mini-heading{display:flex;align-items:center;justify-content:space-between;gap:4px;min-width:0;min-height:16px;}
+        #ep13 .ep-mini-label{font-size:10px;letter-spacing:.65px;font-weight:750;text-transform:uppercase;color:${T.muted};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+        #ep13 .ep-mini-value{font-size:17px;line-height:1.2;font-weight:800;color:${T.text};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums;}
+        #ep13 .ep-mini-details{font-size:10px;color:${T.muted};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.4;}
+        #ep13 .ep-mini-meter{height:3px;margin-top:2px;background:${T.barTrack};border-radius:4px;overflow:hidden;}
+        #ep13 .ep-mini-meter>span{display:block;height:100%;border-radius:4px;}
+        #ep13 .ep-mini-buffer{cursor:pointer;user-select:none;white-space:nowrap;font-size:9px;font-weight:700;border-radius:999px;padding:2px 6px;background:${T.isDark?"#363b40":"#e5e7eb"};color:${T.text};border:1px solid ${T.border};}
+        #ep13 .ep-mini-buffer.is-on{background:#1d4ed8;color:#fff;border-color:#3b82f6;}
+        #ep13 .ep-mini-buffer:hover{outline:1px solid #60a5fa;}
+        #ep13 .ep-mini-buffer:focus-visible{outline:2px solid #60a5fa;outline-offset:2px;}
+        @media(max-width:980px){#ep13 .ep-mini-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
+        @media(max-width:460px){#ep13 .ep-mini-grid{grid-template-columns:1fr;}}
         /* TODAY HIGHLIGHT — native eDays row */
         .tt_day_container:has(.today_chip){
             position:relative;
@@ -11678,6 +11697,14 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
     ═══════════════════════════════════════════════════════════════ */
     const bindInteractions = container => {
         container.querySelectorAll('[data-action]').forEach(el => {
+            if (el.matches('.ep-mini-buffer')) {
+                el.addEventListener('keydown', e => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        el.click();
+                    }
+                });
+            }
             el.addEventListener('click', e => {
                 e.preventDefault();
                 const action = el.dataset.action;
@@ -11711,6 +11738,70 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
     /* ═══════════════════════════════════════════════════════════════
        MAIN RENDER
     ═══════════════════════════════════════════════════════════════ */
+    function renderMiniDashboard(T,summary){
+        const ds=getDayStats(summary);
+        const days=getDetailedDayData();
+        const officeMinutes=days.reduce((v,d)=>v+((d.hasOffice&&(d.isPast||d.isToday))?d.officeMins:0),0);
+        const officeTarget=ds.realRota*(offTarget/100);
+        const officeRemaining=Math.max(0,Math.ceil(officeTarget-officeMinutes));
+        const officePct=officeTarget>0?Math.round(officeMinutes/officeTarget*100):0;
+        const monthPct=ds.realRota>0?Math.round(ds.progressPct):0;
+        const today=getTodayInfo();
+        const includeBuffer=localStorage.getItem(LS.TODAY_BUF)==='true';
+        let todayValue='—',todayDetails='No Today entry in this month',todayPct=0;
+        if(today){
+            const dailyTarget=today.targetMinutes;
+            let target=dailyTarget;
+            if(includeBuffer&&dailyTarget>0){
+                target=Math.max(0,dailyTarget-ds.priorBufferMinutes);
+                if(today.isHalfDay)target=Math.min(dailyTarget,target);
+            }
+            const missingBreak=dailyTarget===0?0:getMissingMandatoryBreakMinutes(today.el);
+            const remaining=Math.max(0,target-today.workedMinutes+missingBreak);
+            const leaveAt=today.isRunning&&remaining>0?formatClock(new Date(Date.now()+remaining*60000)):null;
+            todayValue=`${fmt(today.workedMinutes)} / ${fmt(target)}`;
+            todayDetails=dailyTarget===0?(today.absenceText||'Non-working day')
+                :target===0&&includeBuffer&&remaining===0?'Covered by buffer'
+                :remaining===0?'Day complete'
+                :`${fmt(remaining)} left${leaveAt?` · leave at ${leaveAt}`:''}`;
+            todayPct=dailyTarget===0?100:target>0?clamp((target-remaining)/target*100,0,100):remaining===0?100:0;
+        }
+        const buffer=ds.bufferMinutes;
+        const bufferColor=buffer>0?'#22c55e':buffer<0?'#ef4444':T.text;
+        const bufferHint=buffer>0?'Ahead of schedule':buffer<0?'Behind schedule':'On schedule';
+        return `
+            <div class="ep-mini-grid" aria-label="Compact timesheet summary">
+                <div class="ep-mini-tile">
+                    <div class="ep-mini-heading">
+                        <span class="ep-mini-label">Today</span>
+                        ${today&&today.targetMinutes>0?`<span class="ep-mini-buffer ${includeBuffer?'is-on':''}" data-action="buf-toggle" role="button" tabindex="0" aria-pressed="${includeBuffer}" title="Include banked buffer in today's target">Buffer ${includeBuffer?'on':'off'}</span>`:''}
+                    </div>
+                    <div class="ep-mini-value">${todayValue}</div>
+                    <div class="ep-mini-details" title="${todayDetails}">${todayDetails}</div>
+                    <div class="ep-mini-meter"><span style="width:${todayPct.toFixed(1)}%;background:#3b82f6"></span></div>
+                </div>
+                <div class="ep-mini-tile">
+                    <div class="ep-mini-heading"><span class="ep-mini-label">Office target · ${offTarget}%</span></div>
+                    <div class="ep-mini-value" style="color:${officeTarget>0&&officeRemaining===0?'#22c55e':T.text}">${officeTarget>0?`${officePct}%`:'—'}</div>
+                    <div class="ep-mini-details">${fmt(officeMinutes)} / ${fmt(officeTarget)}${officeTarget<=0?' · not set':officeRemaining>0?` · ${fmt(officeRemaining)} needed`:' · target met'}</div>
+                    <div class="ep-mini-meter"><span style="width:${clamp(officePct,0,100)}%;background:#3b82f6"></span></div>
+                </div>
+                <div class="ep-mini-tile">
+                    <div class="ep-mini-heading"><span class="ep-mini-label">Buffer</span></div>
+                    <div class="ep-mini-value" style="color:${bufferColor}">${fmt(buffer)}</div>
+                    <div class="ep-mini-details">${bufferHint}</div>
+                    <div class="ep-mini-meter"><span style="width:${buffer>0?100:buffer<0?50:0}%;background:${bufferColor}"></span></div>
+                </div>
+                <div class="ep-mini-tile">
+                    <div class="ep-mini-heading"><span class="ep-mini-label">Month progress</span></div>
+                    <div class="ep-mini-value">${monthPct}%</div>
+                    <div class="ep-mini-details">${fmt(summary.recorded)} / ${fmt(ds.realRota)} · ${fmt(ds.remainingMinutes)} left</div>
+                    <div class="ep-mini-meter"><span style="width:${clamp(ds.progressPct,0,100).toFixed(1)}%;background:linear-gradient(90deg,#3b82f6,#a855f7)"></span></div>
+                </div>
+            </div>
+        `;
+    }
+
     const renderUI = () => {
         const T = applySiteTheme();
         const mainPanel = document.getElementById('mainTimesheetPanel');
@@ -11735,6 +11826,13 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
             month: 'short',
             year: 'numeric'
         }).toUpperCase();
+        if (miniMode) {
+            container.classList.add('ep-mini-mode');
+            container.innerHTML = renderMiniDashboard(T, summary);
+            bindInteractions(container);
+            return;
+        }
+        container.classList.remove('ep-mini-mode');
         if (!summary.recorded && !rawTotal) {
             const ds = getDayStats(summary);
             const detailedDays = getDetailedDayData();
@@ -12350,6 +12448,7 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
     ═══════════════════════════════════════════════════════════════ */
     const TIMESHEET_NAV_BUTTON_ID = 'ep-timesheet-nav';
     const TIMESHEET_SETTINGS_BUTTON_ID = 'ep-timesheet-settings';
+    const TIMESHEET_MINIMIZE_BUTTON_ID = 'ep-timesheet-minimize';
     let timesheetNavScrollParent = null;
     let timesheetNavObserver = null;
     let timesheetNavRaf = 0;
@@ -12384,6 +12483,38 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
         return button;
     };
 
+    const createTimesheetMinimizeButton = () => {
+        const button = document.createElement('c3-button');
+        button.id = TIMESHEET_MINIMIZE_BUTTON_ID;
+        button.className = 'disallow-impersonation-action';
+        // eDays custom buttons capture text at insertion time.
+        button.textContent = miniMode ? 'Expand' : 'Minimize';
+        button.dataset.epMiniState = miniMode ? 'mini' : 'full';
+        button.setAttribute('title', miniMode ? 'Show full Analyzer dashboard' : 'Show compact Analyzer summary');
+        button.setAttribute('aria-label', miniMode ? 'Expand Analyzer dashboard' : 'Minimize Analyzer dashboard');
+        button.addEventListener('click', event => {
+            event.preventDefault();
+            miniMode = !miniMode;
+            localStorage.setItem(LS.MINI_MODE, String(miniMode));
+            renderUI();
+            ensureTimesheetNavButton();
+        });
+        return button;
+    };
+
+    const ensureTimesheetMinimizeButton = settingsButton => {
+        let button = document.getElementById(TIMESHEET_MINIMIZE_BUTTON_ID);
+        const wantedState = miniMode ? 'mini' : 'full';
+        if (!button || button.tagName.toLowerCase() !== 'c3-button' || button.dataset.epMiniState !== wantedState) {
+            const replacement = createTimesheetMinimizeButton();
+            if (button) button.replaceWith(replacement);
+            button = replacement;
+        }
+        if (settingsButton.nextElementSibling !== button) {
+            settingsButton.insertAdjacentElement('afterend', button);
+        }
+    };
+
     const ensureTimesheetSettingsButton = navButton => {
         if (!navButton) return;
         let settingsButton = document.getElementById(TIMESHEET_SETTINGS_BUTTON_ID);
@@ -12394,6 +12525,7 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
         if (navButton.nextElementSibling !== settingsButton) {
             navButton.insertAdjacentElement('afterend', settingsButton);
         }
+        ensureTimesheetMinimizeButton(settingsButton);
     };
 
 
