@@ -10354,21 +10354,74 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
         #ep13 .ep-chip{background:${T.chipBg};border:1px solid ${T.border};border-radius:7px;padding:7px 8px;text-align:center;}
         #ep13 .ep-chip-val{font-size:20px;font-weight:700;line-height:1;color:${T.text};}
         #ep13 .ep-chip-lbl{font-size:10px;color:${T.muted};text-transform:uppercase;letter-spacing:0.8px;margin-top:2px;}
-        /* Self-contained office-target animation: no external Tenor embed. */
+        /* Target-met animation fills its own card only. Keep grid-item sizing
+           and preserve a readable top label in both light and dark modes. */
+        #ep13 .ep-chip.ep-office-celebration{
+            position:relative;
+            isolation:isolate;
+            box-sizing:border-box;
+            min-width:0;
+            min-height:86px;
+            padding:0!important;
+            overflow:hidden;
+            border-radius:7px;
+        }
+        #ep13 .ep-office-celebration .ep-office-celebration-head{
+            position:relative;
+            z-index:3;
+            display:block;
+            box-sizing:border-box;
+            width:100%;
+            padding:6px 3px;
+            text-align:center;
+            font-size:10px;
+            font-weight:700;
+            line-height:1.25;
+            letter-spacing:0.6px;
+            text-transform:uppercase;
+            white-space:nowrap;
+            color:${T.isDark?'#e8e6e3':'#334155'}!important;
+            background:${T.isDark?'rgba(24,26,27,.88)':'rgba(255,255,255,.88)'}!important;
+        }
         #ep13 .ep-office-celebration .ep-office-gif-shell{
-            height:56px;width:100%;display:flex;align-items:center;
-            justify-content:center;border-radius:6px;overflow:hidden;
+            position:absolute;
+            z-index:1;
+            inset:0;
+            display:block;
+            width:100%;
+            height:100%;
+            margin:0;
+            overflow:hidden;
+            border-radius:inherit;
         }
         #ep13 .ep-office-celebration .ep-office-gif-image{
-            display:block;width:auto;height:auto;max-width:100%;max-height:54px;object-fit:contain;
+            position:absolute;
+            inset:0;
+            display:block;
+            width:100%;
+            height:100%;
+            max-width:none;
+            max-height:none;
+            object-fit:cover;
+            object-position:center center;
         }
         #ep13 .ep-office-celebration .ep-office-gif-fallback{
-            display:inline-flex;align-items:center;justify-content:center;
-            font-size:12px;line-height:1.15;font-weight:800;
-            color:#16a34a!important;text-decoration:none!important;
+            position:absolute;
+            z-index:2;
+            inset:26px 0 0;
+            display:flex;
+            justify-content:center;
+            align-items:center;
+            padding:0 3px;
+            font-size:12px;
+            font-weight:800;
+            color:#16a34a!important;
+            text-decoration:none!important;
         }
         #ep13 .ep-office-celebration .ep-office-gif-fallback[hidden],
-        #ep13 .ep-office-celebration .ep-office-gif-image[hidden]{display:none!important;}
+        #ep13 .ep-office-celebration .ep-office-gif-image[hidden]{
+            display:none!important;
+        }
 
         #ep13 .ep-prog-wrap{width:100%;}
         #ep13 .ep-prog-hdr{display:flex;justify-content:space-between;font-size:11px;color:${T.muted};margin-bottom:4px;}
@@ -12581,17 +12634,18 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
 
 <div class="ep-chip${officeTargetReached ? ' ep-office-celebration' : ''}" style="min-width:0;overflow:hidden;">
     ${officeTargetReached ? `
+        <div class="ep-office-celebration-head">${officeChipLbl}</div>
         <div class="ep-office-gif-shell">
-            <img class="ep-office-gif-image" alt="Congratulations! Office target achieved" width="82" height="54" decoding="async">
+            <img class="ep-office-gif-image" alt="Congratulations! Office target achieved" decoding="async">
             <a class="ep-office-gif-fallback" hidden href="${OFFICE_CELEBRATION_GIF_URL}" target="_blank" rel="noopener noreferrer" title="View congratulations GIF">🎉 Well done!</a>
         </div>`
         : `
         <div class="ep-chip-val"
              style="color:#3b82f6;white-space:nowrap;overflow:hidden;${offRemDays <= 1 || officeChipVal.includes(' ') ? 'font-size:14px;' : ''}">
             ${officeChipVal || '0h'}
-        </div>`
+        </div>
+        <div class="ep-chip-lbl">${officeChipLbl}</div>`
     }
-    <div class="ep-chip-lbl">${officeChipLbl}</div>
 </div>
 
                     <div class="ep-chip">
