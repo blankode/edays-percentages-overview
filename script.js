@@ -10365,6 +10365,46 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
         #ep13 .ep-chip{background:${T.chipBg};border:1px solid ${T.border};border-radius:7px;padding:7px 8px;text-align:center;}
         #ep13 .ep-chip-val{font-size:20px;font-weight:700;line-height:1;color:${T.text};}
         #ep13 .ep-chip-lbl{font-size:10px;color:${T.muted};text-transform:uppercase;letter-spacing:0.8px;margin-top:2px;}
+        /* A small, non-empty success state in Buffer & Outlook when the office quota is met. */
+        #ep13 .ep-office-celebration .ep-office-gif-shell{
+            position:relative;
+            width:100%;
+            height:56px;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            overflow:hidden;
+            border-radius:6px;
+        }
+        #ep13 .ep-office-celebration .tenor-gif-embed{
+            position:absolute;
+            inset:0;
+            margin:auto;
+            width:82px!important;
+            max-width:82px!important;
+            max-height:56px!important;
+            overflow:hidden;
+            z-index:2;
+        }
+        #ep13 .ep-office-celebration .tenor-gif-embed iframe{
+            max-width:82px!important;
+            max-height:56px!important;
+            border:0!important;
+        }
+        #ep13 .ep-office-gif-fallback{
+            display:inline-flex;
+            align-items:center;
+            justify-content:center;
+            gap:3px;
+            font-size:12px;
+            line-height:1.15;
+            font-weight:800;
+            color:#16a34a!important;
+        }
+        #ep13 .ep-office-gif-shell:has(.tenor-gif-embed iframe) .ep-office-gif-fallback{
+            visibility:hidden;
+        }
+
         #ep13 .ep-prog-wrap{width:100%;}
         #ep13 .ep-prog-hdr{display:flex;justify-content:space-between;font-size:11px;color:${T.muted};margin-bottom:4px;}
         #ep13 .ep-prog-track{height:5px;background:${T.barTrack};border-radius:5px;overflow:hidden;}
@@ -11802,6 +11842,22 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
         `;
     }
 
+    // The Tenor post URL is a webpage, not a GIF file. Use Tenor's official
+    // post-id embed and keep a visible fallback in case third-party scripts
+    // are blocked by eDays' Content Security Policy.
+    const OFFICE_CELEBRATION_GIF_URL = 'https://tenor.com/view/congratulations-gif-9631736168906678469';
+    const OFFICE_CELEBRATION_GIF_ID = '9631736168906678469';
+
+    const initializeOfficeCelebrationGif = container => {
+        const embed = container.querySelector('.ep-office-celebration .tenor-gif-embed');
+        if (!embed) return;
+        const script = document.createElement('script');
+        script.src = 'https://tenor.com/embed.js';
+        script.async = true;
+        script.setAttribute('data-ep-office-celebration-loader', '');
+        document.head.appendChild(script);
+    };
+
     const renderUI = () => {
         const T = applySiteTheme();
         const mainPanel = document.getElementById('mainTimesheetPanel');
@@ -11812,6 +11868,8 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
             container.id = 'ep13';
             mainPanel.insertBefore(container, mainPanel.firstChild);
         }
+        // Keep a hydrated GIF/iframe intact across the 30-second Analyzer redraw.
+        const existingOfficeGif = container.querySelector('.ep-office-celebration .tenor-gif-embed');
         if (!isSummaryReady()) {
             container.innerHTML = `<div class="ep-hdr">` + `<div class="ep-hdr-logo">${icon('timer',16)}</div>` + `<div class="ep-hdr-title">eDays Analyzer Pro</div>` + `<div class="ep-hdr-date"><span class="ep-pulse"></span> Loading…</div>` + `</div>`;
             return;
@@ -12248,7 +12306,8 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
          * exactly 2 days         -> 2d
          * <= 1 day               -> exact hours, e.g. 6h 30m
          */
-        const officeChipLbl = offRemMins <= STANDARD_DAY_MINUTES ? 'Office Time Needed' : 'Office Days Needed';
+        const officeTargetReached = targetMins > 0 && offRemMins === 0;
+        const officeChipLbl = officeTargetReached ? 'Office Target Met' : offRemMins <= STANDARD_DAY_MINUTES ? 'Office Time Needed' : 'Office Days Needed';
         const wfhChipVal = fmtDaysAndTime(wfhAvailableMins);
         const wfhChipLbl = wfhAvailableMins <= STANDARD_DAY_MINUTES ? 'WFH Time Available' : 'WFH Days Available';
         const officeChipCompact = officeChipVal.includes(' ');
@@ -12292,17 +12351,24 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
                         </div>
                     </div>
 
-<div class="ep-chip" style="min-width:0;overflow:hidden;">
-    <div
-        class="ep-chip-val"
-        style="color:#3b82f6;white-space:nowrap;overflow:hidden;${offRemDays <= 1 || officeChipVal.includes(' ') ? 'font-size:14px;' : ''}"
-    >
-        ${officeChipVal}
-    </div>
-
-    <div class="ep-chip-lbl">
-        ${officeChipLbl}
-    </div>
+<div class="ep-chip${officeTargetReached ? ' ep-office-celebration' : ''}" style="min-width:0;overflow:hidden;">
+    ${officeTargetReached ? `
+        <div class="ep-office-gif-shell">
+            <span class="ep-office-gif-fallback" title="Congratulations! Office target achieved">🎉 Well done!</span>
+            <div class="tenor-gif-embed"
+                 data-postid="${OFFICE_CELEBRATION_GIF_ID}"
+                 data-share-method="host"
+                 data-width="100%">
+                <a href="${OFFICE_CELEBRATION_GIF_URL}" target="_blank" rel="noopener noreferrer">Congratulations GIF on Tenor</a>
+            </div>
+        </div>`
+        : `
+        <div class="ep-chip-val"
+             style="color:#3b82f6;white-space:nowrap;overflow:hidden;${offRemDays <= 1 || officeChipVal.includes(' ') ? 'font-size:14px;' : ''}">
+            ${officeChipVal || '0h'}
+        </div>`
+    }
+    <div class="ep-chip-lbl">${officeChipLbl}</div>
 </div>
 
                     <div class="ep-chip">
@@ -12441,6 +12507,14 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
             days
         });
         container.innerHTML = html;
+        if (officeTargetReached) {
+            const placeholder = container.querySelector('.ep-office-celebration .tenor-gif-embed');
+            if (existingOfficeGif && placeholder) {
+                placeholder.replaceWith(existingOfficeGif);
+            } else {
+                initializeOfficeCelebrationGif(container);
+            }
+        }
         bindInteractions(container);
     };
     /* ═══════════════════════════════════════════════════════════════
