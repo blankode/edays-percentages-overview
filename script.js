@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      19.7
+// @version      19.8
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
@@ -9493,6 +9493,7 @@ _______|_______/__/ ____ \\__\\__|___\\__\\__|___\\__\\____
 });
 /* === END VENDORED DARK READER API === */
 
+// Changelog v19.8: Release the existing completed Office Target GIF card styling and the capped 30-minute Today break deduction. Version bump only; no functional changes beyond the prior 19.7 fixes.
 // Changelog v19.7: Fix Today and Buffer break deduction. Use eDays' Breaks hour/minute selectors when nonzero, capped at 30 minutes; when 00:00, subtract the configured mandatory break (also capped at 30m). Never infer extra deductions from gaps between working periods. Show net worked time and consistent remaining/leave time in expanded and minimized Today views.
 // Changelog v19.6: Promoted tested compact dashboard from script_mini.js into the main userscript. Added persistent Minimize/Expand control immediately after native Analyzer Settings, a four-metric compact view (Today, Office Target, Buffer, Month Progress), and compact Include buffer control; restored expanded-mode matching background, spacing, alignment and inner card borders without a visible outer border.
 // Changelog v19.5: Eliminated the persisted-dark white flash on refresh with a document-start bootstrap and fixed Include buffer control rendering in dark mode.
