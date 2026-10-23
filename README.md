@@ -15,7 +15,7 @@
 
 **A Tampermonkey userscript that overlays a live analytics dashboard on top of eDays — showing office attendance, time vs rota, buffer, and day counts at a glance.**
 
-[![Version](https://img.shields.io/badge/version-19.7-6366f1?style=flat-square&labelColor=0f0f0f)](https://github.com/blankode/edays-percentages-overview)
+[![Version](https://img.shields.io/badge/version-19.8-6366f1?style=flat-square&labelColor=0f0f0f)](https://github.com/blankode/edays-percentages-overview)
 [![Platform](https://img.shields.io/badge/platform-Tampermonkey-f59e0b?style=flat-square&labelColor=0f0f0f)](https://www.tampermonkey.net/)
 [![License](https://img.shields.io/badge/license-MIT-22c55e?style=flat-square&labelColor=0f0f0f)](LICENSE)
 [![Site](https://img.shields.io/badge/works%20on-e--days.com-3b82f6?style=flat-square&labelColor=0f0f0f)](https://e-days.com)
@@ -165,6 +165,7 @@ Tested on `*.e-days.com` monthly timesheet view.
 
 | Version | Changes |
 |---|---|
+| **19.8** | Released the latest **Office Target Met** card layout with the embedded, enlarged GIF as the card background and a readable header, while maintaining the existing grid alignment. Includes the fix that caps Today’s break deduction at **30 minutes** (even when eDays shows a longer break), consistently applied to full/mini Today and Buffer. No additional calculation changes in this version bump. |
 | **19.7** | Fixed Today time accounting across expanded and compact dashboards: read the break from eDays' **Breaks** selectors when nonzero but **never deduct more than 30 minutes**, even for longer selected breaks. When `00:00` is selected, use the configured mandatory-break default (also capped at 30 minutes). Gaps between working periods do not create additional deductions. Today worked/remaining hours, leave-at estimates, progress, and Buffer projections use this consistent rule. |
 | **19.6** | Promoted the tested `script_mini.js` compact layout into the main standalone userscript. Added a persistent native **Minimize / Expand** button immediately to the right of Analyzer Settings. Minimized mode displays only **Today**, **Office Target**, **Buffer**, and **Month Progress**, including a compact **Include buffer** control and the same calculations as the full dashboard. Matched the expanded view's light/dark background, padding, and alignment while keeping metric card borders and removing the unwanted outer border. The separate mini test script was retired. |
 | **19.5** | Removed the white flash when refreshing with persistent dark mode enabled by starting at `document-start` with a temporary dark bootstrap that hands off to Dark Reader once the page is ready. Added a fail-safe bootstrap timeout and deferred normal app startup until `<head>`/`<body>` exist. Also fixed the **Include buffer** toggle in dark mode with explicit themed button, track, thumb, hover, and on/off states. |
