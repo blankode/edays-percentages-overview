@@ -9493,7 +9493,7 @@ _______|_______/__/ ____ \\__\\__|___\\__\\__|___\\__\\____
 });
 /* === END VENDORED DARK READER API === */
 
-// Changelog v19.7: Fix Today and Buffer break deduction. Use eDays' Breaks hour/minute selectors when nonzero; when 00:00, subtract the configured mandatory break instead of treating gaps between working periods as the break. Show net worked time and consistent remaining/leave time in expanded and minimized Today views.
+// Changelog v19.7: Fix Today and Buffer break deduction. Use eDays' Breaks hour/minute selectors when nonzero, capped at 30 minutes; when 00:00, subtract the configured mandatory break (also capped at 30m). Never infer extra deductions from gaps between working periods. Show net worked time and consistent remaining/leave time in expanded and minimized Today views.
 // Changelog v19.6: Promoted tested compact dashboard from script_mini.js into the main userscript. Added persistent Minimize/Expand control immediately after native Analyzer Settings, a four-metric compact view (Today, Office Target, Buffer, Month Progress), and compact Include buffer control; restored expanded-mode matching background, spacing, alignment and inner card borders without a visible outer border.
 // Changelog v19.5: Eliminated the persisted-dark white flash on refresh with a document-start bootstrap and fixed Include buffer control rendering in dark mode.
 // Changelog v19.4: Fixed Today highlight styling after refresh when persistent Dark Reader mode is enabled by making stylesheet/theme activation order deterministic.
@@ -9868,10 +9868,12 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
         return target >= STANDARD_DAY_MINUTES ? mandatoryBreakMinutes : 0;
     };
 
-    // v19.7: eDays' Breaks selector is authoritative. Period-to-period
-    // clock-out gaps must NOT silently satisfy the selected break, because
-    // eDays reports period working hours separately from the Breaks control.
-    // 00:00 means use the configurable mandatory-break default (30 min).
+    // v19.7: The eDays Total is our source for worked time; no more than
+    // 30 minutes should be deducted from it for the daily break, even when
+    // the Breaks control contains a longer interval. The 00:00 selection
+    // falls back to the configured mandatory break (also capped at 30m).
+    // Gaps between working periods are NOT additional break deductions.
+    const MAX_TODAY_BREAK_DEDUCTION_MINUTES = 30;
     const getTodayBreakDeductionMinutes = dayEl => {
         const selects = dayEl.querySelectorAll('.tt_break_container .breaks_timepicker select');
         if (selects.length >= 2) {
@@ -9880,10 +9882,15 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
             if (Number.isInteger(hours) && Number.isInteger(minutes) &&
                 hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) {
                 const selectedBreak = hours * 60 + minutes;
-                if (selectedBreak > 0) return selectedBreak;
+                if (selectedBreak > 0) {
+                    return Math.min(selectedBreak, MAX_TODAY_BREAK_DEDUCTION_MINUTES);
+                }
             }
         }
-        return getRequiredMandatoryBreakMinutes(dayEl);
+        return Math.min(
+            Math.max(0, getRequiredMandatoryBreakMinutes(dayEl)),
+            MAX_TODAY_BREAK_DEDUCTION_MINUTES
+        );
     };
     /* ═══════════════════════════════════════════════════════════════
        ICONS
