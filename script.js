@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      19.9
+// @version      19.10
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
@@ -9493,6 +9493,7 @@ _______|_______/__/ ____ \\__\\__|___\\__\\__|___\\__\\____
 });
 /* === END VENDORED DARK READER API === */
 
+// Changelog v19.10: Show standard end-of-day and overtime threshold independently of Include buffer in both expanded and compact Today dashboards. Buffer-adjusted leave estimates remain unchanged; time beyond the normal daily target is identified separately, with live overtime duration.
 // Changelog v19.9: Restore configurable mandatory breaks from 0 to 480 minutes, including settings validation, localStorage persistence, and Today/Buffer/leave-time calculations. Respect longer breaks selected in eDays up to 480m without double-counting clock-out gaps; retain all v19.8 improvements.
 // Changelog v19.8: Release the existing completed Office Target GIF card styling and the capped 30-minute Today break deduction. Version bump only; no functional changes beyond the prior 19.7 fixes.
 // Changelog v19.7: Fix Today and Buffer break deduction. Use eDays' Breaks hour/minute selectors when nonzero, capped at 30 minutes; when 00:00, subtract the configured mandatory break (also capped at 30m). Never infer extra deductions from gaps between working periods. Show net worked time and consistent remaining/leave time in expanded and minimized Today views.
@@ -10246,6 +10247,19 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             isRunning
         };
     };
+    // Always measure extra time against the scheduled daily target, never
+    // against the optional buffer-reduced target displayed in Today.
+    // This denotes extra logged time versus rota, not payroll-approved overtime.
+    const getTodayStandardStatus = today => {
+        if (!today || today.targetMinutes <= 0) return null;
+        const fullGrossTarget = today.grossTargetMinutes;
+        const remaining = Math.max(0, fullGrossTarget - today.workedMinutes);
+        const overtimeMinutes = Math.max(0, today.workedMinutes - fullGrossTarget);
+        const finishAt = today.isRunning && remaining > 0
+            ? formatClock(new Date(Date.now() + remaining * 60000))
+            : null;
+        return { fullGrossTarget, remaining, overtimeMinutes, finishAt };
+    };
     const getTodayMinutes = () => getTodayInfo()?.workedMinutes || 0;
     const hasTodayOnPage = () => !!document.querySelector('.today_chip');
     /* ═══════════════════════════════════════════════════════════════
@@ -10453,6 +10467,10 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         #ep13 .ep-today-label{display:flex;align-items:center;gap:8px;flex-shrink:0;}
         #ep13 .ep-today-label-text{font-size:11px;font-weight:700;letter-spacing:1.1px;text-transform:uppercase;color:${T.muted};white-space:nowrap;}
         #ep13 .ep-today-centre{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;}
+        #ep13 .ep-today-standard{display:flex;align-items:center;flex-wrap:wrap;column-gap:14px;row-gap:3px;color:${T.muted};font-size:11px;line-height:1.4;}
+        #ep13 .ep-today-standard-label{font-weight:600;color:${T.text};}
+        #ep13 .ep-today-overtime{font-weight:700;color:#16a34a;}
+        #ep13 .ep-mini-standard{font-weight:600;color:${T.text};}
         #ep13 .ep-today-nums-row{display:flex;align-items:baseline;gap:6px;}
         #ep13 .ep-today-done{font-size:20px;font-weight:800;letter-spacing:-0.5px;line-height:1;color:${T.text};}
         #ep13 .ep-today-sep{font-size:13px;color:${T.muted};}
@@ -11565,6 +11583,10 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         const grossTarget = effTarget > 0 ? effTarget + today.breakMinutes : 0;
         const todayRemaining = Math.max(0, grossTarget - todayWorked);
         const todayDone = isDayOff || todayRemaining === 0;
+        const standard = getTodayStandardStatus(today);
+        const standardHtml = !standard ? '' : standard.overtimeMinutes > 0
+            ? `<div class="ep-today-standard"><span class="ep-today-standard-label">Standard day: ${fmt(standard.fullGrossTarget)}</span><span class="ep-today-overtime" title="Time above the normal daily target; not necessarily payroll-approved overtime">Overtime vs target: +${fmt(standard.overtimeMinutes)}</span></div>`
+            : `<div class="ep-today-standard"><span class="ep-today-standard-label">Standard day: ${fmt(standard.fullGrossTarget)}${standard.finishAt ? ` · finish at ${standard.finishAt}` : ''}</span><span>${standard.finishAt ? `Overtime after ${standard.finishAt}` : `Overtime after ${fmt(standard.fullGrossTarget)} elapsed`}</span></div>`;
         /*
          * Progress compares the gross clock against the full elapsed target,
          * so it starts at 0% and grows from the first clocked-in minute.
@@ -11579,7 +11601,10 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         } else if (grossTarget === 0 && todayBufOn) {
             statusHtml = `<span class="ep-today-rem done">` + `${icon('check',12,'#22c55e')} ` + `Covered by buffer` + `</span>`;
         } else if (todayDone) {
-            statusHtml = `<span class="ep-today-rem done">` + `${icon('check',12,'#22c55e')} ` + `Day complete!` + `</span>`;
+            const completionLabel = todayBufOn && standard && standard.remaining > 0
+                ? 'Buffer-adjusted target reached'
+                : 'Day complete!';
+            statusHtml = `<span class="ep-today-rem done">` + `${icon('check',12,'#22c55e')} ` + completionLabel + `</span>`;
         } else {
             statusHtml = `<span class="ep-today-rem">` + `${icon('timer',12,T.muted)} ` + `${fmt(todayRemaining)} left` + `${leaveAt ? ` - leave at ${formatClock(leaveAt)}` : ''}` + `</span>`;
         }
@@ -11618,6 +11643,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                             style="width:${todayPct.toFixed(1)}%;background:${todayDone ? '#22c55e' : '#3b82f6'};"
                         ></div>
                     </div>
+                    ${standardHtml}
                 </div>
 
                 <div class="ep-today-actions">
@@ -11819,7 +11845,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         const monthPct=ds.realRota>0?Math.round(ds.progressPct):0;
         const today=getTodayInfo();
         const includeBuffer=localStorage.getItem(LS.TODAY_BUF)==='true';
-        let todayValue='—',todayDetails='No Today entry in this month',todayPct=0;
+        let todayValue='—',todayDetails='No Today entry in this month',todayPct=0,todayStandardDetails='';
         if(today){
             const dailyTarget=today.targetMinutes;
             let target=dailyTarget;
@@ -11836,6 +11862,12 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                 :remaining===0?'Day complete'
                 :`${fmt(remaining)} left${leaveAt?` · leave at ${leaveAt}`:''}`;
             todayPct=dailyTarget===0?100:grossTarget>0?clamp(today.workedMinutes/grossTarget*100,0,100):remaining===0?100:0;
+            const standard=getTodayStandardStatus(today);
+            if(standard){
+                todayStandardDetails=standard.overtimeMinutes>0
+                    ? `Overtime vs target +${fmt(standard.overtimeMinutes)} · normal ${fmt(standard.fullGrossTarget)}`
+                    : `Standard ${fmt(standard.fullGrossTarget)}${standard.finishAt ? ` · finish ${standard.finishAt}` : ''} · overtime after`;
+            }
         }
         const buffer=ds.bufferMinutes;
         const bufferColor=buffer>0?'#22c55e':buffer<0?'#ef4444':T.text;
@@ -11849,6 +11881,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                     </div>
                     <div class="ep-mini-value">${todayValue}</div>
                     <div class="ep-mini-details" title="${todayDetails}">${todayDetails}</div>
+                    ${todayStandardDetails ? `<div class="ep-mini-details ep-mini-standard" title="${todayStandardDetails}">${todayStandardDetails}</div>` : ''}
                     <div class="ep-mini-meter"><span style="width:${todayPct.toFixed(1)}%;background:#3b82f6"></span></div>
                 </div>
                 <div class="ep-mini-tile">
