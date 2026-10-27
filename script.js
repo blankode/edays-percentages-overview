@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      19.8
+// @version      19.9
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
@@ -9493,6 +9493,7 @@ _______|_______/__/ ____ \\__\\__|___\\__\\__|___\\__\\____
 });
 /* === END VENDORED DARK READER API === */
 
+// Changelog v19.9: Restore configurable mandatory breaks from 0 to 480 minutes, including settings validation, localStorage persistence, and Today/Buffer/leave-time calculations. Respect longer breaks selected in eDays up to 480m without double-counting clock-out gaps; retain all v19.8 improvements.
 // Changelog v19.8: Release the existing completed Office Target GIF card styling and the capped 30-minute Today break deduction. Version bump only; no functional changes beyond the prior 19.7 fixes.
 // Changelog v19.7: Fix Today and Buffer break deduction. Use eDays' Breaks hour/minute selectors when nonzero, capped at 30 minutes; when 00:00, subtract the configured mandatory break (also capped at 30m). Never infer extra deductions from gaps between working periods. Show net worked time and consistent remaining/leave time in expanded and minimized Today views.
 // Changelog v19.6: Promoted tested compact dashboard from script_mini.js into the main userscript. Added persistent Minimize/Expand control immediately after native Analyzer Settings, a four-metric compact view (Today, Office Target, Buffer, Month Progress), and compact Include buffer control; restored expanded-mode matching background, spacing, alignment and inner card borders without a visible outer border.
@@ -9526,6 +9527,7 @@ _______|_______/__/ ____ \\__\\__|___\\__\\__|___\\__\\____
 /* ══ DEFAULT SETTINGS ══ */
 const DEFAULT_OFF_TARGET = 60;               // Office target (% of rota hours)
 const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full working day
+const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDays Breaks)
 (function() {
     'use strict';
     /* ═══════════════════════════════════════════════════════════════
@@ -9560,7 +9562,7 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
         LS.MANDATORY_BREAK,
         DEFAULT_MANDATORY_BREAK_MINUTES,
         0,
-        30
+        MAX_MANDATORY_BREAK_MINUTES
     );
     /* ═══════════════════════════════════════════════════════════════
        THEME
@@ -9869,13 +9871,11 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
         return target >= STANDARD_DAY_MINUTES ? mandatoryBreakMinutes : 0;
     };
 
-    // Gross Today clock: start at 0 and compare the elapsed Total against
-    // the daily work target plus the required break (8h + 30m by default).
-    // Mandatory break is set in Analyzer Settings (0..30m). eDays' selected
-    // Breaks may raise, but never exceed, the 30-minute break allowance.
-    // Period gaps are not counted again, and an extended break cannot make
-    // the daily gross requirement exceed 8h30 with the default settings.
-    const MAX_TODAY_BREAK_DEDUCTION_MINUTES = 30;
+    // Gross Today clock: compare elapsed Total against the daily work target
+    // plus the required break (8h + 30m by default). The configured break and
+    // eDays Breaks selections can each increase the requirement up to 480m.
+    // Clock-out gaps between working periods are never added a second time.
+    const MAX_TODAY_BREAK_DEDUCTION_MINUTES = MAX_MANDATORY_BREAK_MINUTES;
     const getTodayBreakDeductionMinutes = dayEl => {
         if (getDayWorkTargetMinutes(dayEl) < STANDARD_DAY_MINUTES) return 0;
         const configuredBreak = Math.min(
@@ -11681,10 +11681,10 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
                     <div class="ep-settings-field">
                         <label class="ep-settings-label" for="ep-setting-break">Mandatory break</label>
                         <div class="ep-settings-input-wrap">
-                            <input class="ep-settings-input" id="ep-setting-break" type="number" min="0" max="30" step="1" value="${mandatoryBreakMinutes}" required>
+                            <input class="ep-settings-input" id="ep-setting-break" type="number" min="0" max="${MAX_MANDATORY_BREAK_MINUTES}" step="1" value="${mandatoryBreakMinutes}" required>
                             <span class="ep-settings-unit">minutes</span>
                         </div>
-                        <div class="ep-settings-help">Required break added to the daily elapsed-time target (30 minutes by default: 8h30 total). Range: 0–30 minutes. Longer breaks selected in eDays never add more than 30 minutes; clock-out gaps are not counted twice.</div>
+                        <div class="ep-settings-help">Added to the full-day elapsed target (8h30 total by default). Range: 0–8h. A longer break selected in eDays takes precedence (up to 8h); clock-out gaps are not counted twice.</div>
                     </div>
 
                     <div class="ep-settings-error" id="ep-settings-error" role="alert"></div>
@@ -11727,8 +11727,8 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
                 return;
             }
 
-            if (!Number.isFinite(nextBreak) || nextBreak < 0 || nextBreak > 30) {
-                showError('Mandatory break must be between 0 and 30 minutes.');
+            if (!Number.isFinite(nextBreak) || nextBreak < 0 || nextBreak > MAX_MANDATORY_BREAK_MINUTES) {
+                showError(`Mandatory break must be between 0 and ${MAX_MANDATORY_BREAK_MINUTES} minutes.`);
                 breakInput.focus();
                 return;
             }
