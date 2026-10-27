@@ -9560,7 +9560,7 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
         LS.MANDATORY_BREAK,
         DEFAULT_MANDATORY_BREAK_MINUTES,
         0,
-        480
+        30
     );
     /* ═══════════════════════════════════════════════════════════════
        THEME
@@ -9869,29 +9869,33 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
         return target >= STANDARD_DAY_MINUTES ? mandatoryBreakMinutes : 0;
     };
 
-    // v19.7: The eDays Total is our source for worked time; no more than
-    // 30 minutes should be deducted from it for the daily break, even when
-    // the Breaks control contains a longer interval. The 00:00 selection
-    // falls back to the configured mandatory break (also capped at 30m).
-    // Gaps between working periods are NOT additional break deductions.
+    // Gross Today clock: start at 0 and compare the elapsed Total against
+    // the daily work target plus the required break (8h + 30m by default).
+    // Mandatory break is set in Analyzer Settings (0..30m). eDays' selected
+    // Breaks may raise, but never exceed, the 30-minute break allowance.
+    // Period gaps are not counted again, and an extended break cannot make
+    // the daily gross requirement exceed 8h30 with the default settings.
     const MAX_TODAY_BREAK_DEDUCTION_MINUTES = 30;
     const getTodayBreakDeductionMinutes = dayEl => {
+        if (getDayWorkTargetMinutes(dayEl) < STANDARD_DAY_MINUTES) return 0;
+        const configuredBreak = Math.min(
+            MAX_TODAY_BREAK_DEDUCTION_MINUTES,
+            Math.max(0, getRequiredMandatoryBreakMinutes(dayEl))
+        );
         const selects = dayEl.querySelectorAll('.tt_break_container .breaks_timepicker select');
         if (selects.length >= 2) {
             const hours = Number(selects[0].value);
             const minutes = Number(selects[1].value);
             if (Number.isInteger(hours) && Number.isInteger(minutes) &&
                 hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) {
-                const selectedBreak = hours * 60 + minutes;
-                if (selectedBreak > 0) {
-                    return Math.min(selectedBreak, MAX_TODAY_BREAK_DEDUCTION_MINUTES);
-                }
+                const selectedBreak = Math.min(
+                    hours * 60 + minutes,
+                    MAX_TODAY_BREAK_DEDUCTION_MINUTES
+                );
+                return Math.max(configuredBreak, selectedBreak);
             }
         }
-        return Math.min(
-            Math.max(0, getRequiredMandatoryBreakMinutes(dayEl)),
-            MAX_TODAY_BREAK_DEDUCTION_MINUTES
-        );
+        return configuredBreak;
     };
     /* ═══════════════════════════════════════════════════════════════
        ICONS
@@ -10180,16 +10184,14 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
                 } else if (d.isToday) {
                     if (worked <= 0) return;
                     const isRunning = [...d.el.querySelectorAll('.tt_period_container')].some(isOpenPeriod);
-                    const breakDeductionMinutes = getTodayBreakDeductionMinutes(d.el);
-                    const effectiveWorked = Math.max(0, worked - breakDeductionMinutes);
+                    const requiredGross = target + getTodayBreakDeductionMinutes(d.el);
                     /*
-                     * Keep the buffer neutral while today is actively running
-                     * below its gross target. Once it is reached (or clocked out),
-                     * deduct the eDays Breaks selector if nonzero, otherwise the
-                     * configured mandatory-break default. Never infer this deduction
-                     * from the gaps between separate periods.
+                     * Buffer is based on the same gross daily requirement as
+                     * Today: 8h30 elapsed by default, with no initial negative
+                     * 30-minute adjustment to the live counter.
                      */
-                    const todayDiff = isRunning && worked < target ? 0 : effectiveWorked - target;
+                    const todayDiff = isRunning && worked < requiredGross
+                        ? 0 : worked - requiredGross;
                     bufferMinutes += todayDiff;
                 }
             });
@@ -10223,13 +10225,19 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
         workedMinutes = Math.max(workedMinutes, getDayTotalMinutes(el));
         const absence = getAbsenceInfo(el);
         const breakMinutes = getTodayBreakDeductionMinutes(el);
-        const netWorkedMinutes = Math.max(0, workedMinutes - breakMinutes);
+        // Keep the raw elapsed counter visible from the first minute after
+        // clock-in; the required break increases the target instead.
+        const targetMinutes = getDayWorkTargetMinutes(el);
+        const grossTargetMinutes = targetMinutes > 0
+            ? targetMinutes + breakMinutes
+            : 0;
         return {
             el,
             workedMinutes,
-            netWorkedMinutes,
+            netWorkedMinutes: Math.max(0, workedMinutes - breakMinutes),
             breakMinutes,
-            targetMinutes: getDayWorkTargetMinutes(el),
+            targetMinutes,
+            grossTargetMinutes,
             absenceText: absence.text,
             isHalfDay: absence.isHalfDay,
             halfDayPart: absence.halfDayPart,
@@ -10358,8 +10366,9 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
         #ep13 .ep-buf-val.neg{color:#ef4444;}
         #ep13 .ep-buf-val.zer{color:${T.muted};}
         #ep13 .ep-buf-sub{font-size:12px;color:${T.muted};line-height:1.4;}
-        #ep13 .ep-chip-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
-        #ep13 .ep-chip{background:${T.chipBg};border:1px solid ${T.border};border-radius:7px;padding:7px 8px;text-align:center;}
+        #ep13 .ep-chip-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:minmax(84px,auto);gap:6px;}
+        #ep13 .ep-chip{box-sizing:border-box;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;background:${T.chipBg};border:1px solid ${T.border};border-radius:7px;padding:7px 8px;text-align:center;}
+        #ep13 .ep-chip .ep-chip-val,#ep13 .ep-chip .ep-chip-lbl{width:100%;text-align:center;}
         #ep13 .ep-chip-val{font-size:20px;font-weight:700;line-height:1;color:${T.text};}
         #ep13 .ep-chip-lbl{font-size:10px;color:${T.muted};text-transform:uppercase;letter-spacing:0.8px;margin-top:2px;}
         /* Target-met animation fills its own card only. Keep grid-item sizing
@@ -10368,6 +10377,7 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
             position:relative;
             isolation:isolate;
             box-sizing:border-box;
+            display:block;
             min-width:0;
             min-height:86px;
             padding:0!important;
@@ -11548,24 +11558,25 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
                 effTarget = Math.min(scheduledTarget, effTarget);
             }
         }
-        const todayWorked = today.netWorkedMinutes;
+        // Show actual elapsed hours from 0; compare against gross required
+        // time (8h30 by default) rather than subtracting 30m at clock-in.
+        const todayWorked = today.workedMinutes;
         const isDayOff = scheduledTarget === 0;
-        // Today displays effective worked time after the eDays break deduction.
-        // Subtract it once at the source; don't add it again to remaining time.
-        const todayRemaining = Math.max(0, effTarget - todayWorked);
+        const grossTarget = effTarget > 0 ? effTarget + today.breakMinutes : 0;
+        const todayRemaining = Math.max(0, grossTarget - todayWorked);
         const todayDone = isDayOff || todayRemaining === 0;
         /*
-         * Progress uses worked minutes after the break entered in eDays
-         * (or the configured default when its Breaks control is 00:00).
+         * Progress compares the gross clock against the full elapsed target,
+         * so it starts at 0% and grows from the first clocked-in minute.
          */
-        const effectiveCompleted = Math.max(0, effTarget - todayRemaining);
-        const todayPct = isDayOff ? 100 : (effTarget > 0 ? Math.min(100,
-            (effectiveCompleted / effTarget) * 100) : 100);
+        const todayPct = isDayOff ? 100 : (grossTarget > 0
+            ? clamp((todayWorked / grossTarget) * 100, 0, 100)
+            : 100);
         const leaveAt = today.isRunning && todayRemaining > 0 ? new Date(Date.now() + todayRemaining * 60000) : null;
         let statusHtml;
         if (isDayOff) {
             statusHtml = `<span class="ep-today-rem done">` + `${icon('check',12,'#22c55e')} ` + `${today.absenceText || 'Non-working day'}` + `</span>`;
-        } else if (effTarget === 0 && todayBufOn) {
+        } else if (grossTarget === 0 && todayBufOn) {
             statusHtml = `<span class="ep-today-rem done">` + `${icon('check',12,'#22c55e')} ` + `Covered by buffer` + `</span>`;
         } else if (todayDone) {
             statusHtml = `<span class="ep-today-rem done">` + `${icon('check',12,'#22c55e')} ` + `Day complete!` + `</span>`;
@@ -11595,7 +11606,7 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
                         <span class="ep-today-sep">/</span>
 
                         <span class="ep-today-total">
-                            ${fmt(effTarget)}${targetSuffix}
+                            ${fmt(grossTarget)}${targetSuffix}
                         </span>
 
                         ${statusHtml}
@@ -11670,10 +11681,10 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
                     <div class="ep-settings-field">
                         <label class="ep-settings-label" for="ep-setting-break">Mandatory break</label>
                         <div class="ep-settings-input-wrap">
-                            <input class="ep-settings-input" id="ep-setting-break" type="number" min="0" max="480" step="1" value="${mandatoryBreakMinutes}" required>
+                            <input class="ep-settings-input" id="ep-setting-break" type="number" min="0" max="30" step="1" value="${mandatoryBreakMinutes}" required>
                             <span class="ep-settings-unit">minutes</span>
                         </div>
-                        <div class="ep-settings-help">Applied to full working days. Real clock-out gaps count toward this value.</div>
+                        <div class="ep-settings-help">Required break added to the daily elapsed-time target (30 minutes by default: 8h30 total). Range: 0–30 minutes. Longer breaks selected in eDays never add more than 30 minutes; clock-out gaps are not counted twice.</div>
                     </div>
 
                     <div class="ep-settings-error" id="ep-settings-error" role="alert"></div>
@@ -11716,8 +11727,8 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
                 return;
             }
 
-            if (!Number.isFinite(nextBreak) || nextBreak < 0 || nextBreak > 480) {
-                showError('Mandatory break must be between 0 and 480 minutes.');
+            if (!Number.isFinite(nextBreak) || nextBreak < 0 || nextBreak > 30) {
+                showError('Mandatory break must be between 0 and 30 minutes.');
                 breakInput.focus();
                 return;
             }
@@ -11816,14 +11827,15 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
                 target=Math.max(0,dailyTarget-ds.priorBufferMinutes);
                 if(today.isHalfDay)target=Math.min(dailyTarget,target);
             }
-            const remaining=Math.max(0,target-today.netWorkedMinutes);
+            const grossTarget=target>0?target+today.breakMinutes:0;
+            const remaining=Math.max(0,grossTarget-today.workedMinutes);
             const leaveAt=today.isRunning&&remaining>0?formatClock(new Date(Date.now()+remaining*60000)):null;
-            todayValue=`${fmt(today.netWorkedMinutes)} / ${fmt(target)}`;
+            todayValue=`${fmt(today.workedMinutes)} / ${fmt(grossTarget)}`;
             todayDetails=dailyTarget===0?(today.absenceText||'Non-working day')
-                :target===0&&includeBuffer&&remaining===0?'Covered by buffer'
+                :grossTarget===0&&includeBuffer&&remaining===0?'Covered by buffer'
                 :remaining===0?'Day complete'
                 :`${fmt(remaining)} left${leaveAt?` · leave at ${leaveAt}`:''}`;
-            todayPct=dailyTarget===0?100:target>0?clamp((target-remaining)/target*100,0,100):remaining===0?100:0;
+            todayPct=dailyTarget===0?100:grossTarget>0?clamp(today.workedMinutes/grossTarget*100,0,100):remaining===0?100:0;
         }
         const buffer=ds.bufferMinutes;
         const bufferColor=buffer>0?'#22c55e':buffer<0?'#ef4444':T.text;
@@ -12807,6 +12819,9 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
     const TIMESHEET_NAV_BUTTON_ID = 'ep-timesheet-nav';
     const TIMESHEET_SETTINGS_BUTTON_ID = 'ep-timesheet-settings';
     const TIMESHEET_MINIMIZE_BUTTON_ID = 'ep-timesheet-minimize';
+    // Retain the selected destination even if the browser cannot scroll far
+    // enough to meet the Today row's usual threshold at the end of a month.
+    let timesheetNavForcedTarget = null;
     let timesheetNavScrollParent = null;
     let timesheetNavObserver = null;
     let timesheetNavRaf = 0;
@@ -12916,12 +12931,26 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
     };
 
     const getTimesheetNavState = () => {
+        if (timesheetNavForcedTarget) return timesheetNavForcedTarget;
         const todayRow = getTodayRow();
         if (!todayRow) return 'top';
-
         const metrics = getScrollMetrics(todayRow);
-        const todayReachedAt = Math.max(0, metrics.target - 100);
-        return metrics.current >= todayReachedAt ? 'top' : 'today';
+        const home = document.getElementById('ep13');
+        const homeMetrics = home ? getScrollMetrics(home) : null;
+        const homeScroll = homeMetrics ? Math.max(0, homeMetrics.target - 75) : 0;
+        if (metrics.current <= homeScroll + 8) return 'today';
+
+        // Use viewport visibility as well as scroll offset. When Today is in
+        // the final days, maximum scroll can be less than today's target.
+        const visibleTop = metrics.scrollParent === window
+            ? 0 : metrics.scrollParent.getBoundingClientRect().top;
+        const visibleBottom = metrics.scrollParent === window
+            ? window.innerHeight : metrics.scrollParent.getBoundingClientRect().bottom;
+        const todayRect = todayRow.getBoundingClientRect();
+        const visiblyReached = todayRect.top < visibleBottom - 48
+            && todayRect.bottom > visibleTop + 48;
+        return visiblyReached || metrics.current >= Math.max(0, metrics.target - 100)
+            ? 'top' : 'today';
     };
 
     const getTimesheetNavLabel = target => target === 'today'
@@ -12951,10 +12980,15 @@ const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full workin
         button.addEventListener('click', event => {
             event.preventDefault();
             if (button.dataset.epTarget === 'today') {
+                timesheetNavForcedTarget = 'top';
                 jumpToToday();
             } else {
+                timesheetNavForcedTarget = 'today';
                 jumpToAnalyzer();
             }
+            // Update the native c3-button immediately, not only when a scroll
+            // event fires; at month-end the scroll may be clamped to its limit.
+            updateTimesheetNavButton();
         });
 
         return button;
