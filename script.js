@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      19.10
+// @version      20.0
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
@@ -9493,6 +9493,7 @@ _______|_______/__/ ____ \\__\\__|___\\__\\__|___\\__\\____
 });
 /* === END VENDORED DARK READER API === */
 
+// Changelog v20.0: Make Office Planner readable: larger calendar hour labels, weekday text, week-pill time values, schedule summaries and stats, with higher text contrast and responsive wrapping for narrow screens. All calculations and previous fixes preserved.
 // Changelog v19.10: Show standard end-of-day and overtime threshold independently of Include buffer in both expanded and compact Today dashboards. Buffer-adjusted leave estimates remain unchanged; time beyond the normal daily target is identified separately, with live overtime duration.
 // Changelog v19.9: Restore configurable mandatory breaks from 0 to 480 minutes, including settings validation, localStorage persistence, and Today/Buffer/leave-time calculations. Respect longer breaks selected in eDays up to 480m without double-counting clock-out gaps; retain all v19.8 improvements.
 // Changelog v19.8: Release the existing completed Office Target GIF card styling and the capped 30-minute Today break deduction. Version bump only; no functional changes beyond the prior 19.7 fixes.
@@ -10600,55 +10601,75 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         #ep13 .ep-empty-title{font-size:15px;font-weight:700;color:${T.text};}
         #ep13 .ep-empty-sub{font-size:13px;color:${T.muted};line-height:1.5;max-width:340px;}
 
-        /* OFFICE PLANNER */
-        #ep13 .ep-planner-toggle{margin-top:8px;display:flex;align-items:center;gap:8px;padding:8px 14px;background:${T.surface};border:1px solid ${T.border};border-radius:10px;cursor:pointer;user-select:none;transition:background .15s;}
+        /* OFFICE PLANNER — v20.0 accessible sizing and readable hour values */
+        #ep13 .ep-planner-toggle{margin-top:8px;display:flex;align-items:center;gap:10px;padding:11px 16px;background:${T.surface};border:1px solid ${T.border};border-radius:10px;cursor:pointer;user-select:none;transition:background .15s;}
         #ep13 .ep-planner-toggle:hover{background:${T.isDark?'rgba(255,255,255,0.06)':'rgba(0,0,0,0.04)'};}
-        #ep13 .ep-planner-toggle-label{flex:1;font-size:12px;font-weight:600;letter-spacing:0.8px;text-transform:uppercase;color:${T.muted};}
-        #ep13 .ep-planner-toggle-sub{font-size:11px;font-weight:400;color:${T.muted};opacity:.7;letter-spacing:0;text-transform:none;}
+        #ep13 .ep-planner-toggle-label{flex:1;font-size:15px;line-height:1.5;font-weight:700;letter-spacing:.45px;text-transform:uppercase;color:${T.text};min-width:0;}
+        #ep13 .ep-planner-toggle-sub{font-size:13px;font-weight:500;color:${T.muted};opacity:1;letter-spacing:0;text-transform:none;}
         #ep13 .ep-planner-panel{overflow:hidden;max-height:0;opacity:0;transition:max-height .35s ease,opacity .25s ease,margin-top .25s ease;margin-top:0;}
-        #ep13 .ep-planner-panel.open{max-height:3000px;opacity:1;margin-top:8px;}
-        #ep13 .ep-planner-inner{background:${T.surface};border:1px solid ${T.border};border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:14px;}
+        #ep13 .ep-planner-panel.open{max-height:4000px;opacity:1;margin-top:8px;}
+        #ep13 .ep-planner-inner{background:${T.surface};border:1px solid ${T.border};border-radius:10px;padding:18px 20px;display:flex;flex-direction:column;gap:18px;min-width:0;}
 
         /* SCHEDULE */
-        #ep13 .ep-sched-section{display:flex;flex-direction:column;gap:10px;}
-        #ep13 .ep-sched-hdr{display:flex;align-items:center;gap:6px;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:${T.muted};}
+        #ep13 .ep-sched-section{display:flex;flex-direction:column;gap:14px;min-width:0;}
+        #ep13 .ep-sched-hdr{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:13px;line-height:1.5;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:${T.muted};}
+        #ep13 .ep-sched-hdr strong{font-size:14px;font-weight:800;font-variant-numeric:tabular-nums;}
         #ep13 .ep-sched-legend{display:flex;gap:12px;flex-wrap:wrap;}
-        #ep13 .ep-sched-leg-item{display:flex;align-items:center;gap:5px;font-size:11px;color:${T.muted};}
-        #ep13 .ep-sched-leg-dot{width:10px;height:10px;border-radius:3px;flex-shrink:0;}
-        #ep13 .ep-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;}
-        #ep13 .ep-cal-dow{font-size:9px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:${T.muted};text-align:center;padding:2px 0 4px;}
-        #ep13 .ep-cal-day{aspect-ratio:1;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;position:relative;transition:transform .1s;flex-direction:column;gap:1px;}
+        #ep13 .ep-sched-leg-item{display:flex;align-items:center;gap:6px;font-size:12px;line-height:1.4;color:${T.text};font-weight:500;}
+        #ep13 .ep-sched-leg-dot{width:11px;height:11px;border-radius:3px;flex-shrink:0;}
+        #ep13 .ep-cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px;min-width:0;}
+        #ep13 .ep-cal-dow{font-size:12px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:${T.muted};text-align:center;padding:3px 0 5px;}
+        #ep13 .ep-cal-day{min-width:0;min-height:60px;padding:6px 3px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:15px;line-height:1.2;font-weight:700;position:relative;transition:transform .1s;flex-direction:column;gap:4px;font-variant-numeric:tabular-nums;}
         #ep13 .ep-cal-day.ep-cal-empty{background:transparent;}
-        #ep13 .ep-cal-day.ep-cal-weekend{background:${T.chipBg};color:${T.muted};opacity:.4;}
-        #ep13 .ep-cal-day.ep-cal-absent{background:${T.chipBg};color:${T.muted};opacity:.5;}
-        #ep13 .ep-cal-day.ep-cal-done-off{background:rgba(34,197,94,.18);color:#22c55e;border:1px solid rgba(34,197,94,.3);}
-        #ep13 .ep-cal-day.ep-cal-done-wfh{background:rgba(168,85,247,.15);color:#a855f7;border:1px solid rgba(168,85,247,.25);}
+        #ep13 .ep-cal-day.ep-cal-weekend{background:${T.chipBg};color:${T.muted};opacity:.65;}
+        #ep13 .ep-cal-day.ep-cal-absent{background:${T.chipBg};color:${T.muted};opacity:.75;}
+        #ep13 .ep-cal-day.ep-cal-done-off{background:rgba(34,197,94,.18);color:${T.isDark?'#86efac':'#166534'};border:1px solid rgba(34,197,94,.3);}
+        #ep13 .ep-cal-day.ep-cal-done-wfh{background:rgba(168,85,247,.15);color:${T.isDark?'#d8b4fe':'#7e22ce'};border:1px solid rgba(168,85,247,.25);}
         #ep13 .ep-cal-day.ep-cal-done-any{background:rgba(100,116,139,.15);color:${T.muted};}
-        #ep13 .ep-cal-day.ep-cal-plan-off{background:rgba(59,130,246,.18);color:#3b82f6;border:1px solid rgba(59,130,246,.35);}
+        #ep13 .ep-cal-day.ep-cal-plan-off{background:rgba(59,130,246,.18);color:${T.isDark?'#93c5fd':'#1d4ed8'};border:1px solid rgba(59,130,246,.35);}
         #ep13 .ep-cal-day.ep-cal-plan-wfh{background:${T.chipBg};color:${T.muted};border:1px solid ${T.border};}
         #ep13 .ep-cal-day.ep-cal-today{outline:2px solid #f59e0b;outline-offset:1px;}
-        #ep13 .ep-cal-day .ep-cal-hrs{font-size:8px;opacity:.75;line-height:1;}
-        #ep13 .ep-week-rows{display:flex;flex-direction:column;gap:5px;}
-        #ep13 .ep-week-row{display:flex;align-items:center;gap:6px;}
-        #ep13 .ep-week-label{font-size:10px;color:${T.muted};font-weight:600;min-width:30px;letter-spacing:.5px;}
-        #ep13 .ep-week-days{display:flex;gap:3px;flex:1;}
-        #ep13 .ep-week-day-pill{flex:1;padding:4px 2px;border-radius:5px;text-align:center;font-size:10px;font-weight:700;letter-spacing:.3px;display:flex;flex-direction:column;align-items:center;gap:1px;}
-        #ep13 .ep-week-day-pill .ep-pill-sub{font-size:8px;font-weight:400;opacity:.8;}
-        #ep13 .ep-week-day-pill.ep-wp-office{background:rgba(59,130,246,.2);color:#3b82f6;}
-        #ep13 .ep-week-day-pill.ep-wp-done{background:rgba(34,197,94,.18);color:#22c55e;}
+        #ep13 .ep-cal-day .ep-cal-hrs{display:block;max-width:100%;padding:2px 3px;border-radius:3px;background:${T.isDark?'rgba(0,0,0,.22)':'rgba(255,255,255,.56)'};font-size:13px;font-weight:800;opacity:1;line-height:1.25;text-align:center;overflow-wrap:anywhere;}
+        #ep13 .ep-week-rows{display:flex;flex-direction:column;gap:8px;}
+        #ep13 .ep-week-row{display:flex;align-items:center;gap:9px;min-width:0;}
+        #ep13 .ep-week-label{font-size:13px;color:${T.muted};font-weight:700;min-width:32px;letter-spacing:.3px;}
+        #ep13 .ep-week-days{display:flex;gap:5px;flex:1;min-width:0;}
+        #ep13 .ep-week-day-pill{flex:1;min-width:0;min-height:54px;padding:7px 3px;border-radius:6px;text-align:center;font-size:13px;line-height:1.3;font-weight:800;letter-spacing:.15px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;}
+        #ep13 .ep-week-day-pill .ep-pill-sub{font-size:12px;font-weight:750;line-height:1.3;opacity:1;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;max-width:100%;}
+        #ep13 .ep-week-day-pill.ep-wp-office{background:rgba(59,130,246,.2);color:${T.isDark?'#93c5fd':'#1d4ed8'};}
+        #ep13 .ep-week-day-pill.ep-wp-done{background:rgba(34,197,94,.18);color:${T.isDark?'#86efac':'#166534'};}
         #ep13 .ep-week-day-pill.ep-wp-wfh{background:${T.chipBg};color:${T.muted};}
-        #ep13 .ep-week-day-pill.ep-wp-off{background:transparent;color:${T.muted};opacity:.35;}
-        #ep13 .ep-week-day-pill.ep-wp-absent{background:${T.chipBg};color:${T.muted};opacity:.4;font-size:9px;}
-        #ep13 .ep-week-row-summary{font-size:11px;color:${T.muted};min-width:100px;text-align:right;}
-        #ep13 .ep-week-row-summary span{color:${T.text};font-weight:600;}
-        #ep13 .ep-hours-progress{display:flex;flex-direction:column;gap:4px;}
-        #ep13 .ep-hours-prog-hdr{display:flex;justify-content:space-between;font-size:11px;color:${T.muted};}
-        #ep13 .ep-hours-prog-track{height:6px;background:${T.barTrack};border-radius:6px;overflow:hidden;display:flex;}
+        #ep13 .ep-week-day-pill.ep-wp-off{background:transparent;color:${T.muted};opacity:.65;}
+        #ep13 .ep-week-day-pill.ep-wp-absent{background:${T.chipBg};color:${T.muted};opacity:.75;font-size:12px;}
+        #ep13 .ep-week-row-summary{font-size:13px;line-height:1.4;color:${T.muted};min-width:113px;text-align:right;white-space:nowrap;}
+        #ep13 .ep-week-row-summary span{color:${T.text};font-weight:800;font-variant-numeric:tabular-nums;}
+        #ep13 .ep-hours-progress{display:flex;flex-direction:column;gap:7px;}
+        #ep13 .ep-hours-prog-hdr{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:13px;font-weight:600;color:${T.muted};}
+        #ep13 .ep-hours-prog-hdr span:last-child{font-size:14px;font-weight:800!important;font-variant-numeric:tabular-nums;}
+        #ep13 .ep-hours-prog-track{height:8px;background:${T.barTrack};border-radius:6px;overflow:hidden;display:flex;}
         #ep13 .ep-hours-prog-done{height:100%;background:linear-gradient(90deg,#22c55e,#84cc16);}
         #ep13 .ep-hours-prog-plan{height:100%;background:linear-gradient(90deg,#3b82f6,#6366f1);}
-        #ep13 .ep-sched-stat{background:${T.chipBg};border:1px solid ${T.border};border-radius:8px;padding:9px 10px;text-align:center;}
-        #ep13 .ep-sched-stat-val{font-size:18px;font-weight:700;line-height:1;}
-        #ep13 .ep-sched-stat-lbl{font-size:10px;color:${T.muted};text-transform:uppercase;letter-spacing:.8px;margin-top:3px;}
+        #ep13 .ep-sched-stat{background:${T.chipBg};border:1px solid ${T.border};border-radius:8px;padding:12px 10px;text-align:center;}
+        #ep13 .ep-sched-stat-val{font-size:22px;font-weight:800;line-height:1.15;font-variant-numeric:tabular-nums;}
+        #ep13 .ep-sched-stat-lbl{font-size:12px;font-weight:600;color:${T.muted};text-transform:uppercase;letter-spacing:.4px;margin-top:5px;line-height:1.3;}
+        @media(max-width:760px){
+            #ep13 .ep-planner-inner{padding:14px 12px;gap:15px;}
+            #ep13 .ep-week-row{flex-wrap:wrap;column-gap:6px;row-gap:4px;}
+            #ep13 .ep-week-days{flex:1 1 calc(100% - 42px);}
+            #ep13 .ep-week-row-summary{flex:1 1 100%;text-align:right;min-width:0;padding-right:2px;}
+            #ep13 .ep-cal-day{min-height:53px;font-size:14px;padding:5px 2px;}
+            #ep13 .ep-cal-day .ep-cal-hrs{font-size:12px;}
+        }
+        @media(max-width:420px){
+            #ep13 .ep-planner-toggle{padding:10px 11px;}
+            #ep13 .ep-planner-toggle-label{font-size:14px;}
+            #ep13 .ep-planner-toggle-sub{font-size:12px;}
+            #ep13 .ep-cal-grid{gap:3px;}
+            #ep13 .ep-cal-day{min-height:48px;font-size:13px;gap:3px;padding:4px 1px;}
+            #ep13 .ep-cal-day .ep-cal-hrs{font-size:11px;padding:1px 2px;line-height:1.25;}
+            #ep13 .ep-week-day-pill{font-size:12px;min-height:50px;padding:5px 2px;}
+            #ep13 .ep-week-day-pill .ep-pill-sub{font-size:11px;}
+        }
         #ep13 .ep-btn:hover{background:${T.isDark?'#fff':'#F0F0F0'}!important;color:${T.isDark?'#111':'inherit'}!important;border-color:${T.isDark?'#fff':'#bcc1c2'}!important;}
 
 
