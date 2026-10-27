@@ -10471,7 +10471,13 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         #ep13 .ep-today-standard-label{font-weight:600;color:${T.text};}
         #ep13 .ep-today-overtime{font-weight:700;color:#16a34a;}
         #ep13 .ep-mini-standard{font-weight:600;color:${T.text};}
-        #ep13 .ep-today-nums-row{display:flex;align-items:baseline;gap:6px;}
+        @media(max-width:700px){
+            #ep13 .ep-today-strip{flex-wrap:wrap;gap:10px;}
+            #ep13 .ep-today-centre{flex:1 1 220px;}
+            #ep13 .ep-today-actions{margin-left:auto;}
+            #ep13 .ep-today-rem{margin-left:0;}
+        }
+        #ep13 .ep-today-nums-row{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;row-gap:4px;}
         #ep13 .ep-today-done{font-size:20px;font-weight:800;letter-spacing:-0.5px;line-height:1;color:${T.text};}
         #ep13 .ep-today-sep{font-size:13px;color:${T.muted};}
         #ep13 .ep-today-total{font-size:13px;color:${T.muted};}
@@ -11856,17 +11862,19 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             const grossTarget=target>0?target+today.breakMinutes:0;
             const remaining=Math.max(0,grossTarget-today.workedMinutes);
             const leaveAt=today.isRunning&&remaining>0?formatClock(new Date(Date.now()+remaining*60000)):null;
+            const standard=getTodayStandardStatus(today);
             todayValue=`${fmt(today.workedMinutes)} / ${fmt(grossTarget)}`;
             todayDetails=dailyTarget===0?(today.absenceText||'Non-working day')
                 :grossTarget===0&&includeBuffer&&remaining===0?'Covered by buffer'
-                :remaining===0?'Day complete'
+                :remaining===0?(includeBuffer&&standard&&standard.remaining>0?'Buffer-adjusted target reached':'Day complete')
                 :`${fmt(remaining)} left${leaveAt?` · leave at ${leaveAt}`:''}`;
             todayPct=dailyTarget===0?100:grossTarget>0?clamp(today.workedMinutes/grossTarget*100,0,100):remaining===0?100:0;
-            const standard=getTodayStandardStatus(today);
             if(standard){
                 todayStandardDetails=standard.overtimeMinutes>0
                     ? `Overtime vs target +${fmt(standard.overtimeMinutes)} · normal ${fmt(standard.fullGrossTarget)}`
-                    : `Standard ${fmt(standard.fullGrossTarget)}${standard.finishAt ? ` · finish ${standard.finishAt}` : ''} · overtime after`;
+                    : standard.finishAt
+                        ? `Normal finish ${standard.finishAt} · overtime after`
+                        : `Standard ${fmt(standard.fullGrossTarget)} · overtime beyond target`;
             }
         }
         const buffer=ds.bufferMinutes;
