@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      20.0
+// @version      20.1
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
@@ -9493,6 +9493,7 @@ _______|_______/__/ ____ \\__\\__|___\\__\\__|___\\__\\____
 });
 /* === END VENDORED DARK READER API === */
 
+// Changelog v20.1: Correct Buffer & Outlook double-counting clock-out gaps and selected breaks. Buffer now compares eDays net recorded time to net rota targets, including on the last workable day; break-inclusive gross time is still used exclusively for Today finish estimates. Preserve live clock-in buffer behavior and all v20.0 updates.
 // Changelog v20.0: Make Office Planner readable: larger calendar hour labels, weekday text, week-pill time values, schedule summaries and stats, with higher text contrast and responsive wrapping for narrow screens. All calculations and previous fixes preserved.
 // Changelog v19.10: Show standard end-of-day and overtime threshold independently of Include buffer in both expanded and compact Today dashboards. Buffer-adjusted leave estimates remain unchanged; time beyond the normal daily target is identified separately, with live overtime duration.
 // Changelog v19.9: Restore configurable mandatory breaks from 0 to 480 minutes, including settings validation, localStorage persistence, and Today/Buffer/leave-time calculations. Respect longer breaks selected in eDays up to 480m without double-counting clock-out gaps; retain all v19.8 improvements.
@@ -10186,14 +10187,19 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                 } else if (d.isToday) {
                     if (worked <= 0) return;
                     const isRunning = [...d.el.querySelectorAll('.tt_period_container')].some(isOpenPeriod);
-                    const requiredGross = target + getTodayBreakDeductionMinutes(d.el);
                     /*
-                     * Buffer is based on the same gross daily requirement as
-                     * Today: 8h30 elapsed by default, with no initial negative
-                     * 30-minute adjustment to the live counter.
+                     * eDays' Total is already NET working time: clock-out gaps
+                     * have been excluded from worked. Buffer is a bank of NET
+                     * working time versus NET rota, just like Difference.
+                     * Adding today's gross break allowance here deducted gaps
+                     * a second time (e.g. -1h44m at an otherwise 0h Difference).
+                     *
+                     * While clocked in, avoid charging unfinished daily hours
+                     * against the bank. Gross break-inclusive requirements stay
+                     * exclusively in Today/leave-time calculations.
                      */
-                    const todayDiff = isRunning && worked < requiredGross
-                        ? 0 : worked - requiredGross;
+                    const todayDiff = isRunning && worked < target
+                        ? 0 : worked - target;
                     bufferMinutes += todayDiff;
                 }
             });
