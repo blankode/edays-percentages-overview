@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      20.2
+// @version      20.3
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
@@ -9771,9 +9771,11 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
     const DAY_SELECTOR = '.tt_day_container, [id^="timesheet-day-"]';
     const PERIOD_SELECTOR = '.tt_period_container, [class*="_period-container_"]';
     const getTimesheetDays = () => [...document.querySelectorAll(DAY_SELECTOR)];
+    const isV3Timesheet = () => !!document.querySelector('[id^="timesheet-day-"]');
     const getTimesheetPeriods = dayEl => [...dayEl.querySelectorAll(PERIOD_SELECTOR)];
     const getActivityName = periodEl => periodEl.querySelector('.chosen-single span')?.textContent?.trim()
         || periodEl.querySelector('[aria-haspopup="listbox"] > span')?.textContent?.trim()
+        || periodEl.querySelector('button[id^="headlessui-listbox-button"]')?.textContent?.trim()
         || 'No Activity';
     const getDayLabel = dayEl => dayEl.querySelector('.timesheet_day_text')?.textContent?.trim()
         || dayEl.querySelector('[class*="_top-content_"] [class*="_date_"]')?.textContent?.trim()
@@ -10683,9 +10685,19 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         /* v20.2: revised eDays markup */
         [id^="timesheet-day-"].ep-v3-today{outline:2px solid rgba(59,130,246,.55);outline-offset:2px;border-radius:8px;}
         #ep13 .ep-v3-estimate{font-size:12px;font-weight:600;background:rgba(245,158,11,.12);color:${T.isDark?'#fcd34d':'#92400e'};border:1px solid rgba(245,158,11,.34);border-radius:8px;padding:10px 12px;margin-bottom:10px;}
-        .ep-v3-toolbar{display:flex;gap:7px;flex-wrap:wrap;align-items:center;padding:10px 0;}
-        .ep-v3-toolbar button{font:600 13px/1.3 system-ui,sans-serif;padding:8px 12px;border:1px solid ${T.border};border-radius:8px;background:${T.surface};color:${T.text};cursor:pointer;}
-        .ep-v3-toolbar button:hover{background:${T.faint};}
+        /* v20.3: single, native-style action group in the Analyzer heading. */
+        #ep13 .ep-hdr:has(.ep-v3-actions){gap:9px;flex-wrap:wrap;}
+        #ep13 .ep-hdr:has(.ep-v3-actions) .ep-hdr-right{gap:10px;min-width:0;flex-wrap:wrap;justify-content:flex-end;}
+        #ep13 .ep-v3-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap;min-width:0;}
+        #ep13 .ep-v3-action{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:34px;padding:6px 11px;box-sizing:border-box;border:1px solid ${T.border};border-radius:6px;background:${T.surface};color:${T.text};font-family:inherit;font-size:13px;font-weight:600;line-height:1.25;letter-spacing:normal;white-space:nowrap;box-shadow:none;cursor:pointer;transition:background .15s,border-color .15s;}
+        #ep13 .ep-v3-action:hover{background:${T.faint};border-color:${T.isDark ? "#64748b" : "#a8bacb"};}
+        #ep13 .ep-v3-action:focus-visible{outline:2px solid #1776cf;outline-offset:2px;}
+        #ep13 .ep-v3-action > span{display:inline-flex;align-items:center;justify-content:center;}
+        #ep13 .ep-v3-action svg{display:block;width:15px;height:15px;}
+        #ep13 .ep-v3-action.ep-v3-primary{background:${T.isDark ? "#294f78" : "#1776cf"};border-color:${T.isDark ? "#477caf" : "#1776cf"};color:#fff;}
+        #ep13 .ep-v3-action.ep-v3-primary:hover{background:${T.isDark ? "#386792" : "#1261a9"};}
+        @media(max-width:850px){#ep13 .ep-hdr:has(.ep-v3-actions) .ep-hdr-right{width:100%;margin-left:0;justify-content:space-between;}#ep13 .ep-v3-actions{justify-content:flex-start;}#ep13 .ep-v3-action{min-height:32px;padding:6px 9px;font-size:12px;}#ep13 .ep-hdr-date{margin-left:auto;}}
+        @media(max-width:460px){#ep13 .ep-v3-actions{width:100%;}#ep13 .ep-v3-action{flex:1;padding-inline:5px;}#ep13 .ep-v3-action > span{flex-shrink:0;}#ep13 .ep-hdr-date{margin-left:auto;}}
         /* OFFICE PLANNER — v20.0 accessible sizing and readable hour values */
         #ep13 .ep-planner-toggle{margin-top:8px;display:flex;align-items:center;gap:10px;padding:11px 16px;background:${T.surface};border:1px solid ${T.border};border-radius:10px;cursor:pointer;user-select:none;transition:background .15s;}
         #ep13 .ep-planner-toggle:hover{background:${T.isDark?'rgba(255,255,255,0.06)':'rgba(0,0,0,0.04)'};}
@@ -11923,6 +11935,22 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                 if (action === 'jump-analyzer') {
                     jumpToAnalyzer();
                 }
+                if (action === 'nav-toggle') {
+                    if (getTimesheetNavState() === 'today') {
+                        timesheetNavForcedTarget = 'top';
+                        jumpToToday();
+                    } else {
+                        timesheetNavForcedTarget = 'today';
+                        jumpToAnalyzer();
+                    }
+                    updateTimesheetNavButton();
+                }
+                if (action === 'mini-toggle') {
+                    miniMode = !miniMode;
+                    localStorage.setItem(LS.MINI_MODE, String(miniMode));
+                    renderUI();
+                    updateTimesheetNavButton();
+                }
                 if (action === 'settings-open') {
                     openSettingsModal();
                 }
@@ -12306,16 +12334,48 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         image.src = OFFICE_CELEBRATION_GIF_DATA_URI;
     };
 
+    // These controls live in one Analyzer header. The separate page theme
+    // switch beside 'Book time off' is reused rather than duplicated here.
+    const renderV3Controls = T => {
+        const navTarget = getTimesheetNavState();
+        const modeLabel = miniMode ? 'Expand' : 'Minimize';
+        return `
+            <div class="ep-v3-actions" role="group" aria-label="Analyzer controls">
+                <button id="ep-v3-nav" type="button" class="ep-v3-action ep-v3-primary"
+                    data-action="nav-toggle" data-ep-target="${navTarget}" title="Go to ${navTarget === 'today' ? 'today' : 'Analyzer'}">
+                    ${navTarget === 'today' ? icon('arrow_down',15,'#fff') : icon('arrow_up',15,'#fff')}
+                    ${navTarget === 'today' ? 'To today' : 'To home'}
+                </button>
+                <button id="ep-v3-settings" type="button" class="ep-v3-action"
+                    data-action="settings-open" title="Analyzer settings">
+                    ${icon('settings',15,T.text)} Settings
+                </button>
+                <button id="ep-v3-minimize" type="button" class="ep-v3-action"
+                    data-action="mini-toggle" aria-expanded="${!miniMode}" title="${miniMode ? 'Expand' : 'Minimize'} Analyzer">
+                    ${icon(miniMode ? 'chevron_down' : 'chevron_up',15,T.text)} ${modeLabel}
+                </button>
+            </div>`;
+    };
     const renderUI = () => {
         const T = applySiteTheme();
+        // Never mount inside Vue 3's day-list: it is replaced on month changes.
+        const v3Host = isV3Timesheet()
+            ? document.querySelector('#main_content_wrapper .grid_12 > .edays-vue3')
+                || document.querySelector('#main_content_wrapper .edays-vue3')
+            : null;
         const mainPanel = document.getElementById('mainTimesheetPanel')
+            || v3Host?.parentElement
             || getTimesheetDays()[0]?.parentElement;
         if (!mainPanel) return;
         let container = document.getElementById('ep13');
         if (!container) {
             container = document.createElement('div');
             container.id = 'ep13';
-            mainPanel.insertBefore(container, mainPanel.firstChild);
+        }
+        const before = v3Host && mainPanel === v3Host.parentElement
+            ? v3Host : mainPanel.firstChild;
+        if (container.parentElement !== mainPanel || (before && container.nextSibling !== before)) {
+            mainPanel.insertBefore(container, before);
         }
         // Keep a hydrated GIF/iframe intact across the 30-second Analyzer redraw.
         const existingOfficeGif = container.querySelector('.ep-office-celebration .ep-office-gif-shell');
@@ -12336,9 +12396,13 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             month: 'short',
             year: 'numeric'
         }).toUpperCase();
+        const v3 = isV3Timesheet();
         if (miniMode) {
             container.classList.add('ep-mini-mode');
-            container.innerHTML = estimateBanner + renderMiniDashboard(T, summary);
+            container.innerHTML = estimateBanner + (v3 ? `
+                <div class="ep-hdr"><div class="ep-hdr-logo">${icon('timer',16)}</div>
+                <div class="ep-hdr-title">eDays Analyzer Pro</div>
+                <div class="ep-hdr-right">${renderV3Controls(T)}</div></div>` : '') + renderMiniDashboard(T, summary);
             bindInteractions(container);
             return;
         }
@@ -12358,7 +12422,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                     </div>
 
                     <div class="ep-hdr-right">
-                        <span
+                        ${v3 ? renderV3Controls(T) : `<span
                             class="ep-btn ep-btn-icon"
                             data-action="settings-open"
                             title="Analyzer settings"
@@ -12383,7 +12447,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                                 14,
                                 T.muted
                             )}
-                        </span>
+                        </span>`}
 
                         <div class="ep-hdr-date">
                             <span class="ep-pulse"></span>
@@ -12520,7 +12584,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                 </div>
 
                 <div class="ep-hdr-right">
-                    <span
+                    ${v3 ? renderV3Controls(T) : `<span
                         class="ep-btn ep-btn-icon"
                         data-action="settings-open"
                         title="Analyzer settings"
@@ -12545,7 +12609,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                             14,
                             T.muted
                         )}
-                    </span>
+                    </span>`}
 
                     <div class="ep-hdr-date">
                         <span class="ep-pulse"></span>
@@ -13146,10 +13210,20 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
     };
 
     const updateTimesheetNavButton = () => {
+        const target = getTimesheetNavState();
+        const v3Button = document.getElementById('ep-v3-nav');
+        if (v3Button) {
+            if (v3Button.dataset.epTarget !== target) {
+                v3Button.dataset.epTarget = target;
+                const themed = getTheme();
+                v3Button.innerHTML = (target === 'today' ? icon('arrow_down',15,'#fff') : icon('arrow_up',15,'#fff'))
+                    + ' ' + (target === 'today' ? 'To today' : 'To home');
+                v3Button.title = target === 'today' ? 'Go to today' : 'Back to Analyzer';
+            }
+            return;
+        }
         const button = document.getElementById(TIMESHEET_NAV_BUTTON_ID);
         if (!button) return;
-
-        const target = getTimesheetNavState();
 
         // Never rewrite text on an already-connected c3-button. Recreate it only
         // when the target actually changes, with its new label set before insertion.
@@ -13183,49 +13257,16 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
     };
 
     const ensureV3Toolbar = () => {
-        if (!document.querySelector('[id^="timesheet-day-"]')) return;
-        const analyzer = document.getElementById('ep13');
-        if (!analyzer) return;
-        let toolbar = document.getElementById('ep-v3-toolbar');
-        if (!toolbar) {
-            toolbar = document.createElement('div');
-            toolbar.id = 'ep-v3-toolbar';
-            toolbar.className = 'ep-v3-toolbar';
-        }
-        if (analyzer.previousElementSibling !== toolbar) analyzer.before(toolbar);
-        const add = (id, label, onClick) => {
-            let button = toolbar.querySelector('#' + id);
-            if (!button) {
-                button = document.createElement('button');
-                button.id = id; button.type = 'button'; button.textContent = label;
-                button.addEventListener('click', onClick);
-                toolbar.appendChild(button);
-            }
-            return button;
-        };
-        const today = getTodayRow();
-        const nav = add('ep-v3-nav', today ? '↓ To today' : '↑ To dashboard',
-            () => today ? jumpToToday() : jumpToAnalyzer());
-        const nextNavLabel = today ? '↓ To today' : '↑ To dashboard';
-        if (nav.textContent !== nextNavLabel) nav.textContent = nextNavLabel;
-        if (today) today.classList.add('ep-v3-today');
-        add('ep-v3-settings', '⚙ Settings', () => openSettingsModal());
-        add('ep-v3-theme', '◐ Theme', () => {
-            themeOverride = getTheme().isDark ? 'light' : 'dark';
-            localStorage.setItem(LS.THEME, themeOverride);
-            applySiteTheme();
-            renderUI();
-        });
-        const modeButton = add('ep-v3-minimize', 'Minimize', () => {
-            miniMode = !miniMode;
-            localStorage.setItem(LS.MINI_MODE, String(miniMode));
-            renderUI();
-            ensureV3Toolbar();
-        });
-        const modeLabel = miniMode ? 'Expand' : 'Minimize';
-        if (modeButton.textContent !== modeLabel) modeButton.textContent = modeLabel;
+        if (!isV3Timesheet()) return;
+        // v20.2 standalone toolbar is retired; never create a second copy.
+        document.getElementById('ep-v3-toolbar')?.remove();
+        document.querySelectorAll('#ep-timesheet-nav, #ep-timesheet-settings, #ep-timesheet-minimize')
+            .forEach(button => button.remove());
+        bindTimesheetNavScroll();
+        updateTimesheetNavButton();
     };
     const ensureTimesheetNavButton = () => {
+        if (isV3Timesheet()) { ensureV3Toolbar(); return; }
         const submitButton = getSubmitMonthButton();
         if (!submitButton) { ensureV3Toolbar(); return; }
 
@@ -13279,24 +13320,30 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                     renderUI();
                     initTimesheetNavigation();
                     let debounce = null;
+                    const requestRender = () => {
+                        clearTimeout(debounce);
+                        debounce = setTimeout(renderUI, 600);
+                    };
                     const observer = new MutationObserver(mutations => {
                         const ep = document.getElementById('ep13');
                         if (mutations.every(m => ep && (ep.contains(m.target) || ep === m.target))) {
                             return;
                         }
-                        clearTimeout(debounce);
-                        debounce = setTimeout(
-                            () => {
-                                renderUI();
-                            }, 600);
+                        requestRender();
                     });
-                    const panel = document.getElementById('mainTimesheetPanel') || getTimesheetDays()[0]?.parentElement;
+                    const panel = document.getElementById('mainTimesheetPanel')
+                        || document.getElementById('main_content_wrapper')
+                        || getTimesheetDays()[0]?.parentElement;
                     if (panel) {
                         observer.observe(panel, {
                             childList: true,
                             subtree: true,
                             characterData: true
                         });
+                        // Vue updates controlled input properties without always
+                        // changing DOM attributes or text nodes.
+                        panel.addEventListener('input', requestRender, true);
+                        panel.addEventListener('change', requestRender, true);
                     }
                     setInterval(renderUI, 30000);
                 }
