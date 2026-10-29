@@ -10736,6 +10736,11 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         #ep13 .ep-v3-action svg{display:block;width:15px;height:15px;}
         #ep13 .ep-v3-action.ep-v3-primary{background:${T.isDark ? "#294f78" : "#1776cf"};border-color:${T.isDark ? "#477caf" : "#1776cf"};color:#fff;}
         #ep13 .ep-v3-action.ep-v3-primary:hover{background:${T.isDark ? "#386792" : "#1261a9"};}
+        /* Native eDays V3 Timesheet button, immediately after Submit month. */
+        #ep-timesheet-v3-nav{display:inline-flex;align-items:center;vertical-align:middle;flex:0 0 auto;}
+        #ep-timesheet-v3-nav .v3-button-margin-box{display:flex;align-items:center;}
+        #ep-timesheet-v3-nav .v3-button-container{white-space:nowrap;cursor:pointer;}
+        #ep-timesheet-v3-nav .label{white-space:nowrap;}
         @media(max-width:850px){#ep13 .ep-hdr:has(.ep-v3-actions) .ep-hdr-right{width:100%;margin-left:0;justify-content:space-between;}#ep13 .ep-v3-actions{justify-content:flex-start;}#ep13 .ep-v3-action{min-height:32px;padding:6px 9px;font-size:12px;}#ep13 .ep-hdr-date{margin-left:auto;}}
         @media(max-width:460px){#ep13 .ep-v3-actions{width:100%;}#ep13 .ep-v3-action{flex:1;padding-inline:5px;}#ep13 .ep-v3-action > span{flex-shrink:0;}#ep13 .ep-hdr-date{margin-left:auto;}}
         /* OFFICE PLANNER — v20.0 accessible sizing and readable hour values */
@@ -12374,18 +12379,12 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         image.src = OFFICE_CELEBRATION_GIF_DATA_URI;
     };
 
-    // These controls live in one Analyzer header. The separate page theme
-    // switch beside 'Book time off' is reused rather than duplicated here.
+    // On v3, the Today navigation sits directly next to native "Submit month"
+    // in the Timesheet controls. Only Settings / Minimize belong in Analyzer.
     const renderV3Controls = T => {
-        const navTarget = getTimesheetNavState();
         const modeLabel = miniMode ? 'Expand' : 'Minimize';
         return `
             <div class="ep-v3-actions" role="group" aria-label="Analyzer controls">
-                <button id="ep-v3-nav" type="button" class="ep-v3-action ep-v3-primary"
-                    data-action="nav-toggle" data-ep-target="${navTarget}" title="Go to ${navTarget === 'today' ? 'today' : 'Analyzer'}">
-                    ${navTarget === 'today' ? icon('arrow_down',15,'#fff') : icon('arrow_up',15,'#fff')}
-                    ${navTarget === 'today' ? 'To today' : 'To home'}
-                </button>
                 <button id="ep-v3-settings" type="button" class="ep-v3-action"
                     data-action="settings-open" title="Analyzer settings">
                     ${icon('settings',15,T.text)} Settings
@@ -13250,16 +13249,19 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
     };
 
     const updateTimesheetNavButton = () => {
-        const target = getTimesheetNavState();
-        const v3Button = document.getElementById('ep-v3-nav');
+        const target = getTodayRow() ? getTimesheetNavState() : 'today';
+        const v3Button = document.getElementById('ep-v3-submit-nav');
         if (v3Button) {
-            if (v3Button.dataset.epTarget !== target) {
-                v3Button.dataset.epTarget = target;
-                const themed = getTheme();
-                v3Button.innerHTML = (target === 'today' ? icon('arrow_down',15,'#fff') : icon('arrow_up',15,'#fff'))
-                    + ' ' + (target === 'today' ? 'To today' : 'To home');
-                v3Button.title = target === 'today' ? 'Go to today' : 'Back to Analyzer';
-            }
+            const label = getTimesheetNavLabel(target);
+            const description = target === 'today'
+                ? 'Jump to today in the Timesheet'
+                : 'Back to the Analyzer dashboard';
+            if (v3Button.dataset.epTarget !== target) v3Button.dataset.epTarget = target;
+            const labelNode = v3Button.querySelector('.label');
+            if (labelNode && labelNode.textContent !== label) labelNode.textContent = label;
+            if (v3Button.title !== description) v3Button.title = description;
+            if (v3Button.getAttribute('aria-label') !== description)
+                v3Button.setAttribute('aria-label', description);
             return;
         }
         const button = document.getElementById(TIMESHEET_NAV_BUTTON_ID);
@@ -13296,14 +13298,95 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         timesheetNavScrollParent.addEventListener('scroll', scheduleTimesheetNavUpdate, { passive: true });
     };
 
+    // Locate the actual Submit month action in the Vue 3 Timesheet, not
+    // in the global title-bar or within the Analyzer. CSS-module suffixes
+    // change after deployments; native button text is the stable anchor.
+    const findV3SubmitMonthButton = () => {
+        const timesheet = document.querySelector('v3-timesheet');
+        if (!timesheet) return null;
+        return [...timesheet.querySelectorAll('button, c3-button, [role="button"]')]
+            .find(button => {
+                if (button.closest('#ep13, #ep-timesheet-v3-nav')) return false;
+                const label = (button.querySelector('.label')?.textContent
+                    || button.textContent || '').replace(/\s+/g, ' ').trim();
+                return /^submit\s+month$/i.test(label);
+            }) || null;
+    };
+
+    let v3MonthLabel = null;
+    let pendingV3TodayScroll = false;
     const ensureV3Toolbar = () => {
         if (!isV3Timesheet()) return;
-        // v20.2 standalone toolbar is retired; never create a second copy.
         document.getElementById('ep-v3-toolbar')?.remove();
         document.querySelectorAll('#ep-timesheet-nav, #ep-timesheet-settings, #ep-timesheet-minimize')
             .forEach(button => button.remove());
-        bindTimesheetNavScroll();
+
+        const monthText = document.querySelector('v3-timesheet [class*="_header-label_"]')
+            ?.textContent?.trim() || null;
+        if (monthText && v3MonthLabel && monthText !== v3MonthLabel) {
+            timesheetNavForcedTarget = null;
+        }
+        if (monthText) v3MonthLabel = monthText;
+
+        const submit = findV3SubmitMonthButton();
+        if (!submit) return; // Vue can render the header after the day cards.
+        const anchor = submit.closest('.v3-button') || submit;
+        let shell = document.getElementById('ep-timesheet-v3-nav');
+        if (!shell) {
+            shell = document.createElement('div');
+            shell.id = 'ep-timesheet-v3-nav';
+            shell.className = 'v3-button ECL3';
+            shell.innerHTML = [
+                '<div class="v3-button-margin-box">',
+                '  <button id="ep-v3-submit-nav" class="v3-button-container secondary" type="button" target="">',
+                '    <span class="label"></span>',
+                '  </button>',
+                '</div>'
+            ].join('');
+            const nav = shell.querySelector('button');
+            nav.addEventListener('click', event => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (!getTodayRow()) {
+                    // Viewing a previous month: use the native Today navigator
+                    // first, then scroll once its day entries are rendered.
+                    const root = document.querySelector('v3-timesheet');
+                    const todayButton = [...(root?.querySelectorAll('button') || [])]
+                        .find(button => (button.querySelector('.label')?.textContent
+                            || button.textContent || '').trim() === 'Today'
+                            && !button.disabled && !button.classList.contains('disabled'));
+                    if (todayButton) {
+                        pendingV3TodayScroll = true;
+                        todayButton.click();
+                    }
+                    return;
+                }
+                if (nav.dataset.epTarget === 'today') {
+                    timesheetNavForcedTarget = 'top';
+                    jumpToToday();
+                } else {
+                    timesheetNavForcedTarget = 'today';
+                    jumpToAnalyzer();
+                }
+                updateTimesheetNavButton();
+            });
+        }
+        // Keep the same parent as Submit month; it is a direct sibling to
+        // its eDays action, rather than a separate bar or Analyzer control.
+        if (anchor.nextElementSibling !== shell)
+            anchor.insertAdjacentElement('afterend', shell);
+
         updateTimesheetNavButton();
+        bindTimesheetNavScroll();
+
+        if (pendingV3TodayScroll && getTodayRow()) {
+            pendingV3TodayScroll = false;
+            timesheetNavForcedTarget = 'top';
+            requestAnimationFrame(() => {
+                jumpToToday();
+                updateTimesheetNavButton();
+            });
+        }
     };
     const ensureTimesheetNavButton = () => {
         if (isV3Timesheet()) { ensureV3Toolbar(); return; }
