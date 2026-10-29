@@ -15,7 +15,7 @@
 
 **A Tampermonkey userscript that overlays a live analytics dashboard on top of eDays — showing office attendance, time vs rota, buffer, and day counts at a glance.**
 
-[![Version](https://img.shields.io/badge/version-19.8-6366f1?style=flat-square&labelColor=0f0f0f)](https://github.com/blankode/edays-percentages-overview)
+[![Version](https://img.shields.io/badge/version-20.2-6366f1?style=flat-square&labelColor=0f0f0f)](https://github.com/blankode/edays-percentages-overview)
 [![Platform](https://img.shields.io/badge/platform-Tampermonkey-f59e0b?style=flat-square&labelColor=0f0f0f)](https://www.tampermonkey.net/)
 [![License](https://img.shields.io/badge/license-MIT-22c55e?style=flat-square&labelColor=0f0f0f)](LICENSE)
 [![Site](https://img.shields.io/badge/works%20on-e--days.com-3b82f6?style=flat-square&labelColor=0f0f0f)](https://e-days.com)
@@ -50,14 +50,14 @@ Shows whether you're ahead or behind on your daily 8h target based on past days.
 
 ## ⤢ Compact Dashboard
 
-The native **Minimize** button appears immediately to the right of **Analyzer Settings** in the Time Tracking header. Click it to replace the expanded analytics cards and Office Planner with a low-profile four-metric view:
+On the previous eDays layout, the native **Minimize** button appears immediately to the right of **Analyzer Settings** in the Time Tracking header. On the new v3 layout, Analyzer provides its own small toolbar with **To today**, **Settings**, **Theme** and **Minimize / Expand** controls. Click it to replace the expanded analytics cards and Office Planner with a low-profile four-metric view:
 
 - **Today** — time worked against today's effective target, time remaining, optional leave-at estimate, and a compact **Include buffer** switch.
 - **Office Target** — percentage of the configured office target achieved, logged office time, and time still needed.
 - **Buffer** — current surplus or deficit relative to the scheduled daily target.
 - **Month Progress** — recorded hours against real rota, completion percentage, and remaining hours.
 
-The **Today** clock starts at **0** when clocking in and displays **gross elapsed time** from eDays (no initial 30-minute subtraction). The default gross target is **8h30**: 8 hours of work plus a 30-minute mandatory break, with the progress bar, remaining time, and leave-at estimate measured against that total. For example, **7h08 elapsed / 8h30 required** leaves **1h22**. The configured mandatory break can be changed in **Analyzer Settings** from **0 to 30 minutes** and is added to the full-day gross target. A longer eDays Breaks selection can raise the required break, but never beyond 30 minutes total; gaps between working periods are not added again. The same rules apply in compact mode and Buffer projections.
+The **Today** clock starts at **0** when clocking in and displays **gross elapsed time** from eDays (no initial 30-minute subtraction). The default gross target is **8h30**: 8 hours of work plus a 30-minute mandatory break, with the progress bar, remaining time, and leave-at estimate measured against that total. For example, **7h08 elapsed / 8h30 required** leaves **1h22**. The configured mandatory break can be changed in **Analyzer Settings** from **0 to 480 minutes**, with 30 minutes as the default. Longer breaks selected in eDays can increase the gross Today requirement up to 480 minutes. **Buffer uses net worked time versus the net rota target**; it never deducts breaks again. Gaps between working periods are not double-counted. Normal finish time is displayed independently of **Include buffer**, and time above the normal daily target is shown as overtime versus target (not necessarily payroll-approved overtime).
 
 Click **Expand** to restore the complete dashboard. The setting is saved locally and persists after page refreshes. Compact mode uses the same underlying calculations, light/dark theme, spacing/alignment, and metric card borders as the expanded view, without an extra outer border.
 
@@ -86,13 +86,7 @@ Go to your timesheet at `*.e-days.com` — the dashboard will appear automatical
 
 ## ⚙ Configuration
 
-At the very top of the script, one line controls the office attendance target:
-
-```js
-const offTarget = 60; // percentage target for office days
-```
-
-Change `60` to whatever your company requires (e.g. `50`, `75`) and save.
+Open **Analyzer Settings** on your eDays timesheet to configure the office attendance target (**60%** by default) and mandatory break (**30 minutes** by default, adjustable from **0 to 480 minutes**). Settings are saved in the browser's LocalStorage and applied on the next dashboard render.
 
 <br/>
 
@@ -157,7 +151,7 @@ The dashboard re-renders automatically via a **MutationObserver** watching the t
 | Edge | ✅ |
 | Safari | ✅ (with Tampermonkey) |
 
-Tested on `*.e-days.com` monthly timesheet view.
+Legacy timesheet layout support is retained. Version 20.2 also recognizes the new v3 day-card layout with stable IDs such as `timesheet-day-2026-10-26`, separate hour/minute inputs, activity selectors, daily totals and editable breaks. **Only a day-card excerpt of v3 was available for testing**: without the updated official monthly-summary markup, the dashboard marks calculated monthly figures as **estimates based on visible days**. Confirm monthly rota, absence and difference against eDays until a verified new summary selector is available. Browsers and full v3 end-to-end behavior have not yet been re-tested on the live site.
 
 <br/>
 
@@ -165,6 +159,11 @@ Tested on `*.e-days.com` monthly timesheet view.
 
 | Version | Changes |
 |---|---|
+| **20.2** | Added compatibility for the redesigned eDays v3 timesheet day cards (stable day IDs, HH:MM start/end inputs, daily totals, break field, activity selection and Today detection). Restored dashboard mounting, toolbar, navigation, and activity/office calculations when the old HTML structure is absent. Preserved legacy compatibility. New monthly figures are **explicitly flagged as provisional** if no official month summary is available. Updated README/version history. |
+| **20.1** | Fixed Buffer & Outlook showing a false deficit (for example −1h 44m while monthly Difference was zero). Banked time now compares net hours against the net daily rota and does not deduct breaks twice. |
+| **20.0** | Increased Office Planner typography and contrast, especially calendar hour values and weekly schedule hours, with responsive behavior on smaller screens. |
+| **19.10** | Added separate standard finish time and live overtime-versus-target indicators, while preserving the independent Include buffer early finish. |
+| **19.9** | Extended configurable mandatory break from 0–30 to 0–480 minutes throughout input validation, LocalStorage and Today gross target logic. |
 | **19.8** | Latest release includes the Office Target Met GIF background and the 30-minute break cap. Additional 19.8 fixes: Today now counts **gross elapsed time starting from zero** against **8h30 by default** (8h work + configured mandatory break), with the same logic in the full and mini views and Buffer. Mandatory-break settings are validated at **0–30 minutes** and update the gross target. Today/Home navigation changes immediately on clicking even when month-end scrolling is clamped, and Buffer & Outlook card content is centered without disturbing the celebration image. |
 | **19.7** | Fixed Today time accounting across expanded and compact dashboards: read the break from eDays' **Breaks** selectors when nonzero but **never deduct more than 30 minutes**, even for longer selected breaks. When `00:00` is selected, use the configured mandatory-break default (also capped at 30 minutes). Gaps between working periods do not create additional deductions. Today worked/remaining hours, leave-at estimates, progress, and Buffer projections use this consistent rule. |
 | **19.6** | Promoted the tested `script_mini.js` compact layout into the main standalone userscript. Added a persistent native **Minimize / Expand** button immediately to the right of Analyzer Settings. Minimized mode displays only **Today**, **Office Target**, **Buffer**, and **Month Progress**, including a compact **Include buffer** control and the same calculations as the full dashboard. Matched the expanded view's light/dark background, padding, and alignment while keeping metric card borders and removing the unwanted outer border. The separate mini test script was retired. |
