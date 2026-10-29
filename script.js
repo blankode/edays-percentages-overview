@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      20.1
+// @version      20.2
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
@@ -9493,6 +9493,7 @@ _______|_______/__/ ____ \\__\\__|___\\__\\__|___\\__\\____
 });
 /* === END VENDORED DARK READER API === */
 
+// Changelog v20.2: Add compatibility with new eDays v3 timesheet day cards, HH:MM inputs, day totals, activity selections, editable breaks, navigation, toolbar, and provisional monthly values if the original summary is absent. Preserve legacy DOM support.
 // Changelog v20.1: Correct Buffer & Outlook double-counting clock-out gaps and selected breaks. Buffer now compares eDays net recorded time to net rota targets, including on the last workable day; break-inclusive gross time is still used exclusively for Today finish estimates. Preserve live clock-in buffer behavior and all v20.0 updates.
 // Changelog v20.0: Make Office Planner readable: larger calendar hour labels, weekday text, week-pill time values, schedule summaries and stats, with higher text contrast and responsive wrapping for narrow screens. All calculations and previous fixes preserved.
 // Changelog v19.10: Show standard end-of-day and overtime threshold independently of Include buffer in both expanded and compact Today dashboards. Buffer-adjusted leave estimates remain unchanged; time beyond the normal daily target is identified separately, with live overtime duration.
@@ -9721,10 +9722,8 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         return window;
     };
     const jumpToToday = () => {
-        const c = document.querySelector('.today_chip');
-        if (c) {
-            const d = c.closest('.tt_day_container');
-            if (d) {
+        const d = getTimesheetDays().find(isTodayDay);
+        if (d) {
                 const sp = getScrollParent(d);
                 const offset = 80;
                 if (sp === window) {
@@ -9740,7 +9739,6 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                         behavior: 'smooth'
                     });
                 }
-            }
         }
     };
     const jumpToAnalyzer = () => {
@@ -9769,24 +9767,52 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
     /* ═══════════════════════════════════════════════════════════════
        PERIOD / DAY HELPERS
     ═══════════════════════════════════════════════════════════════ */
-    const getDayLabel = dayEl => dayEl.querySelector('.timesheet_day_text')?.innerText?.trim() || '';
-    const getDayTotalMinutes = dayEl => timeToMinutes(dayEl.querySelector('.duration_hours')?.innerText?.trim() || '');
+    // v3 uses persistent IDs, while its generated CSS-module suffixes change.
+    const DAY_SELECTOR = '.tt_day_container, [id^="timesheet-day-"]';
+    const PERIOD_SELECTOR = '.tt_period_container, [class*="_period-container_"]';
+    const getTimesheetDays = () => [...document.querySelectorAll(DAY_SELECTOR)];
+    const getTimesheetPeriods = dayEl => [...dayEl.querySelectorAll(PERIOD_SELECTOR)];
+    const getActivityName = periodEl => periodEl.querySelector('.chosen-single span')?.textContent?.trim()
+        || periodEl.querySelector('[aria-haspopup="listbox"] > span')?.textContent?.trim()
+        || 'No Activity';
+    const getDayLabel = dayEl => dayEl.querySelector('.timesheet_day_text')?.textContent?.trim()
+        || dayEl.querySelector('[class*="_top-content_"] [class*="_date_"]')?.textContent?.trim()
+        || (dayEl.id?.startsWith('timesheet-day-') ? dayEl.id.slice(14) : '');
+    const getDayTotalMinutes = dayEl => {
+        const original = dayEl.querySelector('.duration_hours')?.textContent?.trim();
+        if (original) return parseTime(original);
+        const current = dayEl.querySelector('[class*="_bottom-row_"] [class*="_total-hours_"] [class*="_hhmm_"]');
+        return current ? parseTime(current.textContent?.trim()) : 0;
+    };
+    const isTodayDay = dayEl => {
+        if (dayEl.querySelector('.today_chip')) return true;
+        const date = parseDayDate(getDayLabel(dayEl));
+        return !!date && getLocalDayStamp(date) === getLocalDayStamp(new Date());
+    };
     const getPeriodTimeValues = periodEl => {
-        const inputs = periodEl.querySelectorAll('input[type="time"]');
-        let start = inputs[0]?.value || '';
-        let end = inputs[1]?.value || '';
-        if (!start) {
-            const lbl = periodEl.querySelector('label.hiddenLabel')?.innerText || '';
-            const m = lbl.match(/(\d{1,2}:\d{2})\s+to(?:\s+(\d{1,2}:\d{2}))?/i);
-            if (m) {
-                start = m[1] || '';
-                end = m[2] || '';
-            }
+        const nativeInputs = periodEl.querySelectorAll('input[type="time"]');
+        let start = nativeInputs[0]?.value || '';
+        let end = nativeInputs[1]?.value || '';
+        if (!nativeInputs.length) {
+            const columns = [...periodEl.querySelectorAll('[class*="_col-time_"] [class*="_time-container_"]')];
+            const read = control => {
+                const inputs = control?.querySelectorAll('input');
+                if (!inputs || inputs.length < 2) return '';
+                const h = inputs[0].value?.trim() || '';
+                const m = inputs[1].value?.trim() || '';
+                if (!/^\d{1,2}$/.test(h) || !/^\d{1,2}$/.test(m) ||
+                    +h > 23 || +m > 59) return '';
+                return h.padStart(2, '0') + ':' + m.padStart(2, '0');
+            };
+            start = read(columns[0]);
+            end = read(columns[1]);
         }
-        return {
-            start,
-            end
-        };
+        if (!start) {
+            const label = periodEl.querySelector('label.hiddenLabel')?.textContent || '';
+            const m = label.match(/(\d{1,2}:\d{2})\s+to(?:\s+(\d{1,2}:\d{2}))?/i);
+            if (m) { start = m[1] || ''; end = m[2] || ''; }
+        }
+        return {start,end};
     };
     const isOpenPeriod = periodEl => {
         const {
@@ -9811,7 +9837,9 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         return d > 0 ? d : 0;
     };
     const getAbsenceInfo = dayEl => {
-        const text = dayEl.querySelector('.absence_detail_text')?.innerText?.trim() || '';
+        const text = dayEl.querySelector('.absence_detail_text')?.textContent?.trim()
+            || dayEl.querySelector('[class*="_absence-detail_"], [class*="_absence-name_"], [class*="_absence-label_"]')?.textContent?.trim()
+            || '';
         const halfMatch = text.match(/:\s*(AM|PM)\s*$/i);
         const halfDayPart = halfMatch ? halfMatch[1].toUpperCase() : null;
         const isHalfDay = !!halfDayPart;
@@ -9842,16 +9870,14 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         return STANDARD_DAY_MINUTES;
     };
     const parseDayDate = label => {
-        const m = (label || '').match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/);
-        if (!m) return null;
-        const day = Number(m[1]);
-        const month = Number(m[2]);
-        const year = Number(m[3]);
+        const iso = (label || '').match(/(?:^|\s)(\d{4})-(\d{1,2})-(\d{1,2})(?:\s|$)/);
+        const regular = (label || '').match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/);
+        if (!iso && !regular) return null;
+        const day = Number(iso ? iso[3] : regular[1]);
+        const month = Number(iso ? iso[2] : regular[2]);
+        const year = Number(iso ? iso[1] : regular[3]);
         const date = new Date(year, month - 1, day);
-        if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
-            return null;
-        }
-        return date;
+        return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day ? date : null;
     };
     const getDateKey = (date, fallback) => {
         if (!date) return fallback;
@@ -9860,11 +9886,10 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
     const getLocalDayStamp = date => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
     const getLiveDayMinutes = dayEl => {
         const saved = getDayTotalMinutes(dayEl);
-        if (!dayEl.querySelector('.today_chip')) {
-            return saved;
-        }
+        if (!isTodayDay(dayEl)) return saved || getTimesheetPeriods(dayEl).reduce(
+            (sum,p) => sum + getPeriodMinutes(p), 0);
         let live = 0;
-        dayEl.querySelectorAll('.tt_period_container').forEach(p => {
+        getTimesheetPeriods(dayEl).forEach(p => {
             live += getPeriodMinutes(p, true);
         });
         return Math.max(saved, live);
@@ -9897,6 +9922,14 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                 );
                 return Math.max(configuredBreak, selectedBreak);
             }
+        }
+        const field = [...dayEl.querySelectorAll('[class*="_bottom-row_"] [class*="_field_"]')]
+            .find(el => /^Breaks\s*:/i.test(el.querySelector('span')?.textContent?.trim() || ''));
+        const inputs = field?.querySelectorAll('[class*="_time-container_"] input');
+        if (inputs?.length >= 2) {
+            const h = inputs[0].value?.trim() || '', m = inputs[1].value?.trim() || '';
+            if (/^\d{1,2}$/.test(h) && /^\d{1,2}$/.test(m) && +h <= 23 && +m <= 59)
+                return Math.max(configuredBreak, Math.min(MAX_TODAY_BREAK_DEDUCTION_MINUTES, +h * 60 + +m));
         }
         return configuredBreak;
     };
@@ -10001,12 +10034,28 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                 d.difference = mins;
             }
         });
+        if (document.querySelector('.desktop_summary .summary_block')) return d;
+        const days = getTimesheetDays();
+        if (!days.length) return d;
+        // The supplied new markup shows day cards but no official month summary.
+        // Calculate provisional amounts ONLY from rendered days, never claim
+        // they are the authoritative eDays rota or absence totals.
+        d.estimated = true;
+        for (const day of days) {
+            const date = parseDayDate(getDayLabel(day));
+            d.recorded += getLiveDayMinutes(day);
+            if (!date || [0,6].includes(date.getDay())) continue;
+            d.rota += STANDARD_DAY_MINUTES;
+            const absence = getAbsenceInfo(day);
+            if (absence.isHoliday) d.holidays += STANDARD_DAY_MINUTES;
+            else if (absence.isHalfDay) d.absences += HALF_DAY_MINUTES;
+            else if (absence.isFullAbsence) d.absences += STANDARD_DAY_MINUTES;
+        }
+        d.difference = d.recorded - Math.max(0, d.rota - d.absences - d.holidays);
         return d;
     };
-    const isSummaryReady = () => {
-        const blocks = document.querySelectorAll('.desktop_summary .summary_block');
-        return blocks.length > 0;
-    };
+    const isSummaryReady = () => !!document.querySelector('.desktop_summary .summary_block')
+        || getTimesheetDays().length > 0;
     const getActivityData = () => {
         const actMap = {
             'Office': 0,
@@ -10016,23 +10065,35 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         };
         let rawTotal = 0;
         let workedDays = 0;
-        document.querySelectorAll('.tt_day_container').forEach(day => {
+        getTimesheetDays().forEach(day => {
             let worked = false;
-            const allowOpen = !!day.querySelector('.today_chip');
-            day.querySelectorAll('.tt_period_container').forEach(p => {
+            const allowOpen = isTodayDay(day);
+            getTimesheetPeriods(day).forEach(p => {
                 const dur = getPeriodMinutes(p, allowOpen);
                 if (dur <= 0) return;
                 worked = true;
-                const act = p.querySelector('.chosen-single span')?.innerText.trim() || 'No Activity';
+                const act = getActivityName(p);
                 if (!(act in actMap)) {
                     actMap[act] = 0;
                 }
                 actMap[act] += dur;
                 rawTotal += dur;
             });
-            if (worked) {
-                workedDays++;
+            // When eDays renders controlled HH/MM inputs with empty DOM
+            // attributes, the native day Total is still usable. If all rows
+            // explicitly identify ONE activity, credit the missing minutes
+            // to that activity rather than silently dropping them.
+            const declaredTotal = getLiveDayMinutes(day);
+            const knownMinutes = getTimesheetPeriods(day).reduce(
+                (sum,p) => sum + getPeriodMinutes(p, allowOpen), 0);
+            const names = [...new Set(getTimesheetPeriods(day).map(getActivityName)
+                .filter(name => name && name !== 'No Activity'))];
+            if (declaredTotal > knownMinutes && names.length === 1) {
+                const extra = declaredTotal - knownMinutes;
+                actMap[names[0]] = (actMap[names[0]] || 0) + extra;
+                rawTotal += extra;
             }
+            if (worked || declaredTotal > 0) workedDays++;
         });
         return {
             actMap,
@@ -10041,8 +10102,8 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         };
     };
     const getDetailedDayData = () => {
-        const allDayEls = [...document.querySelectorAll('.tt_day_container')];
-        const markerTodayIdx = allDayEls.findIndex(d => d.querySelector('.today_chip'));
+        const allDayEls = getTimesheetDays();
+        const markerTodayIdx = allDayEls.findIndex(isTodayDay);
         const nowStamp = getLocalDayStamp(new Date());
         const days = allDayEls.map((day, idx) => {
             const label = getDayLabel(day);
@@ -10079,7 +10140,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
             const absence = getAbsenceInfo(day);
             const workTargetMins = getDayWorkTargetMinutes(day);
-            let isToday = !!day.querySelector('.today_chip');
+            let isToday = isTodayDay(day);
             let isPast = false;
             let isFuture = false;
             if (parsedDate) {
@@ -10097,10 +10158,10 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             let wfhMins = 0;
             let hasOffice = false;
             let hasWFH = false;
-            day.querySelectorAll('.tt_period_container').forEach(p => {
+            getTimesheetPeriods(day).forEach(p => {
                 const dur = getPeriodMinutes(p, isToday);
                 if (dur <= 0) return;
-                const act = p.querySelector('.chosen-single span')?.innerText.trim() || '';
+                const act = getActivityName(p);
                 if (act === 'Office') {
                     officeMins += dur;
                     hasOffice = true;
@@ -10110,6 +10171,18 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                     hasWFH = true;
                 }
             });
+            // Mirror the safe day-total fallback for office statistics.
+            if (totalMins > officeMins + wfhMins) {
+                const names = [...new Set(getTimesheetPeriods(day).map(getActivityName)
+                    .filter(name => name && name !== 'No Activity'))];
+                if (names.length === 1 && names[0] === 'Office') {
+                    officeMins += totalMins - officeMins - wfhMins;
+                    hasOffice = true;
+                } else if (names.length === 1 && names[0] === 'Mobile Working') {
+                    wfhMins += totalMins - officeMins - wfhMins;
+                    hasWFH = true;
+                }
+            }
             return {
                 key: getDateKey(parsedDate, `idx-${idx}`),
                 label,
@@ -10186,7 +10259,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                     priorBufferMinutes += diff;
                 } else if (d.isToday) {
                     if (worked <= 0) return;
-                    const isRunning = [...d.el.querySelectorAll('.tt_period_container')].some(isOpenPeriod);
+                    const isRunning = getTimesheetPeriods(d.el).some(isOpenPeriod);
                     /*
                      * eDays' Total is already NET working time: clock-out gaps
                      * have been excluded from worked. Buffer is a bank of NET
@@ -10220,11 +10293,11 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         };
     };
     const getTodayInfo = () => {
-        const el = [...document.querySelectorAll('.tt_day_container')].find(d => d.querySelector('.today_chip'));
+        const el = getTimesheetDays().find(isTodayDay);
         if (!el) return null;
         let workedMinutes = 0;
         let isRunning = false;
-        el.querySelectorAll('.tt_period_container').forEach(p => {
+        getTimesheetPeriods(el).forEach(p => {
             workedMinutes += getPeriodMinutes(p, true);
             if (isOpenPeriod(p)) {
                 isRunning = true;
@@ -10268,7 +10341,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         return { fullGrossTarget, remaining, overtimeMinutes, finishAt };
     };
     const getTodayMinutes = () => getTodayInfo()?.workedMinutes || 0;
-    const hasTodayOnPage = () => !!document.querySelector('.today_chip');
+    const hasTodayOnPage = () => getTimesheetDays().some(isTodayDay);
     /* ═══════════════════════════════════════════════════════════════
        HOURS-BASED SCHEDULE PLANNER
     ═══════════════════════════════════════════════════════════════ */
@@ -10607,6 +10680,11 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         #ep13 .ep-empty-title{font-size:15px;font-weight:700;color:${T.text};}
         #ep13 .ep-empty-sub{font-size:13px;color:${T.muted};line-height:1.5;max-width:340px;}
 
+        /* v20.2: revised eDays markup */
+        #ep13 .ep-v3-estimate{font-size:12px;font-weight:600;background:rgba(245,158,11,.12);color:${T.isDark?'#fcd34d':'#92400e'};border:1px solid rgba(245,158,11,.34);border-radius:8px;padding:10px 12px;margin-bottom:10px;}
+        .ep-v3-toolbar{display:flex;gap:7px;flex-wrap:wrap;align-items:center;padding:10px 0;}
+        .ep-v3-toolbar button{font:600 13px/1.3 system-ui,sans-serif;padding:8px 12px;border:1px solid ${T.border};border-radius:8px;background:${T.surface};color:${T.text};cursor:pointer;}
+        .ep-v3-toolbar button:hover{background:${T.faint};}
         /* OFFICE PLANNER — v20.0 accessible sizing and readable hour values */
         #ep13 .ep-planner-toggle{margin-top:8px;display:flex;align-items:center;gap:10px;padding:11px 16px;background:${T.surface};border:1px solid ${T.border};border-radius:10px;cursor:pointer;user-select:none;transition:background .15s;}
         #ep13 .ep-planner-toggle:hover{background:${T.isDark?'rgba(255,255,255,0.06)':'rgba(0,0,0,0.04)'};}
@@ -12229,7 +12307,8 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
 
     const renderUI = () => {
         const T = applySiteTheme();
-        const mainPanel = document.getElementById('mainTimesheetPanel');
+        const mainPanel = document.getElementById('mainTimesheetPanel')
+            || getTimesheetDays()[0]?.parentElement;
         if (!mainPanel) return;
         let container = document.getElementById('ep13');
         if (!container) {
@@ -12244,6 +12323,9 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             return;
         }
         const summary = getSummaryData();
+        const estimateBanner = summary.estimated
+            ? '<div class="ep-v3-estimate">Estimated from visible day cards — monthly rota, absences and difference may differ from eDays. Verify against the official monthly summary.</div>'
+            : '';
         const {
             actMap,
             rawTotal
@@ -12255,7 +12337,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         }).toUpperCase();
         if (miniMode) {
             container.classList.add('ep-mini-mode');
-            container.innerHTML = renderMiniDashboard(T, summary);
+            container.innerHTML = estimateBanner + renderMiniDashboard(T, summary);
             bindInteractions(container);
             return;
         }
@@ -12871,7 +12953,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             ds,
             days
         });
-        container.innerHTML = html;
+        container.innerHTML = estimateBanner + html;
         if (officeTargetReached) {
             const placeholder = container.querySelector('.ep-office-celebration .ep-office-gif-shell');
             if (existingOfficeGif && placeholder) {
@@ -12978,7 +13060,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             || header.querySelector('.button_container c3-button[accesskey="s"]');
     };
 
-    const getTodayRow = () => document.querySelector('.today_chip')?.closest('.tt_day_container') || null;
+    const getTodayRow = () => getTimesheetDays().find(isTodayDay) || null;
 
     const getScrollMetrics = element => {
         const scrollParent = getScrollParent(element);
@@ -13099,9 +13181,48 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         timesheetNavScrollParent.addEventListener('scroll', scheduleTimesheetNavUpdate, { passive: true });
     };
 
+    const ensureV3Toolbar = () => {
+        if (!document.querySelector('[id^="timesheet-day-"]')) return;
+        const analyzer = document.getElementById('ep13');
+        if (!analyzer) return;
+        let toolbar = document.getElementById('ep-v3-toolbar');
+        if (!toolbar) {
+            toolbar = document.createElement('div');
+            toolbar.id = 'ep-v3-toolbar';
+            toolbar.className = 'ep-v3-toolbar';
+        }
+        if (analyzer.previousElementSibling !== toolbar) analyzer.before(toolbar);
+        const add = (id, label, onClick) => {
+            let button = toolbar.querySelector('#' + id);
+            if (!button) {
+                button = document.createElement('button');
+                button.id = id; button.type = 'button'; button.textContent = label;
+                button.addEventListener('click', onClick);
+                toolbar.appendChild(button);
+            }
+            return button;
+        };
+        const today = getTodayRow();
+        const nav = add('ep-v3-nav', today ? '↓ To today' : '↑ To dashboard',
+            () => today ? jumpToToday() : jumpToAnalyzer());
+        nav.textContent = today ? '↓ To today' : '↑ To dashboard';
+        add('ep-v3-settings', '⚙ Settings', () => openSettingsModal());
+        add('ep-v3-theme', '◐ Theme', () => {
+            themeOverride = getTheme().isDark ? 'light' : 'dark';
+            localStorage.setItem(LS.THEME, themeOverride);
+            applySiteTheme();
+            renderUI();
+        });
+        add('ep-v3-minimize', 'Minimize', () => {
+            miniMode = !miniMode;
+            localStorage.setItem(LS.MINI_MODE, String(miniMode));
+            renderUI();
+            ensureV3Toolbar();
+        }).textContent = miniMode ? 'Expand' : 'Minimize';
+    };
     const ensureTimesheetNavButton = () => {
         const submitButton = getSubmitMonthButton();
-        if (!submitButton) return;
+        if (!submitButton) { ensureV3Toolbar(); return; }
 
         let button = document.getElementById(TIMESHEET_NAV_BUTTON_ID);
         if (!button || button.tagName.toLowerCase() !== 'c3-button') {
@@ -13147,7 +13268,8 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         initSiteEnhancements();
         const tick = setInterval(
             () => {
-                if (document.querySelector('.tt_day_container') && document.querySelector('.desktop_summary')) {
+                if ((document.querySelector('.tt_day_container') && document.querySelector('.desktop_summary'))
+                    || document.querySelector('[id^="timesheet-day-"]')) {
                     clearInterval(tick);
                     renderUI();
                     initTimesheetNavigation();
@@ -13163,7 +13285,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                                 renderUI();
                             }, 600);
                     });
-                    const panel = document.getElementById('mainTimesheetPanel');
+                    const panel = document.getElementById('mainTimesheetPanel') || getTimesheetDays()[0]?.parentElement;
                     if (panel) {
                         observer.observe(panel, {
                             childList: true,
