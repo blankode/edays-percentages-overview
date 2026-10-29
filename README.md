@@ -15,7 +15,7 @@
 
 **A Tampermonkey userscript that overlays a live analytics dashboard on top of eDays — showing office attendance, time vs rota, buffer, and day counts at a glance.**
 
-[![Version](https://img.shields.io/badge/version-20.2-6366f1?style=flat-square&labelColor=0f0f0f)](https://github.com/blankode/edays-percentages-overview)
+[![Version](https://img.shields.io/badge/version-20.3-6366f1?style=flat-square&labelColor=0f0f0f)](https://github.com/blankode/edays-percentages-overview)
 [![Platform](https://img.shields.io/badge/platform-Tampermonkey-f59e0b?style=flat-square&labelColor=0f0f0f)](https://www.tampermonkey.net/)
 [![License](https://img.shields.io/badge/license-MIT-22c55e?style=flat-square&labelColor=0f0f0f)](LICENSE)
 [![Site](https://img.shields.io/badge/works%20on-e--days.com-3b82f6?style=flat-square&labelColor=0f0f0f)](https://e-days.com)
@@ -50,7 +50,7 @@ Shows whether you're ahead or behind on your daily 8h target based on past days.
 
 ## ⤢ Compact Dashboard
 
-On the previous eDays layout, the native **Minimize** button appears immediately to the right of **Analyzer Settings** in the Time Tracking header. On the new v3 layout, Analyzer provides its own small toolbar with **To today**, **Settings**, **Theme** and **Minimize / Expand** controls. Click it to replace the expanded analytics cards and Office Planner with a low-profile four-metric view:
+On the previous eDays layout, the native **Minimize** button appears immediately to the right of **Analyzer Settings** in the Time Tracking header. On the new v3 layout, Analyzer provides a single native-style action group in its own heading with **To today**, **Settings** and **Minimize / Expand** controls; the **Theme** switch remains beside eDays' Book time off action. Click it to replace the expanded analytics cards and Office Planner with a low-profile four-metric view:
 
 - **Today** — time worked against today's effective target, time remaining, optional leave-at estimate, and a compact **Include buffer** switch.
 - **Office Target** — percentage of the configured office target achieved, logged office time, and time still needed.
@@ -151,7 +151,7 @@ The dashboard re-renders automatically via a **MutationObserver** watching the t
 | Edge | ✅ |
 | Safari | ✅ (with Tampermonkey) |
 
-Legacy timesheet layout support is retained. Version 20.2 also recognizes the new v3 day-card layout with stable IDs such as `timesheet-day-2026-10-26`, separate hour/minute inputs, activity selectors, daily totals and editable breaks. **Only a day-card excerpt of v3 was available for testing**: without the updated official monthly-summary markup, the dashboard marks calculated monthly figures as **estimates based on visible days**. Confirm monthly rota, absence and difference against eDays until a verified new summary selector is available. Browsers and full v3 end-to-end behavior have not yet been re-tested on the live site.
+Legacy timesheet layout support is retained. Version 20.3 recognizes the new v3 day-card layout with stable IDs such as `timesheet-day-2026-10-26`, separate hour/minute inputs, activity selectors, daily totals and editable breaks. **Only a day-card excerpt of v3 was available for testing**: without the updated official monthly-summary markup, the dashboard marks calculated monthly figures as **estimates based on visible days**. Confirm monthly rota, absence and difference against eDays until a verified new summary selector is available. Browsers and full v3 end-to-end behavior have not yet been re-tested on the live site.
 
 <br/>
 
@@ -159,6 +159,7 @@ Legacy timesheet layout support is retained. Version 20.2 also recognizes the ne
 
 | Version | Changes |
 |---|---|
+| **20.3** | Removed the disconnected v3 toolbar and consolidated To today, Settings and Minimize/Expand into one native-style, responsive Analyzer header. Kept the site-wide Theme control next to Book time off instead of duplicating it. Prevented duplicate controls and mounted the dashboard outside Vue-owned day cards; stabilized live refresh across month switches and input edits. |
 | **20.2** | Added compatibility for the redesigned eDays v3 timesheet day cards (stable day IDs, HH:MM start/end inputs, daily totals, break field, activity selection and Today detection). Restored dashboard mounting, toolbar, navigation, and activity/office calculations when the old HTML structure is absent. Preserved legacy compatibility. New monthly figures are **explicitly flagged as provisional** if no official month summary is available. Updated README/version history. |
 | **20.1** | Fixed Buffer & Outlook showing a false deficit (for example −1h 44m while monthly Difference was zero). Banked time now compares net hours against the net daily rota and does not deduct breaks twice. |
 | **20.0** | Increased Office Planner typography and contrast, especially calendar hour values and weekly schedule hours, with responsive behavior on smaller screens. |
