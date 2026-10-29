@@ -10681,6 +10681,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         #ep13 .ep-empty-sub{font-size:13px;color:${T.muted};line-height:1.5;max-width:340px;}
 
         /* v20.2: revised eDays markup */
+        [id^="timesheet-day-"].ep-v3-today{outline:2px solid rgba(59,130,246,.55);outline-offset:2px;border-radius:8px;}
         #ep13 .ep-v3-estimate{font-size:12px;font-weight:600;background:rgba(245,158,11,.12);color:${T.isDark?'#fcd34d':'#92400e'};border:1px solid rgba(245,158,11,.34);border-radius:8px;padding:10px 12px;margin-bottom:10px;}
         .ep-v3-toolbar{display:flex;gap:7px;flex-wrap:wrap;align-items:center;padding:10px 0;}
         .ep-v3-toolbar button{font:600 13px/1.3 system-ui,sans-serif;padding:8px 12px;border:1px solid ${T.border};border-radius:8px;background:${T.surface};color:${T.text};cursor:pointer;}
@@ -13205,7 +13206,9 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         const today = getTodayRow();
         const nav = add('ep-v3-nav', today ? '↓ To today' : '↑ To dashboard',
             () => today ? jumpToToday() : jumpToAnalyzer());
-        nav.textContent = today ? '↓ To today' : '↑ To dashboard';
+        const nextNavLabel = today ? '↓ To today' : '↑ To dashboard';
+        if (nav.textContent !== nextNavLabel) nav.textContent = nextNavLabel;
+        if (today) today.classList.add('ep-v3-today');
         add('ep-v3-settings', '⚙ Settings', () => openSettingsModal());
         add('ep-v3-theme', '◐ Theme', () => {
             themeOverride = getTheme().isDark ? 'light' : 'dark';
@@ -13213,12 +13216,14 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             applySiteTheme();
             renderUI();
         });
-        add('ep-v3-minimize', 'Minimize', () => {
+        const modeButton = add('ep-v3-minimize', 'Minimize', () => {
             miniMode = !miniMode;
             localStorage.setItem(LS.MINI_MODE, String(miniMode));
             renderUI();
             ensureV3Toolbar();
-        }).textContent = miniMode ? 'Expand' : 'Minimize';
+        });
+        const modeLabel = miniMode ? 'Expand' : 'Minimize';
+        if (modeButton.textContent !== modeLabel) modeButton.textContent = modeLabel;
     };
     const ensureTimesheetNavButton = () => {
         const submitButton = getSubmitMonthButton();
