@@ -151,7 +151,7 @@ The dashboard re-renders automatically via a **MutationObserver** watching the t
 | Edge | ✅ |
 | Safari | ✅ (with Tampermonkey) |
 
-Legacy timesheet layout support is retained. Version 20.3 recognizes the new v3 day-card layout with stable IDs such as `timesheet-day-2026-10-26`, separate hour/minute inputs, activity selectors, daily totals and editable breaks. **Only a day-card excerpt of v3 was available for testing**: without the updated official monthly-summary markup, the dashboard marks calculated monthly figures as **estimates based on visible days**. Confirm monthly rota, absence and difference against eDays until a verified new summary selector is available. Browsers and full v3 end-to-end behavior have not yet been re-tested on the live site.
+Legacy timesheet layout support is retained. Version 20.3 recognizes the new v3 day-card layout with stable IDs such as `timesheet-day-2026-10-26`, separate hour/minute inputs, activity selectors, daily totals and editable breaks. The v3 monthly summary is now parsed directly from eDays for **Time recorded, Absences, Public holidays, Rota, and signed Difference**. Only when the official totals are not rendered yet will Analyzer display provisional estimates derived from visible day cards. Browser-specific and complete live-site end-to-end behavior have not yet been re-tested.
 
 <br/>
 
@@ -159,7 +159,7 @@ Legacy timesheet layout support is retained. Version 20.3 recognizes the new v3 
 
 | Version | Changes |
 |---|---|
-| **20.3** | Removed the disconnected v3 toolbar and consolidated To today, Settings and Minimize/Expand into one native-style, responsive Analyzer header. Kept the site-wide Theme control next to Book time off instead of duplicating it. Prevented duplicate controls and mounted the dashboard outside Vue-owned day cards; stabilized live refresh across month switches and input edits. |
+| **20.3** | Removed the disconnected v3 toolbar and consolidated To today, Settings and Minimize/Expand into one native-style, responsive Analyzer header. Kept the site-wide Theme control next to Book time off instead of duplicating it. Prevented duplicate controls and mounted the dashboard outside Vue-owned day cards; stabilized live refresh across month switches and input edits. **Refactor:** read the official Vue 3 monthly summary (Time recorded, Absences, Public holidays, Rota, signed Difference), retaining estimates only during summary loading. |
 | **20.2** | Added compatibility for the redesigned eDays v3 timesheet day cards (stable day IDs, HH:MM start/end inputs, daily totals, break field, activity selection and Today detection). Restored dashboard mounting, toolbar, navigation, and activity/office calculations when the old HTML structure is absent. Preserved legacy compatibility. New monthly figures are **explicitly flagged as provisional** if no official month summary is available. Updated README/version history. |
 | **20.1** | Fixed Buffer & Outlook showing a false deficit (for example −1h 44m while monthly Difference was zero). Banked time now compares net hours against the net daily rota and does not deduct breaks twice. |
 | **20.0** | Increased Office Planner typography and contrast, especially calendar hour values and weekly schedule hours, with responsive behavior on smaller screens. |
