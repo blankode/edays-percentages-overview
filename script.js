@@ -10007,6 +10007,8 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
     /* ═══════════════════════════════════════════════════════════════
        DATA GATHERING
     ═══════════════════════════════════════════════════════════════ */
+    // Read the official eDays monthly totals (legacy and Vue 3) before
+    // considering any calculated fallback. v3's +/- prefix is a child span.
     const getSummaryData = () => {
         const d = {
             recorded: 0,
@@ -10015,45 +10017,83 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             holidays: 0,
             difference: 0
         };
-        document.querySelectorAll('.desktop_summary .summary_block').forEach(block => {
-            const spans = block.querySelectorAll('span');
-            if (spans.length < 2) return;
-            const mins = parseTime(spans[0].innerText.trim());
-            const lbl = spans[1].innerText.trim();
-            if (lbl.includes('Time recorded')) {
-                d.recorded = mins;
-            }
-            if (lbl.includes('Rota')) {
-                d.rota = Math.abs(mins);
-            }
-            if (lbl.includes('Absences')) {
-                d.absences = Math.abs(mins);
-            }
-            if (lbl.includes('Public holidays')) {
-                d.holidays = Math.abs(mins);
-            }
-            if (lbl.includes('Difference')) {
-                d.difference = mins;
-            }
+
+        const legacyBlocks = [...document.querySelectorAll('.desktop_summary .summary_block')];
+        if (legacyBlocks.length) {
+            legacyBlocks.forEach(block => {
+                const spans = block.querySelectorAll('span');
+                if (spans.length < 2) return;
+                const value = parseTime(spans[0].textContent.trim());
+                const label = spans[1].textContent.trim().toLowerCase();
+                if (label.includes('time recorded')) d.recorded = value;
+                if (label.includes('rota')) d.rota = Math.abs(value);
+                if (label.includes('absences')) d.absences = Math.abs(value);
+                if (label.includes('public holidays')) d.holidays = Math.abs(value);
+                if (label.includes('difference')) d.difference = value;
+            });
+            d.source = 'official-legacy';
+            return d;
+        }
+
+        // Generated CSS-module hashes such as "dz9te" are not stable.
+        // Prefer the known v3 container, then fall back to the same
+        // "_item_ / _label_ / _value_" structure with exact label matching.
+        const scopedRows = [...document.querySelectorAll(
+            '[class*="_container_dz9te_"] > [class*="_item_"]'
+        )];
+        const v3Rows = scopedRows.length ? scopedRows
+            : [...document.querySelectorAll('div[class*="_item_"]')];
+        const fields = {
+            'time recorded': 'recorded',
+            'absences': 'absences',
+            'public holidays': 'holidays',
+            'rota': 'rota',
+            'difference': 'difference'
+        };
+        const official = new Map();
+
+        v3Rows.forEach(row => {
+            const label = row.querySelector('[class*="_label_"]')
+                ?.textContent?.trim().toLowerCase();
+            const field = fields[label];
+            if (!field) return;
+            const value = (row.querySelector('[class*="_value_"]')?.textContent || '')
+                .replace(/\s+/g, '').trim();
+            if (!/^[+-]?\d+:\d{2}$/.test(value)) return;
+            official.set(field, parseTime(value));
         });
-        if (document.querySelector('.desktop_summary .summary_block')) return d;
+
+        // Do not mark the summary authoritative during partial Vue hydration.
+        if (official.has('recorded') && official.has('rota') &&
+            official.has('difference') && official.has('absences') &&
+            official.has('holidays')) {
+            d.recorded = Math.max(0, official.get('recorded'));
+            d.rota = Math.abs(official.get('rota'));
+            d.absences = Math.abs(official.get('absences'));
+            d.holidays = Math.abs(official.get('holidays'));
+            d.difference = official.get('difference'); // preserve negative sign
+            d.source = 'official-v3';
+            return d;
+        }
+
+        // Last resort while the official summary has not rendered yet:
+        // show estimates from visible days and mark them as provisional.
         const days = getTimesheetDays();
         if (!days.length) return d;
-        // The supplied new markup shows day cards but no official month summary.
-        // Calculate provisional amounts ONLY from rendered days, never claim
-        // they are the authoritative eDays rota or absence totals.
         d.estimated = true;
+        d.source = 'visible-days';
         for (const day of days) {
             const date = parseDayDate(getDayLabel(day));
             d.recorded += getLiveDayMinutes(day);
-            if (!date || [0,6].includes(date.getDay())) continue;
+            if (!date || [0, 6].includes(date.getDay())) continue;
             d.rota += STANDARD_DAY_MINUTES;
             const absence = getAbsenceInfo(day);
             if (absence.isHoliday) d.holidays += STANDARD_DAY_MINUTES;
             else if (absence.isHalfDay) d.absences += HALF_DAY_MINUTES;
             else if (absence.isFullAbsence) d.absences += STANDARD_DAY_MINUTES;
         }
-        d.difference = d.recorded - Math.max(0, d.rota - d.absences - d.holidays);
+        d.difference = d.recorded -
+            Math.max(0, d.rota - d.absences - d.holidays);
         return d;
     };
     const isSummaryReady = () => !!document.querySelector('.desktop_summary .summary_block')
