@@ -45,22 +45,22 @@
 // Changelog v18.0: Today leave-at time is shown only while a time period is actively open.
 // Changelog v17.9: Fixed buffer calculation to use the true 8-hour daily target and prevent today's buffer from being double-counted.
 // Changelog v17.8: Buttons now use blue styling in the light theme and orange styling in the dark theme.
-/* Imported site theme: Dark Reader, color palettes, and the light/dark toggle.
- * Source: theme.js, loaded before this userscript by Tampermonkey @require.
- */
-const SiteTheme = globalThis.EPTheme;
-if (!SiteTheme) throw new Error('[eDays Analyzer Pro] Theme dependency failed to load');
-const getTheme = () => SiteTheme.getTheme();
-const applySiteTheme = () => SiteTheme.applySiteTheme();
-const ensureSiteThemeAction = () => SiteTheme.ensureSiteThemeAction();
-const initSiteEnhancements = () => SiteTheme.init({injectStyles, renderUI});
-
 /* ══ DEFAULT SETTINGS ══ */
 const DEFAULT_OFF_TARGET = 60;               // Office target (% of rota hours)
 const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Legacy-only: Vue v3 does not add an enforced break
 const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDays Breaks)
 (function() {
     'use strict';
+/* Imported site theme: Dark Reader, palettes, and light/dark controls.
+     * The theme module initializes with Analyzer callbacks at boot.
+     */
+    const SiteTheme = globalThis.EPTheme;
+    if (!SiteTheme) throw new Error('[eDays Analyzer Pro] Theme dependency failed to load');
+    const getTheme = () => SiteTheme.getTheme();
+    const applySiteTheme = () => SiteTheme.applySiteTheme();
+    const ensureSiteThemeAction = () => SiteTheme.ensureSiteThemeAction();
+    const initSiteEnhancements = () => SiteTheme.init({injectStyles, renderUI});
+
     /* ═══════════════════════════════════════════════════════════════
        LOCALSTORAGE KEYS
     ═══════════════════════════════════════════════════════════════ */
