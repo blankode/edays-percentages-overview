@@ -73,14 +73,37 @@ Click **Expand** to restore the complete dashboard. The setting is saved locally
 **1. Open Tampermonkey**
 Click the Tampermonkey icon in your browser toolbar → **Create a new script**
 
-**2. Paste the script**
-Replace the default contents with the full script from [`script.js`](https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js)
+**2. Paste the main script**
+Replace the default contents with [`script.js`](https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js). It automatically loads [`theme.js`](https://github.com/blankode/edays-percentages-overview/blob/main/theme.js) using Tampermonkey's `@require` directive; you do **not** need a second userscript or to paste `theme.js` manually. Ensure the required GitHub resource is permitted to load.
 
 **3. Save**
-`Ctrl + S` — the script is now active
+`Ctrl + S` — the script is now active. On first installation, Tampermonkey must download its `@require` dependency.
 
 **4. Navigate to eDays**
 Go to your timesheet at `*.e-days.com` — on Vue 3 the dashboard will appear automatically below the Timesheet toolbar
+
+<br/>
+
+## ⧉ File Structure (v20.4)
+
+The userscript is split into two maintained source files, while **the userscript version stays 20.4**:
+
+| File | Responsibility |
+|---|---|
+| [`script.js`](https://github.com/blankode/edays-percentages-overview/blob/main/script.js) | Analyzer logic: timesheet parsing, activity/office metrics, Today, buffer, planning, UI, navigation, and Analyzer-specific CSS. |
+| [`theme.js`](https://github.com/blankode/edays-percentages-overview/blob/main/theme.js) | Vendored Dark Reader engine (MIT license preserved), early dark-mode anti-flash bootstrap, color palettes, site-wide styling, and Dark/Light toggle. |
+
+`script.js` loads the theme first via the userscript metadata:
+
+```javascript
+// @require      https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/theme.js?release=20.4-theme-split-1
+```
+
+The theme exposes a small `EPTheme` API so the Analyzer does not need to embed or maintain Dark Reader code. The main script shrank from **13,447 to 3,349 lines**, without changing the displayed userscript version. The versioned query suffix also distinguishes this dependency URL from older cached resources; when changing `theme.js` again, update that suffix in `script.js` so Tampermonkey fetches the new dependency.
+
+**Existing 20.4 installations:** keeping the same `@version` means an automatic version check might not install this refactor. Open the updated [raw `script.js`](https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js) in Tampermonkey and reinstall/replace the existing script manually. You only install `script.js` — `theme.js` is downloaded as its dependency.
+
+**Note:** `@run-at document-start` is preserved, but loading an external `@require` may postpone first execution while the dependency downloads; the anti-flash bootstrap cannot be guaranteed on a cold first install.
 
 <br/>
 
@@ -97,9 +120,10 @@ The script includes auto-update headers pointing to the raw GitHub file:
 ```
 // @updateURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
+// @require      https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/theme.js?release=20.4-theme-split-1
 ```
 
-Tampermonkey will detect version bumps and prompt you to update. To control how often it checks:
+Tampermonkey will detect **future version bumps** and prompt you to update. Because this extraction intentionally keeps **20.4**, you may need to reinstall `script.js` once; Tampermonkey does not reliably treat same-version code changes as an update. The theme dependency is cached under its `@require` URL. To control how often Tampermonkey checks:
 
 > **Tampermonkey Settings → Updates → Script Update Interval** → set to `Every 12 hours`
 
@@ -107,7 +131,7 @@ Tampermonkey will detect version bumps and prompt you to update. To control how 
 
 ## ◐ Theme
 
-The userscript now provides a persistent **Dark mode / Light mode** control beside the native eDays **Book time off** action. Dark mode uses the bundled official **Dark Reader Dynamic Theme engine**, so the complete eDays site is themed dynamically across pages and newly rendered components rather than relying on a fixed list of selectors. Analyzer-specific styling, including the custom Today highlight and animated **Enhanced** branding, is preserved with dedicated Dark Reader fixes.
+The userscript now provides a persistent **Dark mode / Light mode** control beside the native eDays **Book time off** action. Dark mode uses the official **Dark Reader Dynamic Theme engine**, now bundled in the separate `theme.js` dependency, so the complete eDays site is themed dynamically across pages and newly rendered components rather than relying on a fixed list of selectors. Analyzer-specific styling, including the custom Today highlight and animated **Enhanced** branding, is preserved with dedicated Dark Reader fixes.
 
 <br/>
 
@@ -159,7 +183,7 @@ Legacy timesheet layout support is retained. Version 20.4 recognizes the new v3 
 
 | Version | Changes |
 |---|---|
-| **20.4** | Moved the full Analyzer below the rendered Vue 3 **Timesheet** title/action bar, before monthly navigation. Repaired header detection for the hydrated Vue DOM (where `<v3-timesheet>` no longer exists), and injected a single set of native-styled **To today / To home**, **Settings**, and **Minimize / Expand** controls immediately after **Submit month**. Changed the new Timesheet daily target to **8h of recorded work**, with no automatically added 30-minute mandatory break, across expanded/mini Today, leave-at time, buffer, and overtime. Legacy break settings remain available; Vue 3 labels them as inapplicable. Also recognized new Vue 3 Vacation tags in the planner/day capacity calculations. |
+| **20.4** | Moved the full Analyzer below the rendered Vue 3 **Timesheet** title/action bar, before monthly navigation. Repaired header detection for the hydrated Vue DOM (where `<v3-timesheet>` no longer exists), and injected a single set of native-styled **To today / To home**, **Settings**, and **Minimize / Expand** controls immediately after **Submit month**. Changed the new Timesheet daily target to **8h of recorded work**, with no automatically added 30-minute mandatory break, across expanded/mini Today, leave-at time, buffer, and overtime. Legacy break settings remain available; Vue 3 labels them as inapplicable. Also recognized new Vue 3 Vacation tags in the planner/day capacity calculations. **Code organization addition:** extracted the vendored Dark Reader engine, anti-flash bootstrap, dark/light palette and site toggle, and theme-only CSS to `theme.js`, required from `script.js` using `@require`. Analyzer logic now stays in a much smaller main file (13,447 → 3,349 lines), with version **20.4** unchanged. Existing 20.4 users must manually replace the script to get same-version changes. |
 | **20.3** | Removed the disconnected v3 toolbar and consolidated To today, Settings and Minimize/Expand into one native-style, responsive Analyzer header. Kept the site-wide Theme control next to Book time off instead of duplicating it. Prevented duplicate controls and mounted the dashboard outside Vue-owned day cards; stabilized live refresh across month switches and input edits. **Refactor:** read the official Vue 3 monthly summary (Time recorded, Absences, Public holidays, Rota, signed Difference), retaining estimates only during summary loading. **Navigation fix:** place a single To today / To home eDays-style button directly after Submit month in the Timesheet, and keep Settings / Minimize in Analyzer. |
 | **20.2** | Added compatibility for the redesigned eDays v3 timesheet day cards (stable day IDs, HH:MM start/end inputs, daily totals, break field, activity selection and Today detection). Restored dashboard mounting, toolbar, navigation, and activity/office calculations when the old HTML structure is absent. Preserved legacy compatibility. New monthly figures are **explicitly flagged as provisional** if no official month summary is available. Updated README/version history. |
 | **20.1** | Fixed Buffer & Outlook showing a false deficit (for example −1h 44m while monthly Difference was zero). Banked time now compares net hours against the net daily rota and does not deduct breaks twice. |
