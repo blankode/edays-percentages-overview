@@ -224,11 +224,17 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             || document.querySelector('#main_content_wrapper .edays-vue3');
         if (!view) return null;
         const title = [...view.querySelectorAll('div[class*="_title-container_"]')]
-            .find(el => el.textContent.replace(/\s+/g, ' ').trim() === 'Timesheet');
+            .find(el => {
+                // Our Enhanced label must not interfere with future header lookups.
+                const nativeLabel = [...el.childNodes]
+                    .filter(node => node.nodeType !== 1 || !node.classList?.contains('ep-enhanced-text'))
+                    .map(node => node.textContent || '').join(' ').replace(/\s+/g, ' ').trim();
+                return /^Timesheet$/i.test(nativeLabel);
+            });
         const header = title?.parentElement;
         if (!header) return null;
         const actions = [...header.children].find(el => el.matches('div[class*="_actions_"]'));
-        return actions ? {view,header,actions} : null;
+        return actions ? {view,header,actions,title} : null;
     };
     const getTimesheetPeriods = dayEl => [...dayEl.querySelectorAll(PERIOD_SELECTOR)];
     const getActivityName = periodEl => periodEl.querySelector('.chosen-single span')?.textContent?.trim()
@@ -1191,11 +1197,13 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         #ep13 .ep-v3-action svg{display:block;width:15px;height:15px;}
         #ep13 .ep-v3-action.ep-v3-primary{background:${T.isDark ? "#294f78" : "#1776cf"};border-color:${T.isDark ? "#477caf" : "#1776cf"};color:#fff;}
         #ep13 .ep-v3-action.ep-v3-primary:hover{background:${T.isDark ? "#386792" : "#1261a9"};}
-        /* Native eDays V3 Timesheet button, immediately after Submit month. */
+        /* Clone native Save month: same ECL3 scope and icon-left 20px SVG. */
         .ep-timesheet-action{display:inline-flex;align-items:center;vertical-align:middle;flex:0 0 auto;}
         .ep-timesheet-action .v3-button-margin-box{display:flex;align-items:center;}
         .ep-timesheet-action .v3-button-container{white-space:nowrap;cursor:pointer;}
+        .ep-timesheet-action .v3-button-container .v3-icon{width:20px;height:20px;vertical-align:middle;flex-shrink:0;}
         .ep-timesheet-action .label{white-space:nowrap;}
+        #main_content_wrapper .edays-vue3 [class*="_title-container_"] .ep-enhanced-text{display:inline-block;vertical-align:baseline;}
         @media(max-width:850px){.ep-timesheet-action .v3-button-container{font-size:12px;}}
         @media(max-width:850px){#ep13 .ep-hdr:has(.ep-v3-actions) .ep-hdr-right{width:100%;margin-left:0;justify-content:space-between;}#ep13 .ep-v3-actions{justify-content:flex-start;}#ep13 .ep-v3-action{min-height:32px;padding:6px 9px;font-size:12px;}#ep13 .ep-hdr-date{margin-left:auto;}}
         @media(max-width:460px){#ep13 .ep-v3-actions{width:100%;}#ep13 .ep-v3-action{flex:1;padding-inline:5px;}#ep13 .ep-v3-action > span{flex-shrink:0;}#ep13 .ep-hdr-date{margin-left:auto;}}
@@ -1275,7 +1283,8 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
            v19.3 — SITE-WIDE THEME / RELOCATED CONTROLS
         ═══════════════════════════════════════════════════════════ */
         #ep13 .ep-hdr{display:none!important;}
-        #timesheetMonthHeader h2 .ep-enhanced-text{
+        #timesheetMonthHeader h2 .ep-enhanced-text,
+        #main_content_wrapper .edays-vue3 [class*="_title-container_"] .ep-enhanced-text{
             margin-left:6px;
             font-weight:800;
             background:linear-gradient(90deg,#3b82f6 0%,#a855f7 35%,#22d3ee 65%,#3b82f6 100%);
@@ -1294,7 +1303,8 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             100%{background-position:0% 50%;}
         }
         @media (prefers-reduced-motion: reduce){
-            #timesheetMonthHeader h2 .ep-enhanced-text{
+            #timesheetMonthHeader h2 .ep-enhanced-text,
+            #main_content_wrapper .edays-vue3 [class*="_title-container_"] .ep-enhanced-text{
                 animation:none!important;
                 background-position:50% 50%;
             }
@@ -3107,6 +3117,38 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         ? '↓ To today'
         : '↑ To home';
 
+    // Use the same <svg class="v3-icon"> container and 20px sizing as eDays.
+    // Glyphs use the Analyzer's material-style SVG paths.
+    const setV3ActionIcon = (button, name) => {
+        if (!button) return;
+        let svg = button.querySelector('svg.v3-icon');
+        if (!svg) {
+            svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            svg.classList.add('v3-icon');
+            button.insertBefore(svg, button.querySelector('.label'));
+        }
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        svg.setAttribute('fill', 'currentColor');
+        svg.style.height = '20px';
+        svg.style.width = '20px';
+        svg.style.verticalAlign = 'middle';
+        if (svg.dataset.epGlyph === name) return;
+        const glyphHost = document.createElement('span');
+        glyphHost.innerHTML = ICONS[name] || '';
+        const glyph = glyphHost.querySelector('svg');
+        if (glyph) svg.replaceChildren(...[...glyph.children].map(child => child.cloneNode(true)));
+        svg.dataset.epGlyph = name;
+    };
+    const enhanceV3TimesheetHeading = (result = findV3TimesheetHeader()) => {
+        const title = result?.title;
+        if (!title || title.querySelector('.ep-enhanced-text')) return;
+        const enhanced = document.createElement('span');
+        enhanced.className = 'ep-enhanced-text';
+        enhanced.textContent = 'Enhanced';
+        title.appendChild(enhanced);
+    };
+
     const configureTimesheetNavButton = (button, target) => {
         const description = target === 'today'
             ? 'Jump to today in the current timesheet'
@@ -3148,7 +3190,8 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         const target = getTodayRow() ? getTimesheetNavState() : 'today';
         const v3Button = document.getElementById('ep-v3-submit-nav');
         if (v3Button) {
-            const label = getTimesheetNavLabel(target);
+            const label = getTimesheetNavLabel(target).replace(/^[↑↓]\s*/, '');
+            setV3ActionIcon(v3Button, target === 'today' ? 'arrow_down' : 'arrow_up');
             const description = target === 'today'
                 ? 'Jump to today in the Timesheet'
                 : 'Back to the Analyzer dashboard';
@@ -3211,33 +3254,63 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         document.querySelectorAll('#ep-timesheet-nav,#ep-timesheet-settings,#ep-timesheet-minimize,#ep-v3-nav,#ep-v3-settings,#ep-v3-minimize')
             .forEach(button=>button.remove());
         const header = findV3TimesheetHeader();
+        if (!header) return;
+        enhanceV3TimesheetHeading(header);
         const submit = findV3SubmitMonthButton();
-        if (!header || !submit) return;
+        const nativeButtons = [...header.actions.querySelectorAll('button')]
+            .filter(button => !button.closest('.ep-timesheet-action'));
+        const saveMonth = nativeButtons.find(button =>
+            /^save\s+month$/i.test((button.querySelector('.label')?.textContent || button.textContent || '').trim()));
+        const referenceButton = saveMonth || submit || nativeButtons[nativeButtons.length - 1];
+        const placementButton = submit || saveMonth || nativeButtons[nativeButtons.length - 1];
+        if (!placementButton) return;
         const monthText = header.view.querySelector('[class*="_header-label_"]')?.textContent?.trim() || null;
         if (monthText && v3MonthLabel && monthText !== v3MonthLabel) timesheetNavForcedTarget = null;
         if (monthText) v3MonthLabel = monthText;
-        let anchor = submit.closest('.v3-button') || submit;
-        const action = (id,label,title,handler) => {
-            let shell = document.getElementById(id+'-shell');
+        let anchor = placementButton.closest('.v3-button') || placementButton;
+        const referenceShell = referenceButton?.closest('.v3-button.ECL3');
+        const action = (id, label, title, glyph, handler) => {
+            let shell = document.getElementById(id + '-shell');
             if (!shell) {
-                shell = document.createElement('div');
-                shell.id=id+'-shell';
-                shell.className='v3-button ECL3 ep-timesheet-action';
-                shell.innerHTML='<div class="v3-button-margin-box"><button class="v3-button-container secondary" type="button" target=""><span class="label"></span></button></div>';
-                const btn=shell.querySelector('button');
-                btn.id=id;
-                btn.addEventListener('click',ev=>{ev.preventDefault();ev.stopPropagation();handler(btn);});
+                // Cloning eDays' Save month keeps the native data-v-*
+                // scope attributes, dimensions, spacing and font styling.
+                shell = referenceShell?.cloneNode(true) || document.createElement('div');
+                shell.id = id + '-shell';
+                shell.className = 'v3-button ECL3 ep-timesheet-action';
+                if (!shell.querySelector('.v3-button-margin-box')) {
+                    shell.innerHTML = '<div class="v3-button-margin-box"><button type="button" target="" class="v3-button-container secondary icon-left"><svg class="v3-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"></svg><span class="label"></span></button></div>';
+                }
+                const button = shell.querySelector('button');
+                if (button) {
+                    button.id = id;
+                    button.type = 'button';
+                    button.className = 'v3-button-container secondary icon-left';
+                    button.removeAttribute('disabled');
+                    button.removeAttribute('aria-disabled');
+                    button.setAttribute('target', '');
+                    button.addEventListener('click', event => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        handler(button);
+                    });
+                }
             }
-            const btn=shell.querySelector('button'), labelNode=btn?.querySelector('.label');
-            if (labelNode && labelNode.textContent!==label) labelNode.textContent=label;
-            if (btn && btn.title!==title) btn.title=title;
-            if (btn && btn.getAttribute('aria-label')!==title) btn.setAttribute('aria-label',title);
-            if (anchor.nextElementSibling!==shell) anchor.insertAdjacentElement('afterend',shell);
-            anchor=shell;
-            return btn;
+            const button = shell.querySelector('button');
+            const text = button?.querySelector('.label');
+            if (text && text.textContent !== label) text.textContent = label;
+            if (button && button.title !== title) button.title = title;
+            if (button && button.getAttribute('aria-label') !== title)
+                button.setAttribute('aria-label', title);
+            setV3ActionIcon(button, glyph);
+            if (anchor.nextElementSibling !== shell)
+                anchor.insertAdjacentElement('afterend', shell);
+            anchor = shell;
+            return button;
         };
         const target=getTodayRow()?getTimesheetNavState():'today';
-        action('ep-v3-submit-nav',getTimesheetNavLabel(target),target==='today'?'Jump to today':'Back to Analyzer',btn=>{
+        action('ep-v3-submit-nav', getTimesheetNavLabel(target).replace(/^[↑↓]\s*/, ''),
+            target === 'today' ? 'Jump to today' : 'Back to Analyzer',
+            target === 'today' ? 'arrow_down' : 'arrow_up', btn => {
             if (!getTodayRow()) {
                 const nativeToday=[...header.view.querySelectorAll('[class*="_today-button_"] button')]
                     .find(b=>(b.querySelector('.label')?.textContent||b.textContent||'').trim()==='Today'&&!b.disabled&&!b.classList.contains('disabled'));
@@ -3248,8 +3321,11 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             else{timesheetNavForcedTarget='today';jumpToAnalyzer();}
             updateTimesheetNavButton();
         });
-        action('ep-v3-header-settings','Settings','Analyzer settings',()=>openSettingsModal());
-        action('ep-v3-header-minimize',miniMode?'Expand':'Minimize',miniMode?'Expand Analyzer':'Minimize Analyzer',()=>{
+        action('ep-v3-header-settings', 'Settings', 'Analyzer settings',
+            'settings', () => openSettingsModal());
+        action('ep-v3-header-minimize', miniMode ? 'Expand' : 'Minimize',
+            miniMode ? 'Expand Analyzer' : 'Minimize Analyzer',
+            miniMode ? 'chevron_down' : 'chevron_up', () => {
             miniMode=!miniMode;
             localStorage.setItem(LS.MINI_MODE,String(miniMode));
             renderUI();ensureV3Toolbar();
