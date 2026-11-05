@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      20.3
+// @version      20.4
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
@@ -9530,7 +9530,7 @@ _______|_______/__/ ____ \\__\\__|___\\__\\__|___\\__\\____
 // Changelog v17.8: Buttons now use blue styling in the light theme and orange styling in the dark theme.
 /* ══ DEFAULT SETTINGS ══ */
 const DEFAULT_OFF_TARGET = 60;               // Office target (% of rota hours)
-const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Mandatory break on a full working day
+const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Legacy-only: Vue v3 does not add an enforced break
 const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDays Breaks)
 (function() {
     'use strict';
@@ -9772,6 +9772,18 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
     const PERIOD_SELECTOR = '.tt_period_container, [class*="_period-container_"]';
     const getTimesheetDays = () => [...document.querySelectorAll(DAY_SELECTOR)];
     const isV3Timesheet = () => !!document.querySelector('[id^="timesheet-day-"]');
+    // eDays Vue 3 replaces <v3-timesheet> with a rendered ordinary div tree.
+    const findV3TimesheetHeader = () => {
+        const view = document.querySelector('#main_content_wrapper .grid_12 > .edays-vue3')
+            || document.querySelector('#main_content_wrapper .edays-vue3');
+        if (!view) return null;
+        const title = [...view.querySelectorAll('div[class*="_title-container_"]')]
+            .find(el => el.textContent.replace(/\s+/g, ' ').trim() === 'Timesheet');
+        const header = title?.parentElement;
+        if (!header) return null;
+        const actions = [...header.children].find(el => el.matches('div[class*="_actions_"]'));
+        return actions ? {view,header,actions} : null;
+    };
     const getTimesheetPeriods = dayEl => [...dayEl.querySelectorAll(PERIOD_SELECTOR)];
     const getActivityName = periodEl => periodEl.querySelector('.chosen-single span')?.textContent?.trim()
         || periodEl.querySelector('[aria-haspopup="listbox"] > span')?.textContent?.trim()
@@ -9839,21 +9851,17 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         return d > 0 ? d : 0;
     };
     const getAbsenceInfo = dayEl => {
-        const text = dayEl.querySelector('.absence_detail_text')?.textContent?.trim()
-            || dayEl.querySelector('[class*="_absence-detail_"], [class*="_absence-name_"], [class*="_absence-label_"]')?.textContent?.trim()
-            || '';
-        const halfMatch = text.match(/:\s*(AM|PM)\s*$/i);
-        const halfDayPart = halfMatch ? halfMatch[1].toUpperCase() : null;
-        const isHalfDay = !!halfDayPart;
-        const isHoliday = /holiday/i.test(text);
-        const isFullAbsence = !!text && !isHalfDay;
-        return {
-            text,
-            isHalfDay,
-            halfDayPart,
-            isHoliday,
-            isFullAbsence
-        };
+        const legacy = dayEl.querySelector('.absence_detail_text')?.textContent?.trim() || '';
+        // New v3 absence chips: "Vacation: Full Day", "Vacation: AM", etc.
+        const v3Tag = [...dayEl.querySelectorAll('[class*="_tags_"] [class*="_information_"]')]
+            .map(el => el.textContent.replace(/\s+/g,' ').trim())
+            .find(t => /\b(vacation|sickness|sick|absence|holiday|leave|time off)\b/i.test(t)) || '';
+        const fallback = dayEl.querySelector('[class*="_absence-detail_"],[class*="_absence-name_"],[class*="_absence-label_"]')?.textContent?.trim() || '';
+        const text = legacy || v3Tag || fallback;
+        const halfPart = text.match(/\b(AM|PM)\b/i)?.[1]?.toUpperCase() || null;
+        const isHalfDay = !!halfPart || /\bhalf[\s-]*day\b/i.test(text);
+        const isHoliday = /\bholiday\b/i.test(text);
+        return {text, isHalfDay, halfDayPart:halfPart, isHoliday, isFullAbsence:!!text && !isHalfDay};
     };
     const getDayName = dayEl => (getDayLabel(dayEl).split(/\s+/)[0] || '').replace(/[^A-Za-z]/g, '');
     const isWeekendDay = dayEl => {
@@ -9897,16 +9905,18 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         return Math.max(saved, live);
     };
     const getRequiredMandatoryBreakMinutes = dayEl => {
+        if (isV3Timesheet()) return 0; // v3: 8h recorded, no fixed +30m
         const target = getDayWorkTargetMinutes(dayEl);
         return target >= STANDARD_DAY_MINUTES ? mandatoryBreakMinutes : 0;
     };
 
-    // Gross Today clock: compare elapsed Total against the daily work target
-    // plus the required break (8h + 30m by default). The configured break and
-    // eDays Breaks selections can each increase the requirement up to 480m.
-    // Clock-out gaps between working periods are never added a second time.
+    // v3 compares logged work against 8h without an enforced break.
+    // Legacy retains its configurable gross target and avoids counting gaps twice.
     const MAX_TODAY_BREAK_DEDUCTION_MINUTES = MAX_MANDATORY_BREAK_MINUTES;
     const getTodayBreakDeductionMinutes = dayEl => {
+        // eDays v3 provides the recorded work total directly. Do not subtract
+        // a break again, or add one to the required 8h of recorded work.
+        if (isV3Timesheet()) return 0;
         if (getDayWorkTargetMinutes(dayEl) < STANDARD_DAY_MINUTES) return 0;
         const configuredBreak = Math.min(
             MAX_TODAY_BREAK_DEDUCTION_MINUTES,
@@ -10348,8 +10358,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         workedMinutes = Math.max(workedMinutes, getDayTotalMinutes(el));
         const absence = getAbsenceInfo(el);
         const breakMinutes = getTodayBreakDeductionMinutes(el);
-        // Keep the raw elapsed counter visible from the first minute after
-        // clock-in; the required break increases the target instead.
+        // Keep logged work visible from the first minute after clock-in.
         const targetMinutes = getDayWorkTargetMinutes(el);
         const grossTargetMinutes = targetMinutes > 0
             ? targetMinutes + breakMinutes
@@ -10725,7 +10734,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         /* v20.2: revised eDays markup */
         [id^="timesheet-day-"].ep-v3-today{outline:2px solid rgba(59,130,246,.55);outline-offset:2px;border-radius:8px;}
         #ep13 .ep-v3-estimate{font-size:12px;font-weight:600;background:rgba(245,158,11,.12);color:${T.isDark?'#fcd34d':'#92400e'};border:1px solid rgba(245,158,11,.34);border-radius:8px;padding:10px 12px;margin-bottom:10px;}
-        /* v20.3: single, native-style action group in the Analyzer heading. */
+        /* v20.4: all Vue actions use the native Timesheet toolbar. */
         #ep13 .ep-hdr:has(.ep-v3-actions){gap:9px;flex-wrap:wrap;}
         #ep13 .ep-hdr:has(.ep-v3-actions) .ep-hdr-right{gap:10px;min-width:0;flex-wrap:wrap;justify-content:flex-end;}
         #ep13 .ep-v3-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap;min-width:0;}
@@ -10737,10 +10746,11 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         #ep13 .ep-v3-action.ep-v3-primary{background:${T.isDark ? "#294f78" : "#1776cf"};border-color:${T.isDark ? "#477caf" : "#1776cf"};color:#fff;}
         #ep13 .ep-v3-action.ep-v3-primary:hover{background:${T.isDark ? "#386792" : "#1261a9"};}
         /* Native eDays V3 Timesheet button, immediately after Submit month. */
-        #ep-timesheet-v3-nav{display:inline-flex;align-items:center;vertical-align:middle;flex:0 0 auto;}
-        #ep-timesheet-v3-nav .v3-button-margin-box{display:flex;align-items:center;}
-        #ep-timesheet-v3-nav .v3-button-container{white-space:nowrap;cursor:pointer;}
-        #ep-timesheet-v3-nav .label{white-space:nowrap;}
+        .ep-timesheet-action{display:inline-flex;align-items:center;vertical-align:middle;flex:0 0 auto;}
+        .ep-timesheet-action .v3-button-margin-box{display:flex;align-items:center;}
+        .ep-timesheet-action .v3-button-container{white-space:nowrap;cursor:pointer;}
+        .ep-timesheet-action .label{white-space:nowrap;}
+        @media(max-width:850px){.ep-timesheet-action .v3-button-container{font-size:12px;}}
         @media(max-width:850px){#ep13 .ep-hdr:has(.ep-v3-actions) .ep-hdr-right{width:100%;margin-left:0;justify-content:space-between;}#ep13 .ep-v3-actions{justify-content:flex-start;}#ep13 .ep-v3-action{min-height:32px;padding:6px 9px;font-size:12px;}#ep13 .ep-hdr-date{margin-left:auto;}}
         @media(max-width:460px){#ep13 .ep-v3-actions{width:100%;}#ep13 .ep-v3-action{flex:1;padding-inline:5px;}#ep13 .ep-v3-action > span{flex-shrink:0;}#ep13 .ep-hdr-date{margin-left:auto;}}
         /* OFFICE PLANNER — v20.0 accessible sizing and readable hour values */
@@ -11745,8 +11755,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                 effTarget = Math.min(scheduledTarget, effTarget);
             }
         }
-        // Show actual elapsed hours from 0; compare against gross required
-        // time (8h30 by default) rather than subtracting 30m at clock-in.
+        // Vue 3: 8h logged target, no forced 30m extra. Legacy: configurable gross target.
         const todayWorked = today.workedMinutes;
         const isDayOff = scheduledTarget === 0;
         const grossTarget = effTarget > 0 ? effTarget + today.breakMinutes : 0;
@@ -11757,8 +11766,8 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             ? `<div class="ep-today-standard"><span class="ep-today-standard-label">Standard day: ${fmt(standard.fullGrossTarget)}</span><span class="ep-today-overtime" title="Time above the normal daily target; not necessarily payroll-approved overtime">Overtime vs target: +${fmt(standard.overtimeMinutes)}</span></div>`
             : `<div class="ep-today-standard"><span class="ep-today-standard-label">Standard day: ${fmt(standard.fullGrossTarget)}${standard.finishAt ? ` · finish at ${standard.finishAt}` : ''}</span><span>${standard.finishAt ? `Overtime after ${standard.finishAt}` : `Overtime after ${fmt(standard.fullGrossTarget)} elapsed`}</span></div>`;
         /*
-         * Progress compares the gross clock against the full elapsed target,
-         * so it starts at 0% and grows from the first clocked-in minute.
+         * Progress starts at zero against the 8h v3 recorded target
+         * or the configurable legacy gross target.
          */
         const todayPct = isDayOff ? 100 : (grossTarget > 0
             ? clamp((todayWorked / grossTarget) * 100, 0, 100)
@@ -11851,6 +11860,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
     const openSettingsModal = () => {
         closeSettingsModal();
         const T = getTheme();
+        const v3Mode = isV3Timesheet();
         injectStyles(T);
         const overlay = document.createElement('div');
         overlay.id = 'ep-settings-overlay';
@@ -11874,12 +11884,12 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                     </div>
 
                     <div class="ep-settings-field">
-                        <label class="ep-settings-label" for="ep-setting-break">Mandatory break</label>
+                        <label class="ep-settings-label" for="ep-setting-break">${v3Mode ? 'Legacy break (not used in v3)' : 'Mandatory break'}</label>
                         <div class="ep-settings-input-wrap">
-                            <input class="ep-settings-input" id="ep-setting-break" type="number" min="0" max="${MAX_MANDATORY_BREAK_MINUTES}" step="1" value="${mandatoryBreakMinutes}" required>
+                            <input class="ep-settings-input" id="ep-setting-break" type="number" min="0" max="${MAX_MANDATORY_BREAK_MINUTES}" step="1" value="${mandatoryBreakMinutes}" ${v3Mode ? 'disabled' : 'required'}>
                             <span class="ep-settings-unit">minutes</span>
                         </div>
-                        <div class="ep-settings-help">Added to the full-day elapsed target (8h30 total by default). Range: 0–8h. A longer break selected in eDays takes precedence (up to 8h); clock-out gaps are not counted twice.</div>
+                        <div class="ep-settings-help">${v3Mode ? 'New Timesheet: 8h recorded target; no fixed 30-minute break is automatically added. eDays recorded totals remain authoritative.' : 'Legacy Timesheet: added to the 8h daily target (8h30 by default). Range 0–8h; clock-out gaps are not counted twice.'}</div>
                     </div>
 
                     <div class="ep-settings-error" id="ep-settings-error" role="alert"></div>
@@ -12379,42 +12389,26 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         image.src = OFFICE_CELEBRATION_GIF_DATA_URI;
     };
 
-    // On v3, the Today navigation sits directly next to native "Submit month"
-    // in the Timesheet controls. Only Settings / Minimize belong in Analyzer.
-    const renderV3Controls = T => {
-        const modeLabel = miniMode ? 'Expand' : 'Minimize';
-        return `
-            <div class="ep-v3-actions" role="group" aria-label="Analyzer controls">
-                <button id="ep-v3-settings" type="button" class="ep-v3-action"
-                    data-action="settings-open" title="Analyzer settings">
-                    ${icon('settings',15,T.text)} Settings
-                </button>
-                <button id="ep-v3-minimize" type="button" class="ep-v3-action"
-                    data-action="mini-toggle" aria-expanded="${!miniMode}" title="${miniMode ? 'Expand' : 'Minimize'} Analyzer">
-                    ${icon(miniMode ? 'chevron_down' : 'chevron_up',15,T.text)} ${modeLabel}
-                </button>
-            </div>`;
-    };
+    // Vue 3 Analyzer controls are mounted only in the native Timesheet toolbar.
     const renderUI = () => {
         const T = applySiteTheme();
-        // Never mount inside Vue 3's day-list: it is replaced on month changes.
-        const v3Host = isV3Timesheet()
-            ? document.querySelector('#main_content_wrapper .grid_12 > .edays-vue3')
-                || document.querySelector('#main_content_wrapper .edays-vue3')
-            : null;
+        // Mount the entire enhanced module directly UNDER the native
+        // Timesheet toolbar, and before Vue's month navigator.
+        const v3Header = isV3Timesheet() ? findV3TimesheetHeader() : null;
+        if (isV3Timesheet() && !v3Header) return;
         const mainPanel = document.getElementById('mainTimesheetPanel')
-            || v3Host?.parentElement
-            || getTimesheetDays()[0]?.parentElement;
+            || v3Header?.header?.parentElement || getTimesheetDays()[0]?.parentElement;
         if (!mainPanel) return;
         let container = document.getElementById('ep13');
         if (!container) {
             container = document.createElement('div');
             container.id = 'ep13';
         }
-        const before = v3Host && mainPanel === v3Host.parentElement
-            ? v3Host : mainPanel.firstChild;
-        if (container.parentElement !== mainPanel || (before && container.nextSibling !== before)) {
-            mainPanel.insertBefore(container, before);
+        if (v3Header) {
+            if (v3Header.header.nextElementSibling !== container)
+                v3Header.header.insertAdjacentElement('afterend',container);
+        } else if (container.parentElement !== mainPanel || container !== mainPanel.firstElementChild) {
+            mainPanel.insertBefore(container,mainPanel.firstChild);
         }
         // Keep a hydrated GIF/iframe intact across the 30-second Analyzer redraw.
         const existingOfficeGif = container.querySelector('.ep-office-celebration .ep-office-gif-shell');
@@ -12441,7 +12435,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             container.innerHTML = estimateBanner + (v3 ? `
                 <div class="ep-hdr"><div class="ep-hdr-logo">${icon('timer',16)}</div>
                 <div class="ep-hdr-title">eDays Analyzer Pro</div>
-                <div class="ep-hdr-right">${renderV3Controls(T)}</div></div>` : '') + renderMiniDashboard(T, summary);
+                <div class="ep-hdr-right"></div></div>` : '') + renderMiniDashboard(T, summary);
             bindInteractions(container);
             return;
         }
@@ -12461,7 +12455,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                     </div>
 
                     <div class="ep-hdr-right">
-                        ${v3 ? renderV3Controls(T) : `<span
+                        ${v3 ? '' : `<span
                             class="ep-btn ep-btn-icon"
                             data-action="settings-open"
                             title="Analyzer settings"
@@ -12623,7 +12617,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                 </div>
 
                 <div class="ep-hdr-right">
-                    ${v3 ? renderV3Controls(T) : `<span
+                    ${v3 ? '' : `<span
                         class="ep-btn ep-btn-icon"
                         data-action="settings-open"
                         title="Analyzer settings"
@@ -13298,94 +13292,70 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         timesheetNavScrollParent.addEventListener('scroll', scheduleTimesheetNavUpdate, { passive: true });
     };
 
-    // Locate the actual Submit month action in the Vue 3 Timesheet, not
-    // in the global title-bar or within the Analyzer. CSS-module suffixes
-    // change after deployments; native button text is the stable anchor.
+    // Locate the real rendered native Vue titlebar; <v3-timesheet> is gone.
     const findV3SubmitMonthButton = () => {
-        const timesheet = document.querySelector('v3-timesheet');
-        if (!timesheet) return null;
-        return [...timesheet.querySelectorAll('button, c3-button, [role="button"]')]
-            .find(button => {
-                if (button.closest('#ep13, #ep-timesheet-v3-nav')) return false;
-                const label = (button.querySelector('.label')?.textContent
-                    || button.textContent || '').replace(/\s+/g, ' ').trim();
-                return /^submit\s+month$/i.test(label);
-            }) || null;
+        const header = findV3TimesheetHeader();
+        if (!header) return null;
+        return [...header.actions.querySelectorAll('button')].find(button => {
+            if (button.closest('.ep-timesheet-action')) return false;
+            return /^submit\s+month$/i.test((button.querySelector('.label')?.textContent || button.textContent || '').replace(/\s+/g,' ').trim());
+        }) || null;
     };
-
     let v3MonthLabel = null;
     let pendingV3TodayScroll = false;
     const ensureV3Toolbar = () => {
         if (!isV3Timesheet()) return;
         document.getElementById('ep-v3-toolbar')?.remove();
-        document.querySelectorAll('#ep-timesheet-nav, #ep-timesheet-settings, #ep-timesheet-minimize')
-            .forEach(button => button.remove());
-
-        const monthText = document.querySelector('v3-timesheet [class*="_header-label_"]')
-            ?.textContent?.trim() || null;
-        if (monthText && v3MonthLabel && monthText !== v3MonthLabel) {
-            timesheetNavForcedTarget = null;
-        }
-        if (monthText) v3MonthLabel = monthText;
-
+        document.querySelectorAll('#ep-timesheet-nav,#ep-timesheet-settings,#ep-timesheet-minimize,#ep-v3-nav,#ep-v3-settings,#ep-v3-minimize')
+            .forEach(button=>button.remove());
+        const header = findV3TimesheetHeader();
         const submit = findV3SubmitMonthButton();
-        if (!submit) return; // Vue can render the header after the day cards.
-        const anchor = submit.closest('.v3-button') || submit;
-        let shell = document.getElementById('ep-timesheet-v3-nav');
-        if (!shell) {
-            shell = document.createElement('div');
-            shell.id = 'ep-timesheet-v3-nav';
-            shell.className = 'v3-button ECL3';
-            shell.innerHTML = [
-                '<div class="v3-button-margin-box">',
-                '  <button id="ep-v3-submit-nav" class="v3-button-container secondary" type="button" target="">',
-                '    <span class="label"></span>',
-                '  </button>',
-                '</div>'
-            ].join('');
-            const nav = shell.querySelector('button');
-            nav.addEventListener('click', event => {
-                event.preventDefault();
-                event.stopPropagation();
-                if (!getTodayRow()) {
-                    // Viewing a previous month: use the native Today navigator
-                    // first, then scroll once its day entries are rendered.
-                    const root = document.querySelector('v3-timesheet');
-                    const todayButton = [...(root?.querySelectorAll('button') || [])]
-                        .find(button => (button.querySelector('.label')?.textContent
-                            || button.textContent || '').trim() === 'Today'
-                            && !button.disabled && !button.classList.contains('disabled'));
-                    if (todayButton) {
-                        pendingV3TodayScroll = true;
-                        todayButton.click();
-                    }
-                    return;
-                }
-                if (nav.dataset.epTarget === 'today') {
-                    timesheetNavForcedTarget = 'top';
-                    jumpToToday();
-                } else {
-                    timesheetNavForcedTarget = 'today';
-                    jumpToAnalyzer();
-                }
-                updateTimesheetNavButton();
-            });
-        }
-        // Keep the same parent as Submit month; it is a direct sibling to
-        // its eDays action, rather than a separate bar or Analyzer control.
-        if (anchor.nextElementSibling !== shell)
-            anchor.insertAdjacentElement('afterend', shell);
-
-        updateTimesheetNavButton();
-        bindTimesheetNavScroll();
-
-        if (pendingV3TodayScroll && getTodayRow()) {
-            pendingV3TodayScroll = false;
-            timesheetNavForcedTarget = 'top';
-            requestAnimationFrame(() => {
-                jumpToToday();
-                updateTimesheetNavButton();
-            });
+        if (!header || !submit) return;
+        const monthText = header.view.querySelector('[class*="_header-label_"]')?.textContent?.trim() || null;
+        if (monthText && v3MonthLabel && monthText !== v3MonthLabel) timesheetNavForcedTarget = null;
+        if (monthText) v3MonthLabel = monthText;
+        let anchor = submit.closest('.v3-button') || submit;
+        const action = (id,label,title,handler) => {
+            let shell = document.getElementById(id+'-shell');
+            if (!shell) {
+                shell = document.createElement('div');
+                shell.id=id+'-shell';
+                shell.className='v3-button ECL3 ep-timesheet-action';
+                shell.innerHTML='<div class="v3-button-margin-box"><button class="v3-button-container secondary" type="button" target=""><span class="label"></span></button></div>';
+                const btn=shell.querySelector('button');
+                btn.id=id;
+                btn.addEventListener('click',ev=>{ev.preventDefault();ev.stopPropagation();handler(btn);});
+            }
+            const btn=shell.querySelector('button'), labelNode=btn?.querySelector('.label');
+            if (labelNode && labelNode.textContent!==label) labelNode.textContent=label;
+            if (btn && btn.title!==title) btn.title=title;
+            if (btn && btn.getAttribute('aria-label')!==title) btn.setAttribute('aria-label',title);
+            if (anchor.nextElementSibling!==shell) anchor.insertAdjacentElement('afterend',shell);
+            anchor=shell;
+            return btn;
+        };
+        const target=getTodayRow()?getTimesheetNavState():'today';
+        action('ep-v3-submit-nav',getTimesheetNavLabel(target),target==='today'?'Jump to today':'Back to Analyzer',btn=>{
+            if (!getTodayRow()) {
+                const nativeToday=[...header.view.querySelectorAll('[class*="_today-button_"] button')]
+                    .find(b=>(b.querySelector('.label')?.textContent||b.textContent||'').trim()==='Today'&&!b.disabled&&!b.classList.contains('disabled'));
+                if (nativeToday){pendingV3TodayScroll=true;nativeToday.click();}
+                return;
+            }
+            if(btn.dataset.epTarget==='today'){timesheetNavForcedTarget='top';jumpToToday();}
+            else{timesheetNavForcedTarget='today';jumpToAnalyzer();}
+            updateTimesheetNavButton();
+        });
+        action('ep-v3-header-settings','Settings','Analyzer settings',()=>openSettingsModal());
+        action('ep-v3-header-minimize',miniMode?'Expand':'Minimize',miniMode?'Expand Analyzer':'Minimize Analyzer',()=>{
+            miniMode=!miniMode;
+            localStorage.setItem(LS.MINI_MODE,String(miniMode));
+            renderUI();ensureV3Toolbar();
+        });
+        updateTimesheetNavButton();bindTimesheetNavScroll();
+        if(pendingV3TodayScroll&&getTodayRow()){
+            pendingV3TodayScroll=false;timesheetNavForcedTarget='top';
+            requestAnimationFrame(()=>{jumpToToday();updateTimesheetNavButton();});
         }
     };
     const ensureTimesheetNavButton = () => {
