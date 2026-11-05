@@ -15,7 +15,7 @@
 
 **A Tampermonkey userscript that overlays a live analytics dashboard on top of eDays — showing office attendance, time vs rota, buffer, and day counts at a glance.**
 
-[![Version](https://img.shields.io/badge/version-20.3-6366f1?style=flat-square&labelColor=0f0f0f)](https://github.com/blankode/edays-percentages-overview)
+[![Version](https://img.shields.io/badge/version-20.4-6366f1?style=flat-square&labelColor=0f0f0f)](https://github.com/blankode/edays-percentages-overview)
 [![Platform](https://img.shields.io/badge/platform-Tampermonkey-f59e0b?style=flat-square&labelColor=0f0f0f)](https://www.tampermonkey.net/)
 [![License](https://img.shields.io/badge/license-MIT-22c55e?style=flat-square&labelColor=0f0f0f)](LICENSE)
 [![Site](https://img.shields.io/badge/works%20on-e--days.com-3b82f6?style=flat-square&labelColor=0f0f0f)](https://e-days.com)
@@ -50,14 +50,14 @@ Shows whether you're ahead or behind on your daily 8h target based on past days.
 
 ## ⤢ Compact Dashboard
 
-On the previous eDays layout, the native **Minimize** button appears immediately to the right of **Analyzer Settings** in the Time Tracking header. On the new v3 layout, **To today / To home** appears directly to the right of the native **Submit month** button in Timesheet. **Settings** and **Minimize / Expand** remain in the Analyzer heading, and the **Theme** switch remains beside eDays' Book time off action. These are injected only once and are restored after Vue re-renders. Click it to replace the expanded analytics cards and Office Planner with a low-profile four-metric view:
+On the previous eDays layout, the native **Minimize** button remains next to **Analyzer Settings** in the Time Tracking header. On the new Vue 3 layout, **the full Analyzer panel sits immediately below the native Timesheet toolbar**, before the month selector and day entries. **To today / To home**, **Settings**, and **Minimize / Expand** are placed after **Submit month** in the native right-side Timesheet action row, without duplicate controls in the Analyzer itself. The Theme switch remains beside eDays' Book time off action; controls are restored after Vue re-renders. Click it to replace the expanded analytics cards and Office Planner with a low-profile four-metric view:
 
 - **Today** — time worked against today's effective target, time remaining, optional leave-at estimate, and a compact **Include buffer** switch.
 - **Office Target** — percentage of the configured office target achieved, logged office time, and time still needed.
 - **Buffer** — current surplus or deficit relative to the scheduled daily target.
 - **Month Progress** — recorded hours against real rota, completion percentage, and remaining hours.
 
-The **Today** clock starts at **0** when clocking in and displays **gross elapsed time** from eDays (no initial 30-minute subtraction). The default gross target is **8h30**: 8 hours of work plus a 30-minute mandatory break, with the progress bar, remaining time, and leave-at estimate measured against that total. For example, **7h08 elapsed / 8h30 required** leaves **1h22**. The configured mandatory break can be changed in **Analyzer Settings** from **0 to 480 minutes**, with 30 minutes as the default. Longer breaks selected in eDays can increase the gross Today requirement up to 480 minutes. **Buffer uses net worked time versus the net rota target**; it never deducts breaks again. Gaps between working periods are not double-counted. Normal finish time is displayed independently of **Include buffer**, and time above the normal daily target is shown as overtime versus target (not necessarily payroll-approved overtime).
+In the **new Vue 3 Timesheet**, the Today target is **8h of recorded work**, without an automatically enforced 30-minute break. For example, **7h08 recorded / 8h required** leaves **52 minutes**. This rule applies to both the expanded and compact Today views, normal finish time, overtime versus the daily target, and Include buffer. The updated eDays break policy has not been independently confirmed; this is the Analyzer's temporary assumption. The **legacy Timesheet** still supports its configurable mandatory break (30 minutes by default, 0–480 minutes). **Buffer uses net worked time versus the net rota target** and never deducts breaks again. Gaps between working periods are not double-counted. Normal finish time is displayed independently of **Include buffer**, and time above the normal daily target is shown as overtime versus target (not necessarily payroll-approved overtime).
 
 Click **Expand** to restore the complete dashboard. The setting is saved locally and persists after page refreshes. Compact mode uses the same underlying calculations, light/dark theme, spacing/alignment, and metric card borders as the expanded view, without an extra outer border.
 
@@ -80,13 +80,13 @@ Replace the default contents with the full script from [`script.js`](https://raw
 `Ctrl + S` — the script is now active
 
 **4. Navigate to eDays**
-Go to your timesheet at `*.e-days.com` — the dashboard will appear automatically at the top
+Go to your timesheet at `*.e-days.com` — on Vue 3 the dashboard will appear automatically below the Timesheet toolbar
 
 <br/>
 
 ## ⚙ Configuration
 
-Open **Analyzer Settings** on your eDays timesheet to configure the office attendance target (**60%** by default) and mandatory break (**30 minutes** by default, adjustable from **0 to 480 minutes**). Settings are saved in the browser's LocalStorage and applied on the next dashboard render.
+Use **Settings** in the right-side Timesheet actions to configure the office attendance target (**60%** by default). In Vue 3, the legacy mandatory-break field is disabled because the Analyzer uses **8h recorded work** with no fixed added break. The older layout retains the configurable break (30 minutes by default, 0–480 minutes). Settings are stored in browser LocalStorage.
 
 <br/>
 
@@ -151,7 +151,7 @@ The dashboard re-renders automatically via a **MutationObserver** watching the t
 | Edge | ✅ |
 | Safari | ✅ (with Tampermonkey) |
 
-Legacy timesheet layout support is retained. Version 20.3 recognizes the new v3 day-card layout with stable IDs such as `timesheet-day-2026-10-26`, separate hour/minute inputs, activity selectors, daily totals and editable breaks. The v3 monthly summary is now parsed directly from eDays for **Time recorded, Absences, Public holidays, Rota, and signed Difference**. Only when the official totals are not rendered yet will Analyzer display provisional estimates derived from visible day cards. Browser-specific and complete live-site end-to-end behavior have not yet been re-tested.
+Legacy timesheet layout support is retained. Version 20.4 recognizes the new v3 day-card layout with stable IDs such as `timesheet-day-2026-10-26`, separate hour/minute inputs, activity selectors, daily totals and editable breaks. The v3 monthly summary is now parsed directly from eDays for **Time recorded, Absences, Public holidays, Rota, and signed Difference**. Only when the official totals are not rendered yet will Analyzer display provisional estimates derived from visible day cards. Browser-specific and complete live-site end-to-end behavior have not yet been re-tested.
 
 <br/>
 
@@ -159,6 +159,7 @@ Legacy timesheet layout support is retained. Version 20.3 recognizes the new v3 
 
 | Version | Changes |
 |---|---|
+| **20.4** | Moved the full Analyzer below the rendered Vue 3 **Timesheet** title/action bar, before monthly navigation. Repaired header detection for the hydrated Vue DOM (where `<v3-timesheet>` no longer exists), and injected a single set of native-styled **To today / To home**, **Settings**, and **Minimize / Expand** controls immediately after **Submit month**. Changed the new Timesheet daily target to **8h of recorded work**, with no automatically added 30-minute mandatory break, across expanded/mini Today, leave-at time, buffer, and overtime. Legacy break settings remain available; Vue 3 labels them as inapplicable. Also recognized new Vue 3 Vacation tags in the planner/day capacity calculations. |
 | **20.3** | Removed the disconnected v3 toolbar and consolidated To today, Settings and Minimize/Expand into one native-style, responsive Analyzer header. Kept the site-wide Theme control next to Book time off instead of duplicating it. Prevented duplicate controls and mounted the dashboard outside Vue-owned day cards; stabilized live refresh across month switches and input edits. **Refactor:** read the official Vue 3 monthly summary (Time recorded, Absences, Public holidays, Rota, signed Difference), retaining estimates only during summary loading. **Navigation fix:** place a single To today / To home eDays-style button directly after Submit month in the Timesheet, and keep Settings / Minimize in Analyzer. |
 | **20.2** | Added compatibility for the redesigned eDays v3 timesheet day cards (stable day IDs, HH:MM start/end inputs, daily totals, break field, activity selection and Today detection). Restored dashboard mounting, toolbar, navigation, and activity/office calculations when the old HTML structure is absent. Preserved legacy compatibility. New monthly figures are **explicitly flagged as provisional** if no official month summary is available. Updated README/version history. |
 | **20.1** | Fixed Buffer & Outlook showing a false deficit (for example −1h 44m while monthly Difference was zero). Banked time now compares net hours against the net daily rota and does not deduct breaks twice. |
