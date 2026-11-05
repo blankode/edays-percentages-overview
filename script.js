@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      20.4
+// @version      20.5
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
@@ -9,6 +9,7 @@
 // @run-at       document-start
 // ==/UserScript==
 
+// Changelog v20.5: Fixed To today / To home not changing after manual scrolling: Vue 3 navigation now uses live scroll geometry instead of an indefinitely forced target, detects the actual vertically scrollable ancestor, listens to window and nested scroll events, and chooses the click destination from current page position. Preserved legacy navigation behavior.
 // Changelog v20.4: Extracted the vendored Dark Reader runtime, anti-flash bootstrap, light/dark palette, all site-theme controls and site-wide CSS into theme.js via Tampermonkey @require. Analytics remain in script.js with an isolated theme interface. Version stays 20.4.
 // Changelog v20.2: Add compatibility with new eDays v3 timesheet day cards, HH:MM inputs, day totals, activity selections, editable breaks, navigation, toolbar, and provisional monthly values if the original summary is absent. Preserve legacy DOM support.
 // Changelog v20.1: Correct Buffer & Outlook double-counting clock-out gaps and selected breaks. Buffer now compares eDays net recorded time to net rota targets, including on the last workable day; break-inclusive gross time is still used exclusively for Today finish estimates. Preserve live clock-in buffer behavior and all v20.0 updates.
@@ -157,10 +158,12 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         let p = el.parentElement;
         while (p) {
             const {
-                overflow,
                 overflowY
             } = getComputedStyle(p);
-            if (/(auto|scroll)/.test(overflow + overflowY)) {
+            // Do not select a nested overflow container that cannot scroll
+            // vertically: that leaves scrollTop at 0 even as the page moves.
+            if (/(auto|scroll)/.test(overflowY) &&
+                p.scrollHeight > p.clientHeight + 1) {
                 return p;
             }
             p = p.parentElement;
@@ -1904,14 +1907,15 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                     jumpToAnalyzer();
                 }
                 if (action === 'nav-toggle') {
-                    if (getTimesheetNavState() === 'today') {
-                        timesheetNavForcedTarget = 'top';
+                    const target = getTimesheetNavState();
+                    if (target === 'today') {
+                        if (!isV3Timesheet()) timesheetNavForcedTarget = 'top';
                         jumpToToday();
                     } else {
-                        timesheetNavForcedTarget = 'today';
+                        if (!isV3Timesheet()) timesheetNavForcedTarget = 'today';
                         jumpToAnalyzer();
                     }
-                    updateTimesheetNavButton();
+                    scheduleTimesheetNavUpdate();
                 }
                 if (action === 'mini-toggle') {
                     miniMode = !miniMode;
@@ -2979,8 +2983,9 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
     const TIMESHEET_NAV_BUTTON_ID = 'ep-timesheet-nav';
     const TIMESHEET_SETTINGS_BUTTON_ID = 'ep-timesheet-settings';
     const TIMESHEET_MINIMIZE_BUTTON_ID = 'ep-timesheet-minimize';
-    // Retain the selected destination even if the browser cannot scroll far
-    // enough to meet the Today row's usual threshold at the end of a month.
+    // Legacy navigation keeps a click override for month-end clamped scroll.
+    // Vue 3 instead follows actual scroll geometry, so manual scrolling can
+    // never be masked by a stale target selected on an earlier button click.
     let timesheetNavForcedTarget = null;
     let timesheetNavScrollParent = null;
     let timesheetNavObserver = null;
@@ -3091,17 +3096,25 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
     };
 
     const getTimesheetNavState = () => {
-        if (timesheetNavForcedTarget) return timesheetNavForcedTarget;
+        // A previous click may set a legacy-only override. Vue 3 must always
+        // derive To today / To home from the position currently on screen.
+        if (!isV3Timesheet() && timesheetNavForcedTarget)
+            return timesheetNavForcedTarget;
         const todayRow = getTodayRow();
-        if (!todayRow) return 'top';
+        if (!todayRow) return 'today';
         const metrics = getScrollMetrics(todayRow);
         const home = document.getElementById('ep13');
         const homeMetrics = home ? getScrollMetrics(home) : null;
-        const homeScroll = homeMetrics ? Math.max(0, homeMetrics.target - 75) : 0;
-        if (metrics.current <= homeScroll + 8) return 'today';
+        // Never compare scrollTop values from two different scroll roots.
+        const sameScrollRoot = homeMetrics &&
+            homeMetrics.scrollParent === metrics.scrollParent;
+        const homeScroll = sameScrollRoot
+            ? Math.max(0, homeMetrics.target - 75) : 0;
+        if (sameScrollRoot && metrics.current <= homeScroll + 8)
+            return 'today';
 
-        // Use viewport visibility as well as scroll offset. When Today is in
-        // the final days, maximum scroll can be less than today's target.
+        // A day card near the bottom of the month cannot always reach the
+        // top of the viewport; being visibly reached is enough to show Home.
         const visibleTop = metrics.scrollParent === window
             ? 0 : metrics.scrollParent.getBoundingClientRect().top;
         const visibleBottom = metrics.scrollParent === window
@@ -3328,9 +3341,11 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                 if (nativeToday){pendingV3TodayScroll=true;nativeToday.click();}
                 return;
             }
-            if(btn.dataset.epTarget==='today'){timesheetNavForcedTarget='top';jumpToToday();}
-            else{timesheetNavForcedTarget='today';jumpToAnalyzer();}
-            updateTimesheetNavButton();
+            // Use the current physical scroll position, not a button label
+            // that may have missed a scroll event between renders.
+            if (getTimesheetNavState() === 'today') jumpToToday();
+            else jumpToAnalyzer();
+            scheduleTimesheetNavUpdate();
         });
         action('ep-v3-header-settings', 'Settings', 'Analyzer settings',
             'settings', () => openSettingsModal());
@@ -3343,8 +3358,8 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         });
         updateTimesheetNavButton();bindTimesheetNavScroll();
         if(pendingV3TodayScroll&&getTodayRow()){
-            pendingV3TodayScroll=false;timesheetNavForcedTarget='top';
-            requestAnimationFrame(()=>{jumpToToday();updateTimesheetNavButton();});
+            pendingV3TodayScroll=false;
+            requestAnimationFrame(()=>{jumpToToday();scheduleTimesheetNavUpdate();});
         }
     };
     const ensureTimesheetNavButton = () => {
@@ -3379,7 +3394,31 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                 childList: true,
                 subtree: true
             });
-            window.addEventListener('resize', scheduleTimesheetNavUpdate, { passive: true });
+            // The redesigned Timesheet can scroll on window OR within a
+            // nested element. Capturing scroll on document covers both.
+            document.addEventListener('scroll', scheduleTimesheetNavUpdate,
+                { capture: true, passive: true });
+            window.addEventListener('scroll', scheduleTimesheetNavUpdate,
+                { passive: true });
+            window.addEventListener('resize', scheduleTimesheetNavUpdate,
+                { passive: true });
+            // A user-initiated scroll should also release the older
+            // Timesheet's click-only override (without affecting the
+            // programmatic smooth-scroll animation).
+            const releaseLegacyNavOverride = () => {
+                if (!isV3Timesheet() && timesheetNavForcedTarget) {
+                    timesheetNavForcedTarget = null;
+                    scheduleTimesheetNavUpdate();
+                }
+            };
+            document.addEventListener('wheel', releaseLegacyNavOverride,
+                { capture: true, passive: true });
+            document.addEventListener('touchstart', releaseLegacyNavOverride,
+                { capture: true, passive: true });
+            document.addEventListener('keydown', event => {
+                if (['ArrowDown','ArrowUp','PageDown','PageUp','Home','End',' ']
+                    .includes(event.key)) releaseLegacyNavOverride();
+            }, true);
         }
     };
     /* ═══════════════════════════════════════════════════════════════
