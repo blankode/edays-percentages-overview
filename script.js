@@ -3141,12 +3141,23 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         svg.dataset.epGlyph = name;
     };
     const enhanceV3TimesheetHeading = (result = findV3TimesheetHeader()) => {
-        const title = result?.title;
-        if (!title || title.querySelector('.ep-enhanced-text')) return;
-        const enhanced = document.createElement('span');
-        enhanced.className = 'ep-enhanced-text';
-        enhanced.textContent = 'Enhanced';
-        title.appendChild(enhanced);
+        const container = result?.title;
+        if (!container) return;
+        // Match the exact typography of Vue's native Timesheet <span>.
+        // eDays uses hashed CSS-module class names which change on updates.
+        const nativeTitle = [...container.children].find(el =>
+            el.matches?.('span[class*="_title_"]') && !el.classList.contains('ep-enhanced-text'));
+        if (!nativeTitle) return;
+        let enhanced = container.querySelector('.ep-enhanced-text');
+        if (!enhanced) {
+            enhanced = document.createElement('span');
+            enhanced.textContent = 'Enhanced';
+            container.appendChild(enhanced);
+        }
+        const nativeClass = nativeTitle.getAttribute('class') || '';
+        const expectedClass = (nativeClass + ' ep-enhanced-text').trim();
+        if (enhanced.className !== expectedClass)
+            enhanced.className = expectedClass;
     };
 
     const configureTimesheetNavButton = (button, target) => {
