@@ -15,7 +15,7 @@
 
 **A Tampermonkey userscript that overlays a live analytics dashboard on top of eDays — showing office attendance, time vs rota, buffer, and day counts at a glance.**
 
-[![Version](https://img.shields.io/badge/version-20.5-6366f1?style=flat-square&labelColor=0f0f0f)](https://github.com/blankode/edays-percentages-overview)
+[![Version](https://img.shields.io/badge/version-20.6-6366f1?style=flat-square&labelColor=0f0f0f)](https://github.com/blankode/edays-percentages-overview)
 [![Platform](https://img.shields.io/badge/platform-Tampermonkey-f59e0b?style=flat-square&labelColor=0f0f0f)](https://www.tampermonkey.net/)
 [![License](https://img.shields.io/badge/license-MIT-22c55e?style=flat-square&labelColor=0f0f0f)](LICENSE)
 [![Site](https://img.shields.io/badge/works%20on-e--days.com-3b82f6?style=flat-square&labelColor=0f0f0f)](https://e-days.com)
@@ -57,7 +57,7 @@ On the previous eDays layout, the native **Minimize** button remains next to **A
 - **Buffer** — current surplus or deficit relative to the scheduled daily target.
 - **Month Progress** — recorded hours against real rota, completion percentage, and remaining hours.
 
-In the **new Vue 3 Timesheet**, the Today target is **8h of recorded work**, without an automatically enforced 30-minute break. For example, **7h08 recorded / 8h required** leaves **52 minutes**. This rule applies to both the expanded and compact Today views, normal finish time, overtime versus the daily target, and Include buffer. The updated eDays break policy has not been independently confirmed; this is the Analyzer's temporary assumption. The **legacy Timesheet** still supports its configurable mandatory break (30 minutes by default, 0–480 minutes). **Buffer uses net worked time versus the net rota target** and never deducts breaks again. Gaps between working periods are not double-counted. Normal finish time is displayed independently of **Include buffer**, and time above the normal daily target is shown as overtime versus target (not necessarily payroll-approved overtime).
+**Today (Vue 3 and legacy):** aim for **8h net work**, plus the **mandatory 30-minute break** (configurable 0–480m) only if it has not already been covered. Before any break, a 09:00 clock-in projects 17:30. A 09:00–13:00 session followed by a **13:00–15:00 clock-out gap** covers the mandatory break; after clocking in at 15:00 the user has 4h to work, so the standard finish moves to **19:00**, not 19:30. Other gaps, even 4h, count toward break coverage without becoming worked hours. The current clock-out gap updates live, and entered eDays Breaks are respected separately (they may represent time excluded inside clocked-in intervals). The expanded and compact Today displays show the break status. **Buffer uses net worked time versus net rota** and never deducts the mandatory break again. Include buffer may move the optional leave estimate, but the standard finish and overtime threshold remain based on 8h work and the actual outstanding break; overtime versus target is not necessarily payroll-approved overtime.
 
 Click **Expand** to restore the complete dashboard. The setting is saved locally and persists after page refreshes. Compact mode uses the same underlying calculations, light/dark theme, spacing/alignment, and metric card borders as the expanded view, without an extra outer border.
 
@@ -86,7 +86,7 @@ Go to your timesheet at `*.e-days.com` — on Vue 3 the dashboard will appear au
 
 ## ⧉ File Structure (introduced in v20.4)
 
-The userscript remains split into two maintained source files. The modular structure was introduced in **20.4**; the current userscript version is **20.5**:
+The userscript remains split into two maintained source files. The modular structure was introduced in **20.4**; the current userscript version is **20.6**:
 
 | File | Responsibility |
 |---|---|
@@ -99,9 +99,9 @@ The userscript remains split into two maintained source files. The modular struc
 // @require      https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/theme.js?release=20.4-theme-split-1
 ```
 
-The theme exposes a small `EPTheme` API so the Analyzer does not need to embed or maintain Dark Reader code. The modular split reduced the original main script from **13,447 to 3,349 lines** in v20.4; after the v20.5 navigation fix, `script.js` contains approximately **3,475 lines**. The versioned query suffix also distinguishes this dependency URL from older cached resources; when changing `theme.js` again, update that suffix in `script.js` so Tampermonkey fetches the new dependency.
+The theme exposes a small `EPTheme` API so the Analyzer does not need to embed or maintain Dark Reader code. The modular split reduced the original main script from **13,447 to 3,349 lines** in v20.4; after the v20.6 break and navigation update, `script.js` contains approximately **3,500 lines**. The versioned query suffix also distinguishes this dependency URL from older cached resources; when changing `theme.js` again, update that suffix in `script.js` so Tampermonkey fetches the new dependency.
 
-**Updating from 20.4 to 20.5:** Tampermonkey can detect the new main-script version normally. If automatic updating is delayed, open the latest [raw `script.js`](https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js) and reinstall it. Only `script.js` needs installation — `theme.js` is downloaded through `@require`.
+**Updating to 20.6:** Tampermonkey can detect the new main-script version normally. If automatic updating is delayed, open the latest [raw `script.js`](https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js) and reinstall it. Only `script.js` needs installation — `theme.js` is downloaded through `@require`.
 
 **Note:** `@run-at document-start` is preserved, but loading an external `@require` may postpone first execution while the dependency downloads; the anti-flash bootstrap cannot be guaranteed on a cold first install.
 
@@ -109,7 +109,7 @@ The theme exposes a small `EPTheme` API so the Analyzer does not need to embed o
 
 ## ⚙ Configuration
 
-Use **Settings** in the right-side Timesheet actions to configure the office attendance target (**60%** by default). In Vue 3, the legacy mandatory-break field is disabled because the Analyzer uses **8h recorded work** with no fixed added break. The older layout retains the configurable break (30 minutes by default, 0–480 minutes). Settings are stored in browser LocalStorage.
+Use **Settings** in the right-side Timesheet actions to configure the office attendance target (**60%** by default). The **Mandatory break** setting is available on both Vue 3 and legacy Timesheet (30 minutes by default, 0–480 minutes). It affects the remaining break allowance in Today projections, not the monthly net-work buffer. Settings are stored in browser LocalStorage.
 
 <br/>
 
@@ -123,7 +123,7 @@ The script includes auto-update headers pointing to the raw GitHub file:
 // @require      https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/theme.js?release=20.4-theme-split-1
 ```
 
-Tampermonkey detects version bumps such as **20.4 → 20.5** and can prompt you to update. The separately required `theme.js` remains cached under its unchanged `@require` URL. To control how often Tampermonkey checks:
+Tampermonkey detects version bumps such as **20.5 → 20.6** and can prompt you to update. The separately required `theme.js` remains cached under its unchanged `@require` URL. To control how often Tampermonkey checks:
 
 > **Tampermonkey Settings → Updates → Script Update Interval** → set to `Every 12 hours`
 
@@ -175,7 +175,7 @@ The dashboard re-renders automatically via a **MutationObserver** watching the t
 | Edge | ✅ |
 | Safari | ✅ (with Tampermonkey) |
 
-Legacy timesheet layout support is retained. Version 20.5 continues to recognize the new v3 day-card layout with stable IDs such as `timesheet-day-2026-10-26`, separate hour/minute inputs, activity selectors, daily totals and editable breaks. The v3 monthly summary is now parsed directly from eDays for **Time recorded, Absences, Public holidays, Rota, and signed Difference**. Only when the official totals are not rendered yet will Analyzer display provisional estimates derived from visible day cards. Browser-specific and complete live-site end-to-end behavior have not yet been re-tested.
+Legacy timesheet layout support is retained. Version 20.6 continues to recognize the new v3 day-card layout with stable IDs such as `timesheet-day-2026-10-26`, separate hour/minute inputs, activity selectors, daily totals and editable breaks. The v3 monthly summary is now parsed directly from eDays for **Time recorded, Absences, Public holidays, Rota, and signed Difference**. Only when the official totals are not rendered yet will Analyzer display provisional estimates derived from visible day cards. Browser-specific and complete live-site end-to-end behavior have not yet been re-tested.
 
 <br/>
 
@@ -183,6 +183,7 @@ Legacy timesheet layout support is retained. Version 20.5 continues to recognize
 
 | Version | Changes |
 |---|---|
+| **20.6** | Corrected mandatory break calculations for both Vue 3 and legacy timesheets: full-day projections require **8h net work plus 30m mandatory break until covered**, and all actual clock-out gaps (including an ongoing pause) are counted toward that requirement without double-deducting them. After a 09:00–13:00 session and 13:00–15:00 gap, resuming at 15:00 correctly projects a 19:00 finish (4h remaining). Entered Breaks are respected, pause coverage appears in expanded and compact Today, and the normal overtime threshold remains independent of Include buffer. The monthly buffer remains based on eDays net totals only. **To home** also switches on as soon as manual scrolling passes the Analyzer header, rather than only after reaching Today. Existing theme dependency unchanged. |
 | **20.5** | Fixed stale **To today / To home** state after manual scrolling in the redesigned Timesheet. Vue 3 now determines the button label and click destination from the actual scroll position instead of keeping a permanent click-forced target; the visible Today day-card and month-end clamped scrolling are handled correctly. Detects the actual vertically scrollable container, watches both window scrolling and nested scroll events, avoids comparing offsets from different scroll roots, and retains the old Timesheet's click override only for legacy navigation. Users no longer need to click twice to switch between Today and Home. `theme.js` remains unchanged. |
 | **20.4** | Moved the full Analyzer below the rendered Vue 3 **Timesheet** title/action bar, before monthly navigation. Repaired header detection for the hydrated Vue DOM (where `<v3-timesheet>` no longer exists), and injected a single set of native-styled **To today / To home**, **Settings**, and **Minimize / Expand** controls immediately after **Submit month**. Changed the new Timesheet daily target to **8h of recorded work**, with no automatically added 30-minute mandatory break, across expanded/mini Today, leave-at time, buffer, and overtime. Legacy break settings remain available; Vue 3 labels them as inapplicable. Also recognized new Vue 3 Vacation tags in the planner/day capacity calculations. **Native UI polish:** To today / To home, Settings, and Minimize / Expand now clone eDays' Save month ECL3 button structure, including `secondary icon-left`, Vue-scoped attributes, and 20 px SVG icons; the original animated **Enhanced** gradient now appears beside the Vue 3 **Timesheet** title, without duplicate badges on rerender. **Typography fix:** Enhanced dynamically inherits the exact native Timesheet title CSS-module class, so both words use the same font size even after eDays changes its hashed classes. **Code organization addition:** extracted the vendored Dark Reader engine, anti-flash bootstrap, dark/light palette and site toggle, and theme-only CSS to `theme.js`, required from `script.js` using `@require`. Analyzer logic now stays in a much smaller main file (13,447 → 3,349 lines), with version **20.4** unchanged. Existing 20.4 users must manually replace the script to get same-version changes. |
 | **20.3** | Removed the disconnected v3 toolbar and consolidated To today, Settings and Minimize/Expand into one native-style, responsive Analyzer header. Kept the site-wide Theme control next to Book time off instead of duplicating it. Prevented duplicate controls and mounted the dashboard outside Vue-owned day cards; stabilized live refresh across month switches and input edits. **Refactor:** read the official Vue 3 monthly summary (Time recorded, Absences, Public holidays, Rota, signed Difference), retaining estimates only during summary loading. **Navigation fix:** place a single To today / To home eDays-style button directly after Submit month in the Timesheet, and keep Settings / Minimize in Analyzer. |
