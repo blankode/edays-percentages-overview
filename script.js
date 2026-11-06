@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      20.5
+// @version      20.6
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
@@ -9,6 +9,7 @@
 // @run-at       document-start
 // ==/UserScript==
 
+// Changelog v20.6: Vue 3 and legacy Today now project 8h net work plus the remaining portion of the mandatory break; real off-clock gaps (including the current pause) and entered breaks satisfy the requirement without double-counting. Recompute leave/normal overtime time on every live update and show break status in expanded/compact dashboards. To home now appears on manual scroll below the Analyzer header, before reaching Today's row. Buffer remains net recorded work vs net rota.
 // Changelog v20.5: Fixed To today / To home not changing after manual scrolling: Vue 3 navigation now uses live scroll geometry instead of an indefinitely forced target, detects the actual vertically scrollable ancestor, listens to window and nested scroll events, and chooses the click destination from current page position. Preserved legacy navigation behavior.
 // Changelog v20.4: Extracted the vendored Dark Reader runtime, anti-flash bootstrap, light/dark palette, all site-theme controls and site-wide CSS into theme.js via Tampermonkey @require. Analytics remain in script.js with an isolated theme interface. Version stays 20.4.
 // Changelog v20.2: Add compatibility with new eDays v3 timesheet day cards, HH:MM inputs, day totals, activity selections, editable breaks, navigation, toolbar, and provisional monthly values if the original summary is absent. Preserve legacy DOM support.
@@ -48,7 +49,7 @@
 // Changelog v17.8: Buttons now use blue styling in the light theme and orange styling in the dark theme.
 /* ══ DEFAULT SETTINGS ══ */
 const DEFAULT_OFF_TARGET = 60;               // Office target (% of rota hours)
-const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Legacy-only: Vue v3 does not add an enforced break
+const DEFAULT_MANDATORY_BREAK_MINUTES = 30;  // Projected break requirement applies to both eDays layouts
 const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDays Breaks)
 (function() {
     'use strict';
@@ -359,36 +360,17 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         });
         return Math.max(saved, live);
     };
-    const getRequiredMandatoryBreakMinutes = dayEl => {
-        if (isV3Timesheet()) return 0; // v3: 8h recorded, no fixed +30m
-        const target = getDayWorkTargetMinutes(dayEl);
-        return target >= STANDARD_DAY_MINUTES ? mandatoryBreakMinutes : 0;
-    };
+    // Mandatory break applies to a full workday in both layouts. Day target is NET work.
+    const getRequiredMandatoryBreakMinutes = dayEl =>
+        getDayWorkTargetMinutes(dayEl) >= STANDARD_DAY_MINUTES ? mandatoryBreakMinutes : 0;
 
-    // v3 compares logged work against 8h without an enforced break.
-    // Legacy retains its configurable gross target and avoids counting gaps twice.
-    const MAX_TODAY_BREAK_DEDUCTION_MINUTES = MAX_MANDATORY_BREAK_MINUTES;
-    const getTodayBreakDeductionMinutes = dayEl => {
-        // eDays v3 provides the recorded work total directly. Do not subtract
-        // a break again, or add one to the required 8h of recorded work.
-        if (isV3Timesheet()) return 0;
-        if (getDayWorkTargetMinutes(dayEl) < STANDARD_DAY_MINUTES) return 0;
-        const configuredBreak = Math.min(
-            MAX_TODAY_BREAK_DEDUCTION_MINUTES,
-            Math.max(0, getRequiredMandatoryBreakMinutes(dayEl))
-        );
+    const getEnteredBreakMinutes = dayEl => {
         const selects = dayEl.querySelectorAll('.tt_break_container .breaks_timepicker select');
         if (selects.length >= 2) {
-            const hours = Number(selects[0].value);
-            const minutes = Number(selects[1].value);
-            if (Number.isInteger(hours) && Number.isInteger(minutes) &&
-                hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) {
-                const selectedBreak = Math.min(
-                    hours * 60 + minutes,
-                    MAX_TODAY_BREAK_DEDUCTION_MINUTES
-                );
-                return Math.max(configuredBreak, selectedBreak);
-            }
+            const h = Number(selects[0].value), m = Number(selects[1].value);
+            if (Number.isInteger(h) && Number.isInteger(m) &&
+                h >= 0 && h <= 23 && m >= 0 && m <= 59)
+                return Math.min(MAX_MANDATORY_BREAK_MINUTES, h * 60 + m);
         }
         const field = [...dayEl.querySelectorAll('[class*="_bottom-row_"] [class*="_field_"]')]
             .find(el => /^Breaks\s*:/i.test(el.querySelector('span')?.textContent?.trim() || ''));
@@ -396,9 +378,57 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         if (inputs?.length >= 2) {
             const h = inputs[0].value?.trim() || '', m = inputs[1].value?.trim() || '';
             if (/^\d{1,2}$/.test(h) && /^\d{1,2}$/.test(m) && +h <= 23 && +m <= 59)
-                return Math.max(configuredBreak, Math.min(MAX_TODAY_BREAK_DEDUCTION_MINUTES, +h * 60 + +m));
+                return Math.min(MAX_MANDATORY_BREAK_MINUTES, +h * 60 + +m);
         }
-        return configuredBreak;
+        return 0;
+    };
+
+    const getTodayBreakInfo = dayEl => {
+        const requiredMinutes = getRequiredMandatoryBreakMinutes(dayEl);
+        const enteredMinutes = getEnteredBreakMinutes(dayEl);
+        const now = new Date();
+        const nowMinutes = now.getHours() * 60 + now.getMinutes();
+        // Merge period intervals in chronological order; gaps are never worked hours.
+        const intervals = getTimesheetPeriods(dayEl).map(getPeriodTimeValues)
+            .filter(p => p.start && (!p.end || timeToMinutes(p.end) >= timeToMinutes(p.start)))
+            .map(p => ({
+                start: timeToMinutes(p.start),
+                end: p.end ? Math.min(timeToMinutes(p.end), nowMinutes) : nowMinutes,
+                open: !p.end
+            }))
+            .filter(p => p.start <= nowMinutes && p.end >= p.start)
+            .sort((a,b) => a.start - b.start || a.end - b.end);
+        let completedGapMinutes = 0, lastEnd = null;
+        for (const period of intervals) {
+            if (lastEnd !== null && period.start > lastEnd)
+                completedGapMinutes += period.start - lastEnd;
+            lastEnd = Math.max(lastEnd ?? period.end, period.end);
+        }
+        // Current clock-out gap also contributes to break coverage in real time.
+        const active = intervals.some(p => p.open);
+        const ongoingGapMinutes = !active && lastEnd !== null
+            ? Math.max(0, nowMinutes - lastEnd) : 0;
+        const offClockGapMinutes = completedGapMinutes + ongoingGapMinutes;
+        const missingMandatoryMinutes = Math.max(0,
+            requiredMinutes - enteredMinutes - offClockGapMinutes);
+        // Recorded breaks are within clocked-in intervals; the off-clock gap is not.
+        const additionalMinutes = enteredMinutes + missingMandatoryMinutes;
+        return { requiredMinutes, enteredMinutes, completedGapMinutes,
+            ongoingGapMinutes, offClockGapMinutes, missingMandatoryMinutes, additionalMinutes };
+    };
+
+    const getTodayBreakCaption = today => {
+        if (!today || today.requiredBreakMinutes <= 0) return '';
+        if (today.ongoingGapMinutes > 0 && !today.isRunning)
+            return 'On break: ' + fmt(today.ongoingGapMinutes) + ' since clock-out · ' +
+                (today.missingMandatoryBreakMinutes > 0
+                    ? fmt(today.missingMandatoryBreakMinutes) + ' mandatory break still needed'
+                    : 'mandatory break covered');
+        if (today.missingMandatoryBreakMinutes > 0)
+            return 'Mandatory break: ' + fmt(today.missingMandatoryBreakMinutes) + ' still needed';
+        return today.offClockGapMinutes > 0
+            ? 'Mandatory break covered by ' + fmt(today.offClockGapMinutes) + ' off-clock gap'
+            : 'Mandatory break covered by entered break';
     };
     /* ═══════════════════════════════════════════════════════════════
        ICONS
@@ -812,7 +842,8 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         });
         workedMinutes = Math.max(workedMinutes, getDayTotalMinutes(el));
         const absence = getAbsenceInfo(el);
-        const breakMinutes = getTodayBreakDeductionMinutes(el);
+        const breakInfo = getTodayBreakInfo(el);
+        const breakMinutes = breakInfo.additionalMinutes;
         // Keep logged work visible from the first minute after clock-in.
         const targetMinutes = getDayWorkTargetMinutes(el);
         const grossTargetMinutes = targetMinutes > 0
@@ -821,8 +852,13 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         return {
             el,
             workedMinutes,
-            netWorkedMinutes: Math.max(0, workedMinutes - breakMinutes),
+            netWorkedMinutes: Math.max(0, workedMinutes - breakInfo.enteredMinutes),
             breakMinutes,
+            requiredBreakMinutes: breakInfo.requiredMinutes,
+            enteredBreakMinutes: breakInfo.enteredMinutes,
+            offClockGapMinutes: breakInfo.offClockGapMinutes,
+            ongoingGapMinutes: breakInfo.ongoingGapMinutes,
+            missingMandatoryBreakMinutes: breakInfo.missingMandatoryMinutes,
             targetMinutes,
             grossTargetMinutes,
             absenceText: absence.text,
@@ -1671,13 +1707,14 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                 effTarget = Math.min(scheduledTarget, effTarget);
             }
         }
-        // Vue 3: 8h logged target, no forced 30m extra. Legacy: configurable gross target.
+        // 8h net plus only the unpaid break still missing after off-clock gaps.
         const todayWorked = today.workedMinutes;
         const isDayOff = scheduledTarget === 0;
         const grossTarget = effTarget > 0 ? effTarget + today.breakMinutes : 0;
         const todayRemaining = Math.max(0, grossTarget - todayWorked);
         const todayDone = isDayOff || todayRemaining === 0;
         const standard = getTodayStandardStatus(today);
+        const breakCaption = getTodayBreakCaption(today);
         const standardHtml = !standard ? '' : standard.overtimeMinutes > 0
             ? `<div class="ep-today-standard"><span class="ep-today-standard-label">Standard day: ${fmt(standard.fullGrossTarget)}</span><span class="ep-today-overtime" title="Time above the normal daily target; not necessarily payroll-approved overtime">Overtime vs target: +${fmt(standard.overtimeMinutes)}</span></div>`
             : `<div class="ep-today-standard"><span class="ep-today-standard-label">Standard day: ${fmt(standard.fullGrossTarget)}${standard.finishAt ? ` · finish at ${standard.finishAt}` : ''}</span><span>${standard.finishAt ? `Overtime after ${standard.finishAt}` : `Overtime after ${fmt(standard.fullGrossTarget)} elapsed`}</span></div>`;
@@ -1738,6 +1775,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                         ></div>
                     </div>
                     ${standardHtml}
+                    ${breakCaption ? `<div class="ep-today-standard"><span>${breakCaption}</span></div>` : ''}
                 </div>
 
                 <div class="ep-today-actions">
@@ -1800,12 +1838,12 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                     </div>
 
                     <div class="ep-settings-field">
-                        <label class="ep-settings-label" for="ep-setting-break">${v3Mode ? 'Legacy break (not used in v3)' : 'Mandatory break'}</label>
+                        <label class="ep-settings-label" for="ep-setting-break">Mandatory break</label>
                         <div class="ep-settings-input-wrap">
-                            <input class="ep-settings-input" id="ep-setting-break" type="number" min="0" max="${MAX_MANDATORY_BREAK_MINUTES}" step="1" value="${mandatoryBreakMinutes}" ${v3Mode ? 'disabled' : 'required'}>
+                            <input class="ep-settings-input" id="ep-setting-break" type="number" min="0" max="${MAX_MANDATORY_BREAK_MINUTES}" step="1" value="${mandatoryBreakMinutes}" required>
                             <span class="ep-settings-unit">minutes</span>
                         </div>
-                        <div class="ep-settings-help">${v3Mode ? 'New Timesheet: 8h recorded target; no fixed 30-minute break is automatically added. eDays recorded totals remain authoritative.' : 'Legacy Timesheet: added to the 8h daily target (8h30 by default). Range 0–8h; clock-out gaps are not counted twice.'}</div>
+                        <div class="ep-settings-help">8h net work plus the mandatory break (30m by default). Off-clock gaps and entered breaks cover the requirement without adding it twice. Range 0–480m.</div>
                     </div>
 
                     <div class="ep-settings-error" id="ep-settings-error" role="alert"></div>
@@ -1981,6 +2019,8 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                         ? `Normal finish ${standard.finishAt} · overtime after`
                         : `Standard ${fmt(standard.fullGrossTarget)} · overtime beyond target`;
             }
+            const breakCaption=getTodayBreakCaption(today);
+            if(breakCaption)todayStandardDetails+=(todayStandardDetails?' · ':'')+breakCaption;
         }
         const buffer=ds.bufferMinutes;
         const bufferColor=buffer>0?'#22c55e':buffer<0?'#ef4444':T.text;
@@ -3096,32 +3136,30 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
     };
 
     const getTimesheetNavState = () => {
-        // A previous click may set a legacy-only override. Vue 3 must always
-        // derive To today / To home from the position currently on screen.
-        if (!isV3Timesheet() && timesheetNavForcedTarget)
-            return timesheetNavForcedTarget;
+        if (isV3Timesheet()) {
+            // A manual scroll below the header shows To home immediately, not
+            // only after reaching the Today row. Clicking To home returns to
+            // the same 75px anchor used by jumpToAnalyzer.
+            const home = document.getElementById('ep13');
+            const anchor = home || findV3TimesheetHeader()?.header;
+            if (!anchor) return 'today';
+            const metrics = getScrollMetrics(anchor);
+            return metrics.current > Math.max(0, metrics.target - 75) + 8
+                ? 'top' : 'today';
+        }
+        if (timesheetNavForcedTarget) return timesheetNavForcedTarget;
         const todayRow = getTodayRow();
         if (!todayRow) return 'today';
         const metrics = getScrollMetrics(todayRow);
         const home = document.getElementById('ep13');
         const homeMetrics = home ? getScrollMetrics(home) : null;
-        // Never compare scrollTop values from two different scroll roots.
-        const sameScrollRoot = homeMetrics &&
-            homeMetrics.scrollParent === metrics.scrollParent;
-        const homeScroll = sameScrollRoot
-            ? Math.max(0, homeMetrics.target - 75) : 0;
-        if (sameScrollRoot && metrics.current <= homeScroll + 8)
-            return 'today';
-
-        // A day card near the bottom of the month cannot always reach the
-        // top of the viewport; being visibly reached is enough to show Home.
-        const visibleTop = metrics.scrollParent === window
-            ? 0 : metrics.scrollParent.getBoundingClientRect().top;
-        const visibleBottom = metrics.scrollParent === window
-            ? window.innerHeight : metrics.scrollParent.getBoundingClientRect().bottom;
+        const sameScrollRoot = homeMetrics && homeMetrics.scrollParent === metrics.scrollParent;
+        const homeScroll = sameScrollRoot ? Math.max(0, homeMetrics.target - 75) : 0;
+        if (sameScrollRoot && metrics.current <= homeScroll + 8) return 'today';
+        const visibleTop = metrics.scrollParent === window ? 0 : metrics.scrollParent.getBoundingClientRect().top;
+        const visibleBottom = metrics.scrollParent === window ? window.innerHeight : metrics.scrollParent.getBoundingClientRect().bottom;
         const todayRect = todayRow.getBoundingClientRect();
-        const visiblyReached = todayRect.top < visibleBottom - 48
-            && todayRect.bottom > visibleTop + 48;
+        const visiblyReached = todayRect.top < visibleBottom - 48 && todayRect.bottom > visibleTop + 48;
         return visiblyReached || metrics.current >= Math.max(0, metrics.target - 100)
             ? 'top' : 'today';
     };
