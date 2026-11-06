@@ -406,7 +406,11 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         }
         // Current clock-out gap also contributes to break coverage in real time.
         const active = intervals.some(p => p.open);
-        const ongoingGapMinutes = !active && lastEnd !== null
+        const loggedBeforePause = intervals.reduce((sum, p) => sum + p.end - p.start, 0);
+        // An off-clock gap after the full shift has ended is not a lunch break.
+        // Count the ongoing pause only while the user still needs work time.
+        const canStillResume = loggedBeforePause < getDayWorkTargetMinutes(dayEl) + enteredMinutes;
+        const ongoingGapMinutes = !active && canStillResume && lastEnd !== null
             ? Math.max(0, nowMinutes - lastEnd) : 0;
         const offClockGapMinutes = completedGapMinutes + ongoingGapMinutes;
         const missingMandatoryMinutes = Math.max(0,
@@ -420,7 +424,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
     const getTodayBreakCaption = today => {
         if (!today || today.requiredBreakMinutes <= 0) return '';
         if (today.ongoingGapMinutes > 0 && !today.isRunning)
-            return 'On break: ' + fmt(today.ongoingGapMinutes) + ' since clock-out · ' +
+            return 'Clocked out: ' + fmt(today.ongoingGapMinutes) + ' gap · ' +
                 (today.missingMandatoryBreakMinutes > 0
                     ? fmt(today.missingMandatoryBreakMinutes) + ' mandatory break still needed'
                     : 'mandatory break covered');
