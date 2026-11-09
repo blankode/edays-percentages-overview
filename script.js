@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      20.7
+// @version      20.8
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
@@ -9,6 +9,7 @@
 // @run-at       document-start
 // ==/UserScript==
 
+// Changelog v20.8: Reorganize Analyzer to match the approved UI mockup. Today becomes the prominent first status bar with live target/progress/leave time and Include buffer; Buffer & Outlook is a separate horizontal KPI row directly beneath, with work buffer, workable/days left, office/WFH remaining and month progress. Only Activity Breakdown, Office Target and Time vs Rota remain in the three-column analytics grid; Office Planner follows. Remove redundant Analyzer title/icon and Settings/Minimize duplication (native Timesheet toolbar owns these). Responsive, dark-mode aware, retain mini mode and target-met GIF.
 // Changelog v20.7: Fix Today overestimating the daily work target when Vue 3's read-only Breaks field mirrors real clock-out gaps (for example 1h28 break incorrectly produced 9h28). Separate 8h NET worked time from the maximum 30-minute outstanding mandatory break. Completed/off-clock breaks satisfy the requirement but never add their full duration to the target; explicitly editable breaks are only subtracted from gross periods when not already represented as gaps. Both full and compact Today, leave time and standard overtime now share the corrected calculation. Keep monthly buffer based on eDays net totals.
 // Changelog v20.6: Vue 3 and legacy Today now project 8h net work plus the remaining portion of the mandatory break; real off-clock gaps (including the current pause) and entered breaks satisfy the requirement without double-counting. Recompute leave/normal overtime time on every live update and show break status in expanded/compact dashboards. To home now appears on manual scroll below the Analyzer header, before reaching Today's row. Buffer remains net recorded work vs net rota.
 // Changelog v20.5: Fixed To today / To home not changing after manual scrolling: Vue 3 navigation now uses live scroll geometry instead of an indefinitely forced target, detects the actual vertically scrollable ancestor, listens to window and nested scroll events, and chooses the click destination from current page position. Preserved legacy navigation behavior.
@@ -2393,7 +2394,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         // Keep a hydrated GIF/iframe intact across the 30-second Analyzer redraw.
         const existingOfficeGif = container.querySelector('.ep-office-celebration .ep-office-gif-shell');
         if (!isSummaryReady()) {
-            container.innerHTML = `<div class="ep-hdr">` + `<div class="ep-hdr-logo">${icon('timer',16)}</div>` + `<div class="ep-hdr-title">eDays Analyzer Pro</div>` + `<div class="ep-hdr-date"><span class="ep-pulse"></span> Loading…</div>` + `</div>`;
+            container.innerHTML = '<div class="ep-v3-estimate" role="status">Loading Timesheet analytics…</div>';
             return;
         }
         const summary = getSummaryData();
@@ -2412,10 +2413,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         const v3 = isV3Timesheet();
         if (miniMode) {
             container.classList.add('ep-mini-mode');
-            container.innerHTML = estimateBanner + (v3 ? `
-                <div class="ep-hdr"><div class="ep-hdr-logo">${icon('timer',16)}</div>
-                <div class="ep-hdr-title">eDays Analyzer Pro</div>
-                <div class="ep-hdr-right"></div></div>` : '') + renderMiniDashboard(T, summary);
+            container.innerHTML = estimateBanner + renderMiniDashboard(T, summary);
             bindInteractions(container);
             return;
         }
@@ -2424,51 +2422,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             const ds = getDayStats(summary);
             const detailedDays = getDetailedDayData();
             const nextTheme = T.isDark ? 'light' : 'dark';
-            container.innerHTML = `
-                <div class="ep-hdr">
-                    <div class="ep-hdr-logo">
-                        ${icon('timer',16)}
-                    </div>
-
-                    <div class="ep-hdr-title">
-                        eDays Analyzer Pro
-                    </div>
-
-                    <div class="ep-hdr-right">
-                        ${v3 ? '' : `<span
-                            class="ep-btn ep-btn-icon"
-                            data-action="settings-open"
-                            title="Analyzer settings"
-                        >
-                            ${icon(
-                                'settings',
-                                14,
-                                T.muted
-                            )}
-                        </span>
-
-                        <span
-                            class="ep-btn ep-btn-icon"
-                            data-action="theme-toggle"
-                            data-theme="${nextTheme}"
-                            title="${T.isDark ? 'Light' : 'Dark'} theme"
-                        >
-                            ${icon(
-                                T.isDark
-                                    ? 'sun'
-                                    : 'moon',
-                                14,
-                                T.muted
-                            )}
-                        </span>`}
-
-                        <div class="ep-hdr-date">
-                            <span class="ep-pulse"></span>
-                            ${dateStr}
-                        </div>
-                    </div>
-                </div>
-
+            container.innerHTML = buildTodayStrip({T,ds}) + `
                 <div class="ep-empty">
                     <div class="ep-empty-icon">
                         ${icon(
@@ -2487,10 +2441,6 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                     </div>
                 </div>
             `;
-            container.innerHTML += buildTodayStrip({
-                T,
-                ds
-            });
             container.innerHTML += buildOfficePlannerPanel({
                 T,
                 ds,
@@ -2586,53 +2536,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         const offColor = getOffColor(officePct);
         const rotaColor = rotaPct >= 100 ? '#22c55e' : rotaPct >= 80 ? '#3b82f6' : '#f59e0b';
         const nextTheme = T.isDark ? 'light' : 'dark';
-        let html = `
-            <div class="ep-hdr">
-                <div class="ep-hdr-logo">
-                    ${icon('timer',16)}
-                </div>
-
-                <div class="ep-hdr-title">
-                    eDays Analyzer Pro
-                </div>
-
-                <div class="ep-hdr-right">
-                    ${v3 ? '' : `<span
-                        class="ep-btn ep-btn-icon"
-                        data-action="settings-open"
-                        title="Analyzer settings"
-                    >
-                        ${icon(
-                            'settings',
-                            14,
-                            T.muted
-                        )}
-                    </span>
-
-                    <span
-                        class="ep-btn ep-btn-icon"
-                        data-action="theme-toggle"
-                        data-theme="${nextTheme}"
-                        title="${T.isDark ? 'Light' : 'Dark'} theme"
-                    >
-                        ${icon(
-                            T.isDark
-                                ? 'sun'
-                                : 'moon',
-                            14,
-                            T.muted
-                        )}
-                    </span>`}
-
-                    <div class="ep-hdr-date">
-                        <span class="ep-pulse"></span>
-                        ${dateStr}
-                    </div>
-                </div>
-            </div>
-
-            <div class="ep-grid">
-        `;
+        let html = `<div class="ep-grid">`;
         /* Card 1 */
         const totalActPct = realRota > 0 ? (totalActMins / realRota) * 100 : 0;
         html += `<div class="ep-card">` + `<div class="ep-card-title">Activity Breakdown</div>`;
@@ -2823,209 +2727,64 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                 </div>
             </div>
         `;
-        /* Card 4 */
-        const wfhDaysAvailable = Math.max(0, ds.daysLeft - offRemDays);
-        const wfhAvailableMins = Math.max(0, ds.remainingMinutes - offRemMins);
-        /*
-         * Display exact time instead of decimal / half-day values.
-         *
-         * Examples:
-         * 2 days + 4 hours       -> 2d 4h
-         * 3 days + 3h 30m       -> 3d 3h 30m
-         * exactly 2 days         -> 2d
-         * <= 1 day               -> exact hours, e.g. 6h 30m
-         */
+        /* v20.8 — three cards only, followed by a separately composed outlook row. */
+        const cardsHtml = html + '</div>';
         const officeTargetReached = targetMins > 0 && offRemMins === 0;
-        const officeChipLbl = officeTargetReached ? 'Office Target Met' : offRemMins <= STANDARD_DAY_MINUTES ? 'Office Time Needed' : 'Office Days Needed';
+        const officeChipLbl = officeTargetReached ? 'Office Target Met'
+            : offRemMins <= STANDARD_DAY_MINUTES ? 'Office Time Needed' : 'Office Days Needed';
+        const wfhAvailableMins = Math.max(0, ds.remainingMinutes - offRemMins);
         const wfhChipVal = fmtDaysAndTime(wfhAvailableMins);
-        const wfhChipLbl = wfhAvailableMins <= STANDARD_DAY_MINUTES ? 'WFH Time Available' : 'WFH Days Available';
-        const officeChipCompact = officeChipVal.includes(' ');
-        const wfhChipCompact = wfhChipVal.includes(' ');
+        const wfhChipLbl = wfhAvailableMins <= STANDARD_DAY_MINUTES
+            ? 'WFH Time Available' : 'WFH Days Available';
         const bc = ds.bufferMinutes > 0 ? 'pos' : ds.bufferMinutes < 0 ? 'neg' : 'zer';
-        const bi = ds.bufferMinutes > 0 ? 'trending_up' : ds.bufferMinutes < 0 ? 'trending_down' : 'trending_flat';
-        const bCol = ds.bufferMinutes > 0 ? '#22c55e' : ds.bufferMinutes < 0 ? '#ef4444' : T.muted;
-        html += `
-            <div class="ep-card">
-                <div class="ep-card-title">
-                    Buffer &amp; Outlook
+        const bi = ds.bufferMinutes > 0 ? 'trending_up'
+            : ds.bufferMinutes < 0 ? 'trending_down' : 'trending_flat';
+        const bCol = ds.bufferMinutes > 0 ? '#22c55e'
+            : ds.bufferMinutes < 0 ? '#ef4444' : T.muted;
+
+        const outlookHtml = `
+            <section class="ep-outlook-strip" aria-label="Buffer and Outlook">
+                <div class="ep-outlook-heading">Buffer &amp; <span>Outlook</span></div>
+                <div class="ep-outlook-buffer ${bc}"
+                     title="Net recorded hours versus net daily rota targets">
+                    ${icon(bi,20,bCol)}
+                    <strong class="ep-outlook-buffer-value">${fmt(ds.bufferMinutes)}</strong>
+                    <span class="ep-outlook-buffer-caption">${ds.bufferMinutes > 0 ? 'ahead of' :
+                        ds.bufferMinutes < 0 ? 'behind' : 'on'} scheduled daily target to date</span>
                 </div>
-
-                <div class="ep-buf-top">
-                    ${icon(
-                        bi,
-                        20,
-                        bCol
-                    )}
-
-                    <span class="ep-buf-val ${bc}">
-                        ${fmt(ds.bufferMinutes)}
-                    </span>
-
-                    <span class="ep-buf-sub">
-                        ${ds.bufferMinutes >= 0 ? 'ahead of' : 'behind'}
-                        scheduled daily target
-                        <br>
-                        to date
-                    </span>
+                <div class="ep-outlook-kpi">
+                    <strong class="ep-outlook-value">${ds.workableDays}</strong>
+                    <span class="ep-outlook-label">Workable</span>
                 </div>
-
-                <div class="ep-chip-grid">
-                    <div class="ep-chip">
-                        <div class="ep-chip-val">
-                            ${ds.workableDays}
-                        </div>
-
-                        <div class="ep-chip-lbl">
-                            Workable
-                        </div>
-                    </div>
-
-<div class="ep-chip${officeTargetReached ? ' ep-office-celebration' : ''}" style="min-width:0;overflow:hidden;">
-    ${officeTargetReached ? `
-        <div class="ep-office-celebration-head">${officeChipLbl}</div>
-        <div class="ep-office-gif-shell">
-            <img class="ep-office-gif-image" alt="Congratulations! Office target achieved" decoding="async">
-            <a class="ep-office-gif-fallback" hidden href="${OFFICE_CELEBRATION_GIF_URL}" target="_blank" rel="noopener noreferrer" title="View congratulations GIF">🎉 Well done!</a>
-        </div>`
-        : `
-        <div class="ep-chip-val"
-             style="color:#3b82f6;white-space:nowrap;overflow:hidden;${offRemDays <= 1 || officeChipVal.includes(' ') ? 'font-size:14px;' : ''}">
-            ${officeChipVal || '0h'}
-        </div>
-        <div class="ep-chip-lbl">${officeChipLbl}</div>`
-    }
-</div>
-
-                    <div class="ep-chip">
-                        <div
-                            class="ep-chip-val"
-                            style="color:#a855f7"
-                        >
-                            ${ds.daysLeft}
-                        </div>
-
-                        <div class="ep-chip-lbl">
-                            Days Left
-                        </div>
-                    </div>
-
-<div class="ep-chip" style="min-width:0;overflow:hidden;">
-    <div
-        class="ep-chip-val"
-        style="color:#f59e0b;white-space:nowrap;overflow:hidden;${wfhDaysAvailable <= 1 || wfhChipVal.includes(' ') ? 'font-size:14px;' : ''}"
-    >
-        ${wfhChipVal}
-    </div>
-
-    <div class="ep-chip-lbl">
-        ${wfhChipLbl}
-    </div>
-</div>
+                <div class="ep-outlook-kpi">
+                    <strong class="ep-outlook-value ep-outlook-purple">${ds.daysLeft}</strong>
+                    <span class="ep-outlook-label">Days left</span>
                 </div>
-
-                <div class="ep-prog-wrap">
-                    <div class="ep-prog-hdr">
-                        <span>
-                            Month progress
-                        </span>
-
-                        <span>
-                            ${ds.progressPct.toFixed(0)}%
-                        </span>
-                    </div>
-
+                <div class="ep-outlook-kpi ${officeTargetReached ? 'ep-chip ep-office-celebration' : ''}"
+                     title="${officeChipVal || '0h'} · ${officeChipLbl}">
+                    ${officeTargetReached ? `
+                        <div class="ep-office-celebration-head">${officeChipLbl}</div>
+                        <div class="ep-office-gif-shell">
+                            <img class="ep-office-gif-image" alt="Congratulations! Office target achieved" decoding="async">
+                            <a class="ep-office-gif-fallback" hidden href="${OFFICE_CELEBRATION_GIF_URL}" target="_blank" rel="noopener noreferrer">🎉 Well done!</a>
+                        </div>` : `
+                        <strong class="ep-outlook-value ep-outlook-blue">${officeChipVal || '0h'}</strong>
+                        <span class="ep-outlook-label">${officeChipLbl}</span>`}
+                </div>
+                <div class="ep-outlook-kpi" title="${wfhChipVal} · ${wfhChipLbl}">
+                    <strong class="ep-outlook-value ep-outlook-orange">${wfhChipVal || '0h'}</strong>
+                    <span class="ep-outlook-label">${wfhChipLbl}</span>
+                </div>
+                <div class="ep-outlook-month"
+                     title="${fmt(summary.recorded)} recorded of ${fmt(ds.realRota)} rota; ${fmt(ds.remainingMinutes)} remaining">
+                    <div class="ep-outlook-month-head"><span>Month progress</span><strong>${ds.progressPct.toFixed(0)}%</strong></div>
                     <div class="ep-prog-track">
-                        <div
-                            class="ep-prog-fill"
-                            style="width:${clamp(ds.progressPct,0,100).toFixed(1)}%"
-                        ></div>
+                        <div class="ep-prog-fill" style="width:${clamp(ds.progressPct,0,100).toFixed(1)}%"></div>
                     </div>
                 </div>
-
-                <div class="ep-notices">
-                    ${
-                        ds.remainingMinutes > 0
-                            ? `
-                                <div class="ep-notice">
-                                    ${icon(
-                                        'calendar',
-                                        12,
-                                        T.muted
-                                    )}
-
-                                    <span>
-                                        ${ds.daysLeft}d equivalent left
-                                        · ${fmt(ds.remainingMinutes)} remaining
-                                    </span>
-                                </div>
-                            `
-                            : ''
-                    }
-
-                    ${
-                        ds.bufferMinutes > 0
-                            ? `
-                                <div class="ep-notice good">
-                                    ${icon(
-                                        'savings',
-                                        12,
-                                        '#22c55e'
-                                    )}
-
-                                    <span>
-                                        ${fmt(ds.bufferMinutes)} banked
-                                    </span>
-                                </div>
-                            `
-                            : ds.bufferMinutes < 0
-                                ? `
-                                    <div class="ep-notice warn">
-                                        ${icon(
-                                            'warning',
-                                            12,
-                                            '#ef4444'
-                                        )}
-
-                                        <span>
-                                            ${fmt(Math.abs(ds.bufferMinutes))} deficit
-                                        </span>
-                                    </div>
-                                `
-                                : `
-                                    <div class="ep-notice">
-                                        ${icon(
-                                            'flag',
-                                            12,
-                                            T.muted
-                                        )}
-
-                                        <span>
-                                            Exactly on target!
-                                        </span>
-                                    </div>
-                                `
-                    }
-
-                    <div class="ep-notice">
-                        ${icon(
-                            'flag',
-                            12,
-                            T.muted
-                        )}
-
-                        <span>
-                            Month target:
-                            ${fmt(ds.realRota)}
-                        </span>
-                    </div>
-                </div>
-            </div>
+            </section>
         `;
-        html += `</div>`;
-        html += buildTodayStrip({
-            T,
-            ds
-        });
+        html = buildTodayStrip({T, ds}) + outlookHtml + cardsHtml;
         html += buildOfficePlannerPanel({
             T,
             ds,
