@@ -9,6 +9,7 @@
 // @run-at       document-start
 // ==/UserScript==
 
+// Changelog v20.9 (same-version Today layout refinement): Render standard finish/overtime and mandatory-break coverage on the same horizontal Today status line, rather than a separate row. On narrow viewports, only the break caption ellipsizes, with its complete text available in the tooltip. Calculations unchanged; version remains 20.9.
 // Changelog v20.9: Consolidated the full v20.8 release history into a single changelog entry and bumped the userscript version for Tampermonkey update detection. Documentation/release housekeeping only; no layout, calculation, styling, or theme behavior changed.
 // Changelog v20.8: Redesigned the expanded Analyzer to match the approved dashboard mockup: Today moved to a prominent live header/status card with progress, finish and overtime estimates, break coverage and Include buffer; Buffer & Outlook became an inline KPI strip; Activity Breakdown, Office Target and Time vs Rota became three equal-height cards above Office Planner. Preserved the native Timesheet heading and Settings/Minimize controls without duplication, existing calculations, office-target celebration GIF and responsive dark mode. Matched the site using a white light-mode background, rounded cards, subtle shadows and refined typography; made the overall layout more compact with reduced spacing, card heights and donut sizes. Restyled the four-tile Minimized view to match, widened Today, shortened status labels and kept full explanations in tooltips. Aligned both layouts to the native month navigator (24px horizontal inset, 12px on narrow screens) and adjusted the animated Enhanced label spacing to match reference screenshots (margin-left: -12px). 
 // Changelog v20.7: Fix Today overestimating the daily work target when Vue 3's read-only Breaks field mirrors real clock-out gaps (for example 1h28 break incorrectly produced 9h28). Separate 8h NET worked time from the maximum 30-minute outstanding mandatory break. Completed/off-clock breaks satisfy the requirement but never add their full duration to the target; explicitly editable breaks are only subtracted from gross periods when not already represented as gaps. Both full and compact Today, leave time and standard overtime now share the corrected calculation. Keep monthly buffer based on eDays net totals.
@@ -1494,6 +1495,10 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             #ep13 .ep-card{min-height:unset;padding:16px;}
         }
         @media(prefers-reduced-motion:reduce){#ep13 .ep-today-fill{transition:none;}}
+        /* Today v20.9: standard finish, overtime and break coverage share one line. */
+        #ep13 .ep-today-status-line{display:flex;align-items:center;flex-wrap:nowrap;min-width:0;gap:0 9px;white-space:nowrap;}
+        #ep13 .ep-today-status-line > span{flex-shrink:0;}
+        #ep13 .ep-today-status-line .ep-today-break-inline{flex:0 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 
         /* v20.8 same-version compact refinement: reduce overall height while
            preserving hierarchy, matching colors, and responsive layouts. */
@@ -1964,9 +1969,17 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         const todayDone = isDayOff || todayRemaining === 0;
         const standard = getTodayStandardStatus(today);
         const breakCaption = getTodayBreakCaption(today);
-        const standardHtml = !standard ? '' : standard.overtimeMinutes > 0
-            ? `<div class="ep-today-standard"><span class="ep-today-standard-label">Standard day: ${fmt(standard.fullGrossTarget)}</span><span class="ep-today-overtime" title="Time above the normal daily target; not necessarily payroll-approved overtime">Overtime vs target: +${fmt(standard.overtimeMinutes)}</span></div>`
-            : `<div class="ep-today-standard"><span class="ep-today-standard-label">Standard day: ${fmt(standard.fullGrossTarget)}${standard.finishAt ? ` · finish at ${standard.finishAt}` : ''}</span><span>${standard.finishAt ? `Overtime after ${standard.finishAt}` : `Overtime after ${fmt(standard.fullGrossTarget)} elapsed`}</span></div>`;
+        // Keep standard finish/overtime and mandatory-break status in ONE row.
+        // The break caption is the flexible segment, truncated only when narrow.
+        const standardHtml = standard || breakCaption
+            ? `<div class="ep-today-standard ep-today-status-line">
+                ${standard ? (standard.overtimeMinutes > 0
+                    ? `<span class="ep-today-standard-label">Standard day: ${fmt(standard.fullGrossTarget)}</span><span class="ep-today-overtime" title="Time above the normal daily target; not necessarily payroll-approved overtime">Overtime vs target: +${fmt(standard.overtimeMinutes)}</span>`
+                    : `<span class="ep-today-standard-label">Standard day: ${fmt(standard.fullGrossTarget)}${standard.finishAt ? ` · finish at ${standard.finishAt}` : ''}</span><span>${standard.finishAt ? `Overtime after ${standard.finishAt}` : `Overtime after ${fmt(standard.fullGrossTarget)} elapsed`}</span>`)
+                    : ''}
+                ${breakCaption ? `<span class="ep-today-break-inline" title="${breakCaption}">· ${breakCaption}</span>` : ''}
+            </div>`
+            : '';
         // Progress is based on net worked time plus only the uncovered
         // mandatory break allowance, not the total length of past breaks.
         const todayPct = isDayOff ? 100 : (grossTarget > 0
@@ -2022,7 +2035,6 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                         ></div>
                     </div>
                     ${standardHtml}
-                    ${breakCaption ? `<div class="ep-today-standard"><span>${breakCaption}</span></div>` : ''}
                 </div>
 
                 <div class="ep-today-actions">
