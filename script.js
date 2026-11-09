@@ -1400,6 +1400,99 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         .ep-settings-btn:hover{background:${T.faint};}
         .ep-settings-btn.primary{background:#3b82f6;border-color:#3b82f6;color:#fff;}
         .ep-settings-btn.primary:hover{background:#2563eb;}
+
+        /* v20.8 mockup: Timesheet already owns the app title and toolbar actions. */
+        #ep13:not(.ep-mini-mode){box-sizing:border-box;background:${T.isDark?'#181a1b':'#f4f6fa'};border:0;border-radius:14px;padding:12px;box-shadow:none;}
+        #ep13 .ep-today-strip,#ep13 .ep-outlook-strip,#ep13 .ep-card,#ep13 .ep-planner-toggle{
+            box-sizing:border-box;background:${T.isDark?'#202324':'#fff'};border:1px solid ${T.border};
+            border-radius:14px;box-shadow:${T.isDark?'0 3px 14px rgba(0,0,0,.22)':'0 3px 14px rgba(15,23,42,.065)'};
+        }
+        #ep13 .ep-today-strip{margin:0 0 12px;padding:16px 20px;gap:20px;align-items:center;min-height:108px;}
+        #ep13 .ep-today-label{align-self:flex-start;margin-top:4px;gap:9px;}
+        #ep13 .ep-today-label-text{font-size:13px;font-weight:800;letter-spacing:.85px;}
+        #ep13 .ep-today-centre{gap:7px;}
+        #ep13 .ep-today-nums-row{align-items:center;gap:6px 9px;}
+        #ep13 .ep-today-done{font-size:26px;font-weight:850;letter-spacing:-.7px;}
+        #ep13 .ep-today-sep,#ep13 .ep-today-total{font-size:15px;}
+        #ep13 .ep-today-rem{font-size:13px;font-weight:500;margin-left:10px;padding-left:15px;line-height:1.5;border-left:1px solid ${T.border};white-space:normal;}
+        #ep13 .ep-today-track{height:8px;border-radius:9px;}
+        #ep13 .ep-today-fill{border-radius:9px;}
+        #ep13 .ep-today-standard{font-size:12px;line-height:1.45;gap:3px 10px;}
+        #ep13 .ep-today-actions{align-self:stretch;align-items:center;padding-left:18px;margin-left:0;border-left:1px solid ${T.border};}
+        #ep13 .ep-buffer-toggle{border-radius:9px!important;padding:5px 10px!important;min-height:32px;margin:0!important;background:${T.isDark?'#2a2e31':'#f8fafc'}!important;font-size:12px;font-weight:600;}
+        /* Buffer & Outlook: compact horizontal row below Today. */
+        #ep13 .ep-outlook-strip{
+            display:grid;grid-template-columns:minmax(94px,.67fr) minmax(205px,1.6fr) repeat(4,minmax(96px,.88fr)) minmax(155px,1.25fr);
+            align-items:stretch;gap:9px;padding:16px 17px;margin:0 0 14px;width:100%;
+        }
+        #ep13 .ep-outlook-heading{align-self:center;display:flex;flex-direction:column;gap:1px;min-width:0;color:${T.muted};font-size:12px;line-height:1.4;font-weight:800;text-transform:uppercase;letter-spacing:1.05px;}
+        #ep13 .ep-outlook-buffer{min-width:0;box-sizing:border-box;border-radius:10px;padding:10px;display:flex;align-items:center;justify-content:center;gap:7px;border:1px solid ${T.border};background:${T.chipBg};}
+        #ep13 .ep-outlook-buffer.neg{background:${T.isDark?'rgba(239,68,68,.12)':'rgba(239,68,68,.055)'};border-color:rgba(239,68,68,.12);}
+        #ep13 .ep-outlook-buffer.pos{background:${T.isDark?'rgba(34,197,94,.12)':'rgba(34,197,94,.055)'};border-color:rgba(34,197,94,.12);}
+        #ep13 .ep-outlook-buffer-value{color:${T.text};font-size:21px;line-height:1.1;font-weight:850;letter-spacing:-.5px;white-space:nowrap;font-variant-numeric:tabular-nums;}
+        #ep13 .ep-outlook-buffer.neg .ep-outlook-buffer-value{color:${T.isDark?'#f87171':'#ef4444'};}
+        #ep13 .ep-outlook-buffer.pos .ep-outlook-buffer-value{color:${T.isDark?'#86efac':'#16a34a'};}
+        #ep13 .ep-outlook-buffer-caption{min-width:0;color:${T.muted};font-size:11px;line-height:1.35;}
+        #ep13 .ep-outlook-kpi{box-sizing:border-box;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:5px;min-width:0;min-height:78px;padding:10px 6px;border:1px solid ${T.border};border-radius:10px;background:${T.chipBg};text-align:center;}
+        #ep13 .ep-outlook-value{font-size:clamp(13px,1.2vw,19px);font-weight:850;letter-spacing:-.3px;line-height:1.1;font-variant-numeric:tabular-nums;white-space:nowrap;color:${T.text};}
+        #ep13 .ep-outlook-blue{color:${T.isDark?'#93c5fd':'#1776cf'};}
+        #ep13 .ep-outlook-orange{color:${T.isDark?'#fbbf24':'#e88a00'};}
+        #ep13 .ep-outlook-purple{color:${T.isDark?'#c4b5fd':'#a855f7'};}
+        #ep13 .ep-outlook-label{color:${T.muted};font-size:9px;line-height:1.25;font-weight:700;letter-spacing:.7px;text-transform:uppercase;overflow-wrap:anywhere;}
+        #ep13 .ep-outlook-kpi.ep-office-celebration{display:block;position:relative;min-height:78px;overflow:hidden;padding:0!important;}
+        #ep13 .ep-outlook-month{display:flex;min-width:0;flex-direction:column;justify-content:center;gap:8px;padding-left:12px;border-left:1px solid ${T.border};}
+        #ep13 .ep-outlook-month-head{display:flex;justify-content:space-between;align-items:center;gap:6px;color:${T.muted};font-size:12px;line-height:1.3;}
+        #ep13 .ep-outlook-month-head strong{color:${T.text};font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;}
+        #ep13 .ep-outlook-month .ep-prog-track{height:8px;border-radius:10px;}
+        #ep13 .ep-outlook-month .ep-prog-fill{border-radius:10px;}
+        #ep13 .ep-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;}
+        #ep13 .ep-card{min-height:300px;padding:18px 20px;gap:10px;}
+        #ep13 .ep-card-title{font-size:13px;font-weight:800;letter-spacing:1.05px;}
+        #ep13 .ep-ring-card{align-items:stretch;text-align:left;}
+        #ep13 .ep-ring-wrap{width:148px;height:148px;margin:4px auto 2px;}
+        #ep13 .ep-ring-wrap svg{width:148px;height:148px;}
+        #ep13 .ep-ring-pct{font-size:29px;}
+        #ep13 .ep-stat-row{gap:12px;line-height:1.4;}
+        #ep13 .ep-stat-v{text-align:right;}
+        #ep13 .ep-hint{justify-content:center;text-align:center;margin-top:auto;}
+        #ep13 .ep-act-row{gap:10px;margin-top:6px;}
+        #ep13 .ep-act-name{font-size:14px;}
+        #ep13 .ep-bar{height:5px;margin-top:6px;}
+        #ep13 .ep-divider{margin-top:8px;}
+        #ep13 .ep-total-row{margin-top:4px;}
+        #ep13 .ep-planner-toggle{margin-top:14px;padding:14px 17px;}
+        @media(max-width:1160px){
+            #ep13 .ep-outlook-strip{grid-template-columns:repeat(12,minmax(0,1fr));}
+            #ep13 .ep-outlook-heading{grid-column:span 2;}
+            #ep13 .ep-outlook-buffer{grid-column:span 4;}
+            #ep13 .ep-outlook-kpi{grid-column:span 3;}
+            #ep13 .ep-outlook-month{grid-column:span 6;min-height:65px;}
+        }
+        @media(max-width:920px){
+            #ep13 .ep-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
+            #ep13 .ep-grid .ep-card:first-child{grid-column:1 / -1;min-height:unset;}
+            #ep13 .ep-today-strip{flex-wrap:wrap;column-gap:14px;}
+            #ep13 .ep-today-centre{flex:1 1 65%;}
+            #ep13 .ep-today-actions{align-self:center;padding-left:13px;}
+        }
+        @media(max-width:650px){
+            #ep13:not(.ep-mini-mode){padding:8px;}
+            #ep13 .ep-today-strip{align-items:flex-start;padding:14px;gap:10px;}
+            #ep13 .ep-today-label{width:100%;margin:0;}
+            #ep13 .ep-today-centre{flex:1 1 100%;}
+            #ep13 .ep-today-rem{margin-left:0;padding-left:0;border:0;}
+            #ep13 .ep-today-actions{border:0;padding:0;align-self:flex-start;}
+            #ep13 .ep-outlook-strip{padding:12px;gap:8px;grid-template-columns:repeat(2,minmax(0,1fr));}
+            #ep13 .ep-outlook-heading{grid-column:1 / -1;flex-direction:row;gap:5px;}
+            #ep13 .ep-outlook-buffer{grid-column:1 / -1;}
+            #ep13 .ep-outlook-kpi{grid-column:auto;}
+            #ep13 .ep-outlook-month{grid-column:1 / -1;padding:8px 0 0;border:0;border-top:1px solid ${T.border};}
+            #ep13 .ep-outlook-value{font-size:17px;}
+            #ep13 .ep-grid{grid-template-columns:1fr;}
+            #ep13 .ep-grid .ep-card:first-child{grid-column:auto;}
+            #ep13 .ep-card{min-height:unset;padding:16px;}
+        }
+        @media(prefers-reduced-motion:reduce){#ep13 .ep-today-fill{transition:none;}}
         `;
     };
 
