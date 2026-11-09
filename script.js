@@ -9,6 +9,7 @@
 // @run-at       document-start
 // ==/UserScript==
 
+// Changelog v20.8 (same-version title spacing): Adjust native Timesheet "Enhanced" label margin-left from +1px to -12px, matching the reference screenshots (13px closer to Timesheet). Preserve exact native title font sizing, animated gradient and existing toolbar/dashboard behavior; no version bump.
 // Changelog v20.8 (same-version horizontal alignment): Match the native Timesheet month navigator's ~24px horizontal inset in both Expanded and Minimized dashboards. Align first/last card edges with the controls directly below; narrow screens use a 12px inset. No version bump, layout/logic/theme changes beyond spacing.
 // Changelog v20.8 (same-version density & mini update): Refresh Minimized into the same white/light theme card style as expanded, with balanced 4-column layout, better Today width and concise non-truncated break/status labels; reduce vertical padding, gaps, donut and header dimensions in expanded mode. Preserve all calculations, buffer toggle, dark mode and responsive behavior; @version remains 20.8.
 // Changelog v20.8 (same-version styling update): Use pure white as the expanded Analyzer background in light mode to blend with the native eDays page; move the native Timesheet "Enhanced" label 5px left (6px -> 1px margin). No version bump or layout/logic changes.
@@ -1353,7 +1354,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         #ep13 .ep-hdr{display:none!important;}
         #timesheetMonthHeader h2 .ep-enhanced-text,
         #main_content_wrapper .edays-vue3 [class*="_title-container_"] .ep-enhanced-text{
-            margin-left:1px;
+            margin-left:-12px;
             font-weight:800;
             background:linear-gradient(90deg,#3b82f6 0%,#a855f7 35%,#22d3ee 65%,#3b82f6 100%);
             background-size:260% 100%;
