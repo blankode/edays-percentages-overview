@@ -180,6 +180,8 @@ Legacy timesheet layout support is retained. Version 20.9 continues to recognize
 
 <br/>
 
+**Same-version Today layout refinement (20.9):** The mandatory-break caption now sits **on the same line** as the standard finish/overtime status in the expanded Today card. If space is limited, only the break caption is truncated, with the full status on hover. Daily calculations and version number stay unchanged.
+
 ## ∿ Changelog
 
 | Version | Changes |
