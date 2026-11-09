@@ -9,6 +9,7 @@
 // @run-at       document-start
 // ==/UserScript==
 
+// Changelog v20.8 (same-version horizontal alignment): Match the native Timesheet month navigator's ~24px horizontal inset in both Expanded and Minimized dashboards. Align first/last card edges with the controls directly below; narrow screens use a 12px inset. No version bump, layout/logic/theme changes beyond spacing.
 // Changelog v20.8 (same-version density & mini update): Refresh Minimized into the same white/light theme card style as expanded, with balanced 4-column layout, better Today width and concise non-truncated break/status labels; reduce vertical padding, gaps, donut and header dimensions in expanded mode. Preserve all calculations, buffer toggle, dark mode and responsive behavior; @version remains 20.8.
 // Changelog v20.8 (same-version styling update): Use pure white as the expanded Analyzer background in light mode to blend with the native eDays page; move the native Timesheet "Enhanced" label 5px left (6px -> 1px margin). No version bump or layout/logic changes.
 // Changelog v20.8: Reorganize Analyzer to match the approved UI mockup. Today becomes the prominent first status bar with live target/progress/leave time and Include buffer; Buffer & Outlook is a separate horizontal KPI row directly beneath, with work buffer, workable/days left, office/WFH remaining and month progress. Only Activity Breakdown, Office Target and Time vs Rota remain in the three-column analytics grid; Office Planner follows. Remove redundant Analyzer title/icon and Settings/Minimize duplication (native Timesheet toolbar owns these). Responsive, dark-mode aware, retain mini mode and target-met GIF.
@@ -1498,7 +1499,8 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
 
         /* v20.8 same-version compact refinement: reduce overall height while
            preserving hierarchy, matching colors, and responsive layouts. */
-        #ep13:not(.ep-mini-mode){padding:7px 8px 8px;}
+        /* Match the 24px inset of the native month navigator below. */
+        #ep13:not(.ep-mini-mode){padding:7px 24px 8px;}
         #ep13 .ep-today-strip{min-height:86px;padding:11px 14px;gap:14px;margin-bottom:8px;border-radius:11px;}
         #ep13 .ep-today-label{margin-top:2px;gap:7px;}
         #ep13 .ep-today-label-text{font-size:11px;letter-spacing:.75px;}
@@ -1550,7 +1552,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         #ep13.ep-mini-mode{
             box-sizing:border-box;
             background:${T.isDark?'#181a1b':'#ffffff'}!important;
-            padding:2px 0 7px!important;
+            padding:2px 24px 7px!important;
             margin:0 0 8px!important;
             border:0!important;
             border-radius:0!important;
@@ -1613,6 +1615,9 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             #ep13.ep-mini-mode .ep-mini-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
         }
         @media(max-width:650px){
+            /* Keep both layouts aligned and readable on narrow screens. */
+            #ep13:not(.ep-mini-mode){padding:7px 12px 8px;}
+            #ep13.ep-mini-mode{padding:2px 12px 7px!important;}
             #ep13 .ep-today-strip{padding:10px 12px;}
             #ep13 .ep-outlook-strip{padding:10px;gap:7px;}
             #ep13 .ep-card{min-height:unset;padding:12px;}
