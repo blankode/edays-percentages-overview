@@ -184,6 +184,8 @@ Legacy timesheet layout support is retained. Version 20.8 continues to recognize
 
 **Same-version density & Minimized styling update (20.8):** The four Minimized tiles now share the expanded dashboard's white cards, rounded borders, subtle shadows and accent colors. Today has more width on desktop, shorter break/status copy and the full explanation in its tooltip. Expanded cards, donut gauges, Today and Outlook strips, and planner heading have reduced heights, padding and spacing (approximately 15–20% less vertical dashboard space, depending on content and viewport). Responsive grids and dark mode remain supported; calculations and native toolbar are unchanged. Since `@version` remains **20.8**, reinstall the current script manually if Tampermonkey does not detect the same-version update.
 
+**Same-version alignment refinement (20.8):** Both **Expanded** and **Minimized** now use a consistent **24px horizontal inset**, aligning the first and last dashboard cards with the native Timesheet month navigation controls underneath. Below 650px viewport width, the inset reduces to **12px** to preserve space. The white background, card styling, calculations, theme behavior and native controls remain unchanged. As the userscript still reports **20.8**, reinstall it manually if Tampermonkey does not pull same-version updates.
+
 ## ∿ Changelog
 
 | Version | Changes |
