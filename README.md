@@ -186,6 +186,8 @@ Legacy timesheet layout support is retained. Version 20.8 continues to recognize
 
 **Same-version alignment refinement (20.8):** Both **Expanded** and **Minimized** now use a consistent **24px horizontal inset**, aligning the first and last dashboard cards with the native Timesheet month navigation controls underneath. Below 650px viewport width, the inset reduces to **12px** to preserve space. The white background, card styling, calculations, theme behavior and native controls remain unchanged. As the userscript still reports **20.8**, reinstall it manually if Tampermonkey does not pull same-version updates.
 
+**Same-version title spacing adjustment (20.8):** Reduced the gap between the native **Timesheet** heading and animated **Enhanced** by 13px (`margin-left: 1px → -12px`), matching the supplied before/after screenshots. The native title font, gradient, other layout and calculations remain unchanged. Since Tampermonkey still sees version **20.8**, manually reinstall the latest `script.js` if automatic updates do not pick this up.
+
 ## ∿ Changelog
 
 | Version | Changes |
