@@ -9,6 +9,7 @@
 // @run-at       document-start
 // ==/UserScript==
 
+// Changelog v20.8 (same-version styling update): Use pure white as the expanded Analyzer background in light mode to blend with the native eDays page; move the native Timesheet "Enhanced" label 5px left (6px -> 1px margin). No version bump or layout/logic changes.
 // Changelog v20.8: Reorganize Analyzer to match the approved UI mockup. Today becomes the prominent first status bar with live target/progress/leave time and Include buffer; Buffer & Outlook is a separate horizontal KPI row directly beneath, with work buffer, workable/days left, office/WFH remaining and month progress. Only Activity Breakdown, Office Target and Time vs Rota remain in the three-column analytics grid; Office Planner follows. Remove redundant Analyzer title/icon and Settings/Minimize duplication (native Timesheet toolbar owns these). Responsive, dark-mode aware, retain mini mode and target-met GIF.
 // Changelog v20.7: Fix Today overestimating the daily work target when Vue 3's read-only Breaks field mirrors real clock-out gaps (for example 1h28 break incorrectly produced 9h28). Separate 8h NET worked time from the maximum 30-minute outstanding mandatory break. Completed/off-clock breaks satisfy the requirement but never add their full duration to the target; explicitly editable breaks are only subtracted from gross periods when not already represented as gaps. Both full and compact Today, leave time and standard overtime now share the corrected calculation. Keep monthly buffer based on eDays net totals.
 // Changelog v20.6: Vue 3 and legacy Today now project 8h net work plus the remaining portion of the mandatory break; real off-clock gaps (including the current pause) and entered breaks satisfy the requirement without double-counting. Recompute leave/normal overtime time on every live update and show break status in expanded/compact dashboards. To home now appears on manual scroll below the Analyzer header, before reaching Today's row. Buffer remains net recorded work vs net rota.
@@ -1350,7 +1351,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         #ep13 .ep-hdr{display:none!important;}
         #timesheetMonthHeader h2 .ep-enhanced-text,
         #main_content_wrapper .edays-vue3 [class*="_title-container_"] .ep-enhanced-text{
-            margin-left:6px;
+            margin-left:1px;
             font-weight:800;
             background:linear-gradient(90deg,#3b82f6 0%,#a855f7 35%,#22d3ee 65%,#3b82f6 100%);
             background-size:260% 100%;
@@ -1402,7 +1403,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         .ep-settings-btn.primary:hover{background:#2563eb;}
 
         /* v20.8 mockup: Timesheet already owns the app title and toolbar actions. */
-        #ep13:not(.ep-mini-mode){box-sizing:border-box;background:${T.isDark?'#181a1b':'#f4f6fa'};border:0;border-radius:14px;padding:12px;box-shadow:none;}
+        #ep13:not(.ep-mini-mode){box-sizing:border-box;background:${T.isDark?'#181a1b':'#ffffff'};border:0;border-radius:14px;padding:12px;box-shadow:none;}
         #ep13 .ep-today-strip,#ep13 .ep-outlook-strip,#ep13 .ep-card,#ep13 .ep-planner-toggle{
             box-sizing:border-box;background:${T.isDark?'#202324':'#fff'};border:1px solid ${T.border};
             border-radius:14px;box-shadow:${T.isDark?'0 3px 14px rgba(0,0,0,.22)':'0 3px 14px rgba(15,23,42,.065)'};
