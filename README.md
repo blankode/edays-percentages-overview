@@ -180,6 +180,8 @@ Legacy timesheet layout support is retained. Version 20.8 continues to recognize
 
 <br/>
 
+**Same-version styling refinement:** the expanded Analyzer uses a pure-white background in light mode to blend with the eDays page, and the gradient `Enhanced` label sits 5px further left. Because `@version` remains **20.8**, Tampermonkey may require manually reopening/reinstalling `script.js` to receive this change.
+
 ## ∿ Changelog
 
 | Version | Changes |
