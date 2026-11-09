@@ -60,7 +60,7 @@ On the previous eDays layout, the native **Minimize** button remains next to **A
 
 **Today (Vue 3 and legacy):** aim for **8h net work**, plus the **mandatory 30-minute break** (configurable 0–480m) only if it has not already been covered. Before any break, a 09:00 clock-in projects 17:30. A 09:00–13:00 session followed by a **13:00–15:00 clock-out gap** covers the mandatory break; after clocking in at 15:00 the user has 4h to work, so the standard finish moves to **19:00**, not 19:30. Other gaps, even 4h, count toward break coverage without becoming worked hours. The current clock-out gap updates live. **Vue 3's read-only Breaks field often repeats the same clock-out gaps**; v20.7 deliberately ignores that read-only value as an additional break or work requirement. If a Breaks field is manually editable, only the part not already reflected in clock-out gaps is treated as time inside a work period. The expanded and compact Today displays show the break status. **Buffer uses net worked time versus net rota** and never deducts the mandatory break again. Include buffer may move the optional leave estimate, but the standard finish and overtime threshold remain based on 8h work and the actual outstanding break; overtime versus target is not necessarily payroll-approved overtime.
 
-Click **Expand** to restore the complete dashboard. The setting is saved locally and persists after page refreshes. Compact mode uses the same underlying calculations, light/dark theme, spacing/alignment, and metric card borders as the expanded view, without an extra outer border.
+Minimized now uses the same visual language as the expanded layout, with smaller white/dark cards and clearer compact Today messaging; the existing four metrics are preserved. Click **Expand** to restore the complete dashboard. The setting is saved locally and persists after page refreshes. Compact mode uses the same underlying calculations, light/dark theme, spacing/alignment, and metric card borders as the expanded view, without an extra outer border.
 
 <br/>
 
@@ -181,6 +181,8 @@ Legacy timesheet layout support is retained. Version 20.8 continues to recognize
 <br/>
 
 **Same-version styling refinement:** the expanded Analyzer uses a pure-white background in light mode to blend with the eDays page, and the gradient `Enhanced` label sits 5px further left. Because `@version` remains **20.8**, Tampermonkey may require manually reopening/reinstalling `script.js` to receive this change.
+
+**Same-version density & Minimized styling update (20.8):** The four Minimized tiles now share the expanded dashboard's white cards, rounded borders, subtle shadows and accent colors. Today has more width on desktop, shorter break/status copy and the full explanation in its tooltip. Expanded cards, donut gauges, Today and Outlook strips, and planner heading have reduced heights, padding and spacing (approximately 15–20% less vertical dashboard space, depending on content and viewport). Responsive grids and dark mode remain supported; calculations and native toolbar are unchanged. Since `@version` remains **20.8**, reinstall the current script manually if Tampermonkey does not detect the same-version update.
 
 ## ∿ Changelog
 
