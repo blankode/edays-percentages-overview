@@ -1495,6 +1495,130 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             #ep13 .ep-card{min-height:unset;padding:16px;}
         }
         @media(prefers-reduced-motion:reduce){#ep13 .ep-today-fill{transition:none;}}
+
+        /* v20.8 same-version compact refinement: reduce overall height while
+           preserving hierarchy, matching colors, and responsive layouts. */
+        #ep13:not(.ep-mini-mode){padding:7px 8px 8px;}
+        #ep13 .ep-today-strip{min-height:86px;padding:11px 14px;gap:14px;margin-bottom:8px;border-radius:11px;}
+        #ep13 .ep-today-label{margin-top:2px;gap:7px;}
+        #ep13 .ep-today-label-text{font-size:11px;letter-spacing:.75px;}
+        #ep13 .ep-today-centre{gap:5px;}
+        #ep13 .ep-today-nums-row{gap:4px 8px;}
+        #ep13 .ep-today-done{font-size:23px;}
+        #ep13 .ep-today-sep,#ep13 .ep-today-total{font-size:13px;}
+        #ep13 .ep-today-rem{font-size:12px;margin-left:7px;padding-left:11px;}
+        #ep13 .ep-today-track{height:6px;}
+        #ep13 .ep-today-standard{font-size:11px;line-height:1.35;gap:2px 9px;}
+        #ep13 .ep-today-actions{padding-left:12px;}
+        #ep13 .ep-buffer-toggle{min-height:29px;padding:4px 8px!important;font-size:11px;}
+        #ep13 .ep-outlook-strip{gap:7px;padding:10px 11px;margin-bottom:10px;border-radius:11px;}
+        #ep13 .ep-outlook-heading{font-size:11px;letter-spacing:.8px;}
+        #ep13 .ep-outlook-buffer{padding:7px 9px;gap:6px;border-radius:8px;}
+        #ep13 .ep-outlook-buffer-value{font-size:19px;}
+        #ep13 .ep-outlook-buffer-caption{font-size:10px;}
+        #ep13 .ep-outlook-kpi{min-height:62px;padding:7px 5px;gap:3px;border-radius:8px;}
+        #ep13 .ep-outlook-value{font-size:clamp(12px,1.05vw,17px);}
+        #ep13 .ep-outlook-label{font-size:8.5px;letter-spacing:.6px;}
+        #ep13 .ep-outlook-kpi.ep-office-celebration{min-height:62px;}
+        #ep13 .ep-outlook-month{gap:6px;padding-left:9px;}
+        #ep13 .ep-outlook-month-head{font-size:11px;}
+        #ep13 .ep-outlook-month-head strong{font-size:12px;}
+        #ep13 .ep-outlook-month .ep-prog-track{height:6px;}
+        #ep13 .ep-grid{gap:10px;}
+        #ep13 .ep-card{min-height:257px;padding:12px 14px;gap:6px;border-radius:11px;}
+        #ep13 .ep-card-title{font-size:11.5px;letter-spacing:.9px;}
+        #ep13 .ep-ring-wrap{width:120px;height:120px;margin:1px auto;}
+        #ep13 .ep-ring-wrap svg{width:120px;height:120px;}
+        #ep13 .ep-ring-pct{font-size:25px;}
+        #ep13 .ep-ring-lbl{font-size:9px;}
+        #ep13 .ep-stat-row{gap:9px;line-height:1.3;}
+        #ep13 .ep-stat-k,#ep13 .ep-stat-v{font-size:11px;}
+        #ep13 .ep-hint{font-size:11px;line-height:1.35;}
+        #ep13 .ep-act-row{gap:8px;margin-top:3px;}
+        #ep13 .ep-act-name{font-size:12.5px;}
+        #ep13 .ep-act-meta{font-size:11px;}
+        #ep13 .ep-bar{height:4px;margin-top:4px;}
+        #ep13 .ep-divider{margin-top:5px;}
+        #ep13 .ep-total-row{margin-top:2px;}
+        #ep13 .ep-total-label,#ep13 .ep-total-val{font-size:11.5px;}
+        #ep13 .ep-planner-toggle{margin-top:10px;padding:10px 13px;border-radius:11px;}
+        #ep13 .ep-planner-toggle-label{font-size:14px;}
+        #ep13 .ep-planner-toggle-sub{font-size:12px;}
+
+        /* Minimized is the same dashboard family: white cards, restrained
+           shadows, consistent accents, no outer grey panel or clipped text. */
+        #ep13.ep-mini-mode{
+            box-sizing:border-box;
+            background:${T.isDark?'#181a1b':'#ffffff'}!important;
+            padding:2px 0 7px!important;
+            margin:0 0 8px!important;
+            border:0!important;
+            border-radius:0!important;
+            box-shadow:none!important;
+        }
+        #ep13.ep-mini-mode .ep-mini-grid{
+            display:grid;
+            grid-template-columns:minmax(270px,1.36fr) repeat(3,minmax(165px,1fr));
+            align-items:stretch;
+            gap:8px;
+        }
+        #ep13.ep-mini-mode .ep-mini-tile{
+            box-sizing:border-box;
+            min-width:0;
+            min-height:84px;
+            padding:9px 11px;
+            gap:3px;
+            border-radius:11px;
+            border:1px solid ${T.border};
+            background:${T.isDark?'#202324':'#ffffff'};
+            box-shadow:${T.isDark?'0 2px 10px rgba(0,0,0,.2)':'0 2px 10px rgba(15,23,42,.055)'};
+        }
+        #ep13.ep-mini-mode .ep-mini-heading{min-height:15px;gap:6px;}
+        #ep13.ep-mini-mode .ep-mini-label{font-size:10px;font-weight:800;letter-spacing:.7px;}
+        #ep13.ep-mini-mode .ep-mini-value{font-size:17px;font-weight:850;line-height:1.15;letter-spacing:-.25px;}
+        #ep13.ep-mini-mode .ep-mini-details{
+            font-size:10.5px;
+            line-height:1.3;
+            color:${T.muted};
+            white-space:normal;
+            overflow:visible;
+            text-overflow:clip;
+            overflow-wrap:anywhere;
+        }
+        #ep13.ep-mini-mode .ep-mini-standard{font-weight:500;color:${T.muted};}
+        #ep13.ep-mini-mode .ep-mini-today .ep-mini-value{color:${T.text};}
+        #ep13.ep-mini-mode .ep-mini-buffer{
+            box-sizing:border-box;
+            display:inline-flex;
+            align-items:center;
+            justify-content:center;
+            min-height:21px;
+            padding:3px 8px;
+            font-size:10px;
+            font-weight:700;
+            border-radius:999px;
+            background:${T.isDark?'#30343a':'#f1f5f9'};
+            color:${T.text};
+            border:1px solid ${T.border};
+        }
+        #ep13.ep-mini-mode .ep-mini-buffer.is-on{background:#1d4ed8;color:#fff;border-color:#3b82f6;}
+        #ep13.ep-mini-mode .ep-mini-meter{
+            height:4px;
+            margin-top:auto;
+            flex:0 0 4px;
+            border-radius:5px;
+        }
+        #ep13.ep-mini-mode .ep-mini-meter>span{border-radius:5px;}
+        @media(max-width:1100px){
+            #ep13.ep-mini-mode .ep-mini-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
+        }
+        @media(max-width:650px){
+            #ep13 .ep-today-strip{padding:10px 12px;}
+            #ep13 .ep-outlook-strip{padding:10px;gap:7px;}
+            #ep13 .ep-card{min-height:unset;padding:12px;}
+            #ep13.ep-mini-mode .ep-mini-grid{grid-template-columns:1fr;}
+            #ep13.ep-mini-mode .ep-mini-tile{min-height:76px;}
+        }
         `;
     };
 
