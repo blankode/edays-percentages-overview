@@ -9,6 +9,7 @@
 // @run-at       document-start
 // ==/UserScript==
 
+// Changelog v20.9 (same-version icon and alignment refinement): Add a neutral blue analytics icon to Buffer & Outlook, matching Today's existing icon badge, and vertically center the Today label/icon within its status card. Preserve responsive styling and calculations.
 // Changelog v20.9 (same-version Today layout refinement): Render standard finish/overtime and mandatory-break coverage on the same horizontal Today status line, rather than a separate row. On narrow viewports, only the break caption ellipsizes, with its complete text available in the tooltip. Calculations unchanged; version remains 20.9.
 // Changelog v20.9: Consolidated the full v20.8 release history into a single changelog entry and bumped the userscript version for Tampermonkey update detection. Documentation/release housekeeping only; no layout, calculation, styling, or theme behavior changed.
 // Changelog v20.8: Redesigned the expanded Analyzer to match the approved dashboard mockup: Today moved to a prominent live header/status card with progress, finish and overtime estimates, break coverage and Include buffer; Buffer & Outlook became an inline KPI strip; Activity Breakdown, Office Target and Time vs Rota became three equal-height cards above Office Planner. Preserved the native Timesheet heading and Settings/Minimize controls without duplication, existing calculations, office-target celebration GIF and responsive dark mode. Matched the site using a white light-mode background, rounded cards, subtle shadows and refined typography; made the overall layout more compact with reduced spacing, card heights and donut sizes. Restyled the four-tile Minimized view to match, widened Today, shortened status labels and kept full explanations in tooltips. Aligned both layouts to the native month navigator (24px horizontal inset, 12px on narrow screens) and adjusted the animated Enhanced label spacing to match reference screenshots (margin-left: -12px). 
@@ -457,6 +458,8 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
        ICONS
     ═══════════════════════════════════════════════════════════════ */
     const ICONS = {
+        // Neutral analytics icon; trend direction is already shown on the buffer KPI.
+        analytics: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 3h2v16h16v2H3V3zm5 12h3v4H8v-4zm5-5h3v9h-3v-9zm5-6h3v15h-3V4z"/></svg>`,
         office: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 21h18v-2H3v2zm0-4h18v-2H3v2zm0-4h18v-2H3v2zm0-4h18V7H3v2zm0-6v2h18V3H3z"/></svg>`,
         laptop: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 18c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z"/></svg>`,
         flight: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>`,
@@ -1410,7 +1413,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             border-radius:14px;box-shadow:${T.isDark?'0 3px 14px rgba(0,0,0,.22)':'0 3px 14px rgba(15,23,42,.065)'};
         }
         #ep13 .ep-today-strip{margin:0 0 12px;padding:16px 20px;gap:20px;align-items:center;min-height:108px;}
-        #ep13 .ep-today-label{align-self:flex-start;margin-top:4px;gap:9px;}
+        #ep13 .ep-today-label{align-self:center;margin-top:0;gap:9px;}
         #ep13 .ep-today-label-text{font-size:13px;font-weight:800;letter-spacing:.85px;}
         #ep13 .ep-today-centre{gap:7px;}
         #ep13 .ep-today-nums-row{align-items:center;gap:6px 9px;}
@@ -1424,10 +1427,11 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         #ep13 .ep-buffer-toggle{border-radius:9px!important;padding:5px 10px!important;min-height:32px;margin:0!important;background:${T.isDark?'#2a2e31':'#f8fafc'}!important;font-size:12px;font-weight:600;}
         /* Buffer & Outlook: compact horizontal row below Today. */
         #ep13 .ep-outlook-strip{
-            display:grid;grid-template-columns:minmax(94px,.67fr) minmax(205px,1.6fr) repeat(4,minmax(96px,.88fr)) minmax(155px,1.25fr);
+            display:grid;grid-template-columns:minmax(120px,.87fr) minmax(205px,1.6fr) repeat(4,minmax(96px,.88fr)) minmax(155px,1.25fr);
             align-items:stretch;gap:9px;padding:16px 17px;margin:0 0 14px;width:100%;
         }
-        #ep13 .ep-outlook-heading{align-self:center;display:flex;flex-direction:column;gap:1px;min-width:0;color:${T.muted};font-size:12px;line-height:1.4;font-weight:800;text-transform:uppercase;letter-spacing:1.05px;}
+        #ep13 .ep-outlook-heading{align-self:center;display:flex;align-items:center;flex-direction:row;gap:7px;min-width:0;color:${T.muted};font-size:12px;line-height:1.4;font-weight:800;text-transform:uppercase;letter-spacing:1.05px;}
+        #ep13 .ep-outlook-heading-text{display:flex;flex-direction:column;min-width:0;line-height:1.25;}
         #ep13 .ep-outlook-buffer{min-width:0;box-sizing:border-box;border-radius:10px;padding:10px;display:flex;align-items:center;justify-content:center;gap:7px;border:1px solid ${T.border};background:${T.chipBg};}
         #ep13 .ep-outlook-buffer.neg{background:${T.isDark?'rgba(239,68,68,.12)':'rgba(239,68,68,.055)'};border-color:rgba(239,68,68,.12);}
         #ep13 .ep-outlook-buffer.pos{background:${T.isDark?'rgba(34,197,94,.12)':'rgba(34,197,94,.055)'};border-color:rgba(34,197,94,.12);}
@@ -1505,7 +1509,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         /* Match the 24px inset of the native month navigator below. */
         #ep13:not(.ep-mini-mode){padding:7px 24px 8px;}
         #ep13 .ep-today-strip{min-height:86px;padding:11px 14px;gap:14px;margin-bottom:8px;border-radius:11px;}
-        #ep13 .ep-today-label{margin-top:2px;gap:7px;}
+        #ep13 .ep-today-label{margin-top:0;gap:7px;}
         #ep13 .ep-today-label-text{font-size:11px;letter-spacing:.75px;}
         #ep13 .ep-today-centre{gap:5px;}
         #ep13 .ep-today-nums-row{gap:4px 8px;}
@@ -2989,7 +2993,10 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
 
         const outlookHtml = `
             <section class="ep-outlook-strip" aria-label="Buffer and Outlook">
-                <div class="ep-outlook-heading">Buffer &amp; <span>Outlook</span></div>
+                <div class="ep-outlook-heading">
+                    ${iconBadge('analytics','#1776cf',26)}
+                    <span class="ep-outlook-heading-text">Buffer &amp;<span>Outlook</span></span>
+                </div>
                 <div class="ep-outlook-buffer ${bc}"
                      title="Net recorded hours versus net daily rota targets">
                     ${icon(bi,20,bCol)}
