@@ -9,6 +9,7 @@
 // @run-at       document-start
 // ==/UserScript==
 
+// Changelog v20.8 (same-version density & mini update): Refresh Minimized into the same white/light theme card style as expanded, with balanced 4-column layout, better Today width and concise non-truncated break/status labels; reduce vertical padding, gaps, donut and header dimensions in expanded mode. Preserve all calculations, buffer toggle, dark mode and responsive behavior; @version remains 20.8.
 // Changelog v20.8 (same-version styling update): Use pure white as the expanded Analyzer background in light mode to blend with the native eDays page; move the native Timesheet "Enhanced" label 5px left (6px -> 1px margin). No version bump or layout/logic changes.
 // Changelog v20.8: Reorganize Analyzer to match the approved UI mockup. Today becomes the prominent first status bar with live target/progress/leave time and Include buffer; Buffer & Outlook is a separate horizontal KPI row directly beneath, with work buffer, workable/days left, office/WFH remaining and month progress. Only Activity Breakdown, Office Target and Time vs Rota remain in the three-column analytics grid; Office Planner follows. Remove redundant Analyzer title/icon and Settings/Minimize duplication (native Timesheet toolbar owns these). Responsive, dark-mode aware, retain mini mode and target-met GIF.
 // Changelog v20.7: Fix Today overestimating the daily work target when Vue 3's read-only Breaks field mirrors real clock-out gaps (for example 1h28 break incorrectly produced 9h28). Separate 8h NET worked time from the maximum 30-minute outstanding mandatory break. Completed/off-clock breaks satisfy the requirement but never add their full duration to the target; explicitly editable breaks are only subtracted from gross periods when not already represented as gaps. Both full and compact Today, leave time and standard overtime now share the corrected calculation. Keep monthly buffer based on eDays net totals.
@@ -2113,7 +2114,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         const monthPct=ds.realRota>0?Math.round(ds.progressPct):0;
         const today=getTodayInfo();
         const includeBuffer=localStorage.getItem(LS.TODAY_BUF)==='true';
-        let todayValue='—',todayDetails='No Today entry in this month',todayPct=0,todayStandardDetails='';
+        let todayValue='—',todayDetails='No Today entry in this month',todayPct=0,todayStandardDetails='',todayFullDetails='';
         if(today){
             const dailyTarget=today.targetMinutes;
             let target=dailyTarget;
@@ -2131,44 +2132,55 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                 :remaining===0?(includeBuffer&&standard&&standard.remaining>0?'Buffer-adjusted target reached':'Day complete')
                 :`${fmt(remaining)} left${leaveAt?` · leave at ${leaveAt}`:''}`;
             todayPct=dailyTarget===0?100:grossTarget>0?clamp(today.workedMinutes/grossTarget*100,0,100):remaining===0?100:0;
+            // Keep the full explanation in the tooltip, but do not repeat
+            // the leave-time line or truncate a long sentence in minimized mode.
             if(standard){
-                todayStandardDetails=standard.overtimeMinutes>0
-                    ? `Overtime vs target +${fmt(standard.overtimeMinutes)} · normal ${fmt(standard.fullGrossTarget)}`
+                todayFullDetails=standard.overtimeMinutes>0
+                    ? `Overtime vs target +${fmt(standard.overtimeMinutes)} · standard ${fmt(standard.fullGrossTarget)}`
                     : standard.finishAt
-                        ? `Normal finish ${standard.finishAt} · overtime after`
-                        : `Standard ${fmt(standard.fullGrossTarget)} · overtime beyond target`;
+                        ? `Standard finish ${standard.finishAt} · overtime after ${standard.finishAt}`
+                        : `Standard daily target ${fmt(standard.fullGrossTarget)}`;
             }
             const breakCaption=getTodayBreakCaption(today);
-            if(breakCaption)todayStandardDetails+=(todayStandardDetails?' · ':'')+breakCaption;
+            if(breakCaption) todayFullDetails+=(todayFullDetails?' · ':'')+breakCaption;
+            todayStandardDetails=today.requiredBreakMinutes>0
+                ? today.missingMandatoryBreakMinutes>0
+                    ? `Break needed: ${fmt(today.missingMandatoryBreakMinutes)}`
+                    : today.offClockGapMinutes>0
+                        ? `Break covered · ${fmt(today.offClockGapMinutes)} gap`
+                        : 'Break covered'
+                : standard?.overtimeMinutes>0
+                    ? `Overtime +${fmt(standard.overtimeMinutes)}`
+                    : (standard?.finishAt ? `Overtime after ${standard.finishAt}` : '');
         }
         const buffer=ds.bufferMinutes;
         const bufferColor=buffer>0?'#22c55e':buffer<0?'#ef4444':T.text;
         const bufferHint=buffer>0?'Ahead of schedule':buffer<0?'Behind schedule':'On schedule';
         return `
             <div class="ep-mini-grid" aria-label="Compact timesheet summary">
-                <div class="ep-mini-tile">
+                <div class="ep-mini-tile ep-mini-today">
                     <div class="ep-mini-heading">
                         <span class="ep-mini-label">Today</span>
                         ${today&&today.targetMinutes>0?`<span class="ep-mini-buffer ${includeBuffer?'is-on':''}" data-action="buf-toggle" role="button" tabindex="0" aria-pressed="${includeBuffer}" title="Include banked buffer in today's target">Buffer ${includeBuffer?'on':'off'}</span>`:''}
                     </div>
                     <div class="ep-mini-value">${todayValue}</div>
                     <div class="ep-mini-details" title="${todayDetails}">${todayDetails}</div>
-                    ${todayStandardDetails ? `<div class="ep-mini-details ep-mini-standard" title="${todayStandardDetails}">${todayStandardDetails}</div>` : ''}
+                    ${todayStandardDetails ? `<div class="ep-mini-details ep-mini-standard" title="${todayFullDetails || todayStandardDetails}">${todayStandardDetails}</div>` : ''}
                     <div class="ep-mini-meter"><span style="width:${todayPct.toFixed(1)}%;background:#3b82f6"></span></div>
                 </div>
-                <div class="ep-mini-tile">
+                <div class="ep-mini-tile ep-mini-office">
                     <div class="ep-mini-heading"><span class="ep-mini-label">Office target · ${offTarget}%</span></div>
                     <div class="ep-mini-value" style="color:${officeTarget>0&&officeRemaining===0?'#22c55e':T.text}">${officeTarget>0?`${officePct}%`:'—'}</div>
                     <div class="ep-mini-details">${fmt(officeMinutes)} / ${fmt(officeTarget)}${officeTarget<=0?' · not set':officeRemaining>0?` · ${fmt(officeRemaining)} needed`:' · target met'}</div>
                     <div class="ep-mini-meter"><span style="width:${clamp(officePct,0,100)}%;background:#3b82f6"></span></div>
                 </div>
-                <div class="ep-mini-tile">
+                <div class="ep-mini-tile ep-mini-buffer-card">
                     <div class="ep-mini-heading"><span class="ep-mini-label">Buffer</span></div>
                     <div class="ep-mini-value" style="color:${bufferColor}">${fmt(buffer)}</div>
                     <div class="ep-mini-details">${bufferHint}</div>
                     <div class="ep-mini-meter"><span style="width:${buffer>0?100:buffer<0?50:0}%;background:${bufferColor}"></span></div>
                 </div>
-                <div class="ep-mini-tile">
+                <div class="ep-mini-tile ep-mini-month">
                     <div class="ep-mini-heading"><span class="ep-mini-label">Month progress</span></div>
                     <div class="ep-mini-value">${monthPct}%</div>
                     <div class="ep-mini-details">${fmt(summary.recorded)} / ${fmt(ds.realRota)} · ${fmt(ds.remainingMinutes)} left</div>
