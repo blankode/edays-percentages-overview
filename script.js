@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      20.6
+// @version      20.7
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
@@ -9,6 +9,7 @@
 // @run-at       document-start
 // ==/UserScript==
 
+// Changelog v20.7: Fix Today overestimating the daily work target when Vue 3's read-only Breaks field mirrors real clock-out gaps (for example 1h28 break incorrectly produced 9h28). Separate 8h NET worked time from the maximum 30-minute outstanding mandatory break. Completed/off-clock breaks satisfy the requirement but never add their full duration to the target; explicitly editable breaks are only subtracted from gross periods when not already represented as gaps. Both full and compact Today, leave time and standard overtime now share the corrected calculation. Keep monthly buffer based on eDays net totals.
 // Changelog v20.6: Vue 3 and legacy Today now project 8h net work plus the remaining portion of the mandatory break; real off-clock gaps (including the current pause) and entered breaks satisfy the requirement without double-counting. Recompute leave/normal overtime time on every live update and show break status in expanded/compact dashboards. To home now appears on manual scroll below the Analyzer header, before reaching Today's row. Buffer remains net recorded work vs net rota.
 // Changelog v20.5: Fixed To today / To home not changing after manual scrolling: Vue 3 navigation now uses live scroll geometry instead of an indefinitely forced target, detects the actual vertically scrollable ancestor, listens to window and nested scroll events, and chooses the click destination from current page position. Preserved legacy navigation behavior.
 // Changelog v20.4: Extracted the vendored Dark Reader runtime, anti-flash bootstrap, light/dark palette, all site-theme controls and site-wide CSS into theme.js via Tampermonkey @require. Analytics remain in script.js with an isolated theme interface. Version stays 20.4.
@@ -376,6 +377,12 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             .find(el => /^Breaks\s*:/i.test(el.querySelector('span')?.textContent?.trim() || ''));
         const inputs = field?.querySelectorAll('[class*="_time-container_"] input');
         if (inputs?.length >= 2) {
+            // In Vue 3 the read-only Breaks value is normally the sum of
+            // clock-out gaps, NOT an additional break inside working periods.
+            // Treating it as an extra deduction added 1h28 to an 8h target.
+            if (isV3Timesheet() && [...inputs].some(input =>
+                input.disabled || input.readOnly ||
+                input.closest('[class*="_read-only_"]'))) return 0;
             const h = inputs[0].value?.trim() || '', m = inputs[1].value?.trim() || '';
             if (/^\d{1,2}$/.test(h) && /^\d{1,2}$/.test(m) && +h <= 23 && +m <= 59)
                 return Math.min(MAX_MANDATORY_BREAK_MINUTES, +h * 60 + +m);
@@ -413,12 +420,21 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         const ongoingGapMinutes = !active && canStillResume && lastEnd !== null
             ? Math.max(0, nowMinutes - lastEnd) : 0;
         const offClockGapMinutes = completedGapMinutes + ongoingGapMinutes;
+        // A reported break can overlap the gap seen between intervals.
+        // Credit the larger amount, never their sum, to avoid double credit.
+        const coveredBreakMinutes = Math.max(enteredMinutes, offClockGapMinutes);
         const missingMandatoryMinutes = Math.max(0,
-            requiredMinutes - enteredMinutes - offClockGapMinutes);
-        // Recorded breaks are within clocked-in intervals; the off-clock gap is not.
-        const additionalMinutes = enteredMinutes + missingMandatoryMinutes;
+            requiredMinutes - coveredBreakMinutes);
+        // Editable breaks exceeding off-clock gaps can be inside periods.
+        // Exclude those minutes from NET worked time, NOT by increasing the
+        // work target. The displayed target is always 8h + at most the
+        // outstanding mandatory break (30m by default), never 8h + all breaks.
+        const inlineBreakMinutes = Math.max(0,
+            enteredMinutes - offClockGapMinutes);
+        const additionalMinutes = missingMandatoryMinutes;
         return { requiredMinutes, enteredMinutes, completedGapMinutes,
-            ongoingGapMinutes, offClockGapMinutes, missingMandatoryMinutes, additionalMinutes };
+            ongoingGapMinutes, offClockGapMinutes, coveredBreakMinutes,
+            missingMandatoryMinutes, inlineBreakMinutes, additionalMinutes };
     };
 
     const getTodayBreakCaption = today => {
@@ -844,9 +860,14 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                 isRunning = true;
             }
         });
-        workedMinutes = Math.max(workedMinutes, getDayTotalMinutes(el));
         const absence = getAbsenceInfo(el);
         const breakInfo = getTodayBreakInfo(el);
+        // Periods may include a manually-entered break inside clocked-in time.
+        // eDays' displayed Total is already net, so never deduct from it again.
+        // Only the unmatched portion of a manually edited Breaks field is
+        // removed from gross period durations.
+        workedMinutes = Math.max(getDayTotalMinutes(el),
+            Math.max(0, workedMinutes - breakInfo.inlineBreakMinutes));
         const breakMinutes = breakInfo.additionalMinutes;
         // Keep logged work visible from the first minute after clock-in.
         const targetMinutes = getDayWorkTargetMinutes(el);
@@ -856,7 +877,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         return {
             el,
             workedMinutes,
-            netWorkedMinutes: Math.max(0, workedMinutes - breakInfo.enteredMinutes),
+            netWorkedMinutes: workedMinutes,
             breakMinutes,
             requiredBreakMinutes: breakInfo.requiredMinutes,
             enteredBreakMinutes: breakInfo.enteredMinutes,
@@ -1711,7 +1732,8 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                 effTarget = Math.min(scheduledTarget, effTarget);
             }
         }
-        // 8h net plus only the unpaid break still missing after off-clock gaps.
+        // Net work target plus only the still-uncovered mandatory break.
+        // Breaks longer than 30m never increase the 8h work requirement.
         const todayWorked = today.workedMinutes;
         const isDayOff = scheduledTarget === 0;
         const grossTarget = effTarget > 0 ? effTarget + today.breakMinutes : 0;
@@ -1722,10 +1744,8 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         const standardHtml = !standard ? '' : standard.overtimeMinutes > 0
             ? `<div class="ep-today-standard"><span class="ep-today-standard-label">Standard day: ${fmt(standard.fullGrossTarget)}</span><span class="ep-today-overtime" title="Time above the normal daily target; not necessarily payroll-approved overtime">Overtime vs target: +${fmt(standard.overtimeMinutes)}</span></div>`
             : `<div class="ep-today-standard"><span class="ep-today-standard-label">Standard day: ${fmt(standard.fullGrossTarget)}${standard.finishAt ? ` · finish at ${standard.finishAt}` : ''}</span><span>${standard.finishAt ? `Overtime after ${standard.finishAt}` : `Overtime after ${fmt(standard.fullGrossTarget)} elapsed`}</span></div>`;
-        /*
-         * Progress starts at zero against the 8h v3 recorded target
-         * or the configurable legacy gross target.
-         */
+        // Progress is based on net worked time plus only the uncovered
+        // mandatory break allowance, not the total length of past breaks.
         const todayPct = isDayOff ? 100 : (grossTarget > 0
             ? clamp((todayWorked / grossTarget) * 100, 0, 100)
             : 100);
