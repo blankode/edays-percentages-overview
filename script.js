@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      30.1
+// @version      30.2
 // @description  Compact, live eDays timesheet dashboard: Today work/finish/break tracking, office attendance targets, buffer & outlook, rota progress, and Office Planner. Includes native toolbar integration, minimized view, and dark mode.
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
@@ -10,6 +10,7 @@
 // @run-at       document-start
 // ==/UserScript==
 
+// Changelog v30.2: Fix flexible-rota Buffer & Outlook falsely showing +10h55 instead of +8h06 in the provided November 2026 timesheet. eDays labels November 30 as "Public Holidays" (plural), but the absence parser only matched singular "holiday", making the official 144h net rota spread across 19 days (152h) rather than 18 days (144h). Recognize both holiday/holidays in Vue 3 absence chips and holiday classification. Preserve weekend substitutions, actual net work, Today projections, Minimized, day coloring and dark mode.
 // Changelog v30.1: Detect weekend hours in the current month and switch Buffer & Outlook to a weekend-aware monthly-rota pace calculation. Use the authoritative net monthly rota, prorate its weekday baseline to contracted hours, include logged Saturday/Sunday work and offset unlogged elapsed weekdays that weekend shifts can replace; retain the existing fixed-weekday method when no weekend work is recorded. Count weekend entries as days worked and distinguish flexible pacing in the buffer label/tooltip. Give Vue 3 Saturday/Sunday cards a subtle blue-gray tint on their header and footer ONLY, using light/dark palette colors; day content remains unchanged. Preserved Today mandatory break rules, other timesheet features and existing native controls.
 // Changelog v30.0: Implemented the animated blue/cyan comet effect ONLY in Expanded Today's real-percentage progress bar, with traveling streaks and a luminous endpoint. Refined the original tip in the same version: clipped glow to the existing 6px track, reduced the head from 12px to 8px, softened bloom, and reduced streak brightness so the endpoint looks integrated instead of like a detached neon dot. Preserved green completion, quiet 0%, reduced-motion support, dark mode, all calculations, Minimized and other progress bars, controls and layout.
 // Changelog v20.9: Consolidated the v20.8 release history into one entry and bumped the userscript version for Tampermonkey update detection. Refined Today by showing standard finish/overtime and mandatory-break coverage on one horizontal status line (truncating only the break caption on narrow screens, with full text in a tooltip) and vertically centering the Today icon/title. Added a matching blue analytics icon beside Buffer & Outlook. Preserved existing work/break/buffer calculations, responsive light/dark styling, native Timesheet toolbar, and Expanded/Minimized behavior.
@@ -315,14 +316,18 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
     const getAbsenceInfo = dayEl => {
         const legacy = dayEl.querySelector('.absence_detail_text')?.textContent?.trim() || '';
         // New v3 absence chips: "Vacation: Full Day", "Vacation: AM", etc.
+        // Public holidays are labeled "Public Holidays - ... : Full Day" by eDays.
+        // Handle both singular and plural in detection AND classification, or
+        // the flexible-rota monthly baseline incorrectly adds an extra 8h slot.
+        const absenceKeyword = /\b(?:vacation|sickness|sick|absence|holidays?|leave|time off)\b/i;
         const v3Tag = [...dayEl.querySelectorAll('[class*="_tags_"] [class*="_information_"]')]
             .map(el => el.textContent.replace(/\s+/g,' ').trim())
-            .find(t => /\b(vacation|sickness|sick|absence|holiday|leave|time off)\b/i.test(t)) || '';
+            .find(t => absenceKeyword.test(t)) || '';
         const fallback = dayEl.querySelector('[class*="_absence-detail_"],[class*="_absence-name_"],[class*="_absence-label_"]')?.textContent?.trim() || '';
         const text = legacy || v3Tag || fallback;
         const halfPart = text.match(/\b(AM|PM)\b/i)?.[1]?.toUpperCase() || null;
         const isHalfDay = !!halfPart || /\bhalf[\s-]*day\b/i.test(text);
-        const isHoliday = /\bholiday\b/i.test(text);
+        const isHoliday = /\bholidays?\b/i.test(text);
         return {text, isHalfDay, halfDayPart:halfPart, isHoliday, isFullAbsence:!!text && !isHalfDay};
     };
     const getDayName = dayEl => (getDayLabel(dayEl).split(/\s+/)[0] || '').replace(/[^A-Za-z]/g, '');
