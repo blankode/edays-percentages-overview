@@ -15,7 +15,7 @@
 
 **A compact, live eDays timesheet dashboard for tracking today's working time, finish estimates, mandatory breaks, office attendance, buffer, rota progress, and office planning — with an integrated toolbar, minimized view, and dark mode.**
 
-[![Version](https://img.shields.io/badge/version-30.0-6366f1?style=flat-square&labelColor=0f0f0f)](https://github.com/blankode/edays-percentages-overview)
+[![Version](https://img.shields.io/badge/version-30.1-6366f1?style=flat-square&labelColor=0f0f0f)](https://github.com/blankode/edays-percentages-overview)
 [![Platform](https://img.shields.io/badge/platform-Tampermonkey-f59e0b?style=flat-square&labelColor=0f0f0f)](https://www.tampermonkey.net/)
 [![License](https://img.shields.io/badge/license-MIT-22c55e?style=flat-square&labelColor=0f0f0f)](LICENSE)
 [![Site](https://img.shields.io/badge/works%20on-e--days.com-3b82f6?style=flat-square&labelColor=0f0f0f)](https://e-days.com)
@@ -87,7 +87,7 @@ Go to your timesheet at `*.e-days.com` — on Vue 3 the dashboard will appear au
 
 ## ⧉ File Structure (introduced in v20.4)
 
-The userscript remains split into two maintained source files. The modular structure was introduced in **20.4**; the current userscript version is **30.0**:
+The userscript remains split into two maintained source files. The modular structure was introduced in **20.4**; the current userscript version is **30.1**:
 
 | File | Responsibility |
 |---|---|
@@ -102,7 +102,7 @@ The userscript remains split into two maintained source files. The modular struc
 
 The theme exposes a small `EPTheme` API so the Analyzer does not need to embed or maintain Dark Reader code. The modular split reduced the original main script from **13,447 to 3,349 lines** in v20.4; after the v20.8 dashboard restructuring, `script.js` contains approximately **3,600 lines**. The versioned query suffix also distinguishes this dependency URL from older cached resources; when changing `theme.js` again, update that suffix in `script.js` so Tampermonkey fetches the new dependency.
 
-**Updating to 30.0:** Tampermonkey can detect the new main-script version normally. If automatic updating is delayed, open the latest [raw `script.js`](https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js) and reinstall it. Only `script.js` needs installation — `theme.js` is downloaded through `@require`.
+**Updating to 30.1:** Tampermonkey can detect the new main-script version normally. If automatic updating is delayed, open the latest [raw `script.js`](https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js) and reinstall it. Only `script.js` needs installation — `theme.js` is downloaded through `@require`.
 
 **Note:** `@run-at document-start` is preserved, but loading an external `@require` may postpone first execution while the dependency downloads; the anti-flash bootstrap cannot be guaranteed on a cold first install.
 
@@ -124,7 +124,7 @@ The script includes auto-update headers pointing to the raw GitHub file:
 // @require      https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/theme.js?release=20.4-theme-split-1
 ```
 
-Tampermonkey detects version bumps such as **20.9 → 30.0** and can prompt you to update. The separately required `theme.js` remains cached under its unchanged `@require` URL. To control how often Tampermonkey checks:
+Tampermonkey detects version bumps such as **30.0 → 30.1** and can prompt you to update. The separately required `theme.js` remains cached under its unchanged `@require` URL. To control how often Tampermonkey checks:
 
 > **Tampermonkey Settings → Updates → Script Update Interval** → set to `Every 12 hours`
 
@@ -140,12 +140,18 @@ The userscript now provides a persistent **Dark mode / Light mode** control besi
 
 | Chip | Logic |
 |---|---|
-| **Workable** | All day containers on the page, excluding weekends (Saturday/Sunday) and full-day absences/holidays. Half-day vacations (AM or PM) **are** counted as workable. |
+| **Workable** | Standard rota: all weekdays excluding full-day absences/holidays (half-days count). When worked weekend entries are detected in the current month, flexible-rota mode includes eligible Saturdays and Sundays as potential workdays without increasing the official monthly rota-hour requirement. |
 | **So Far** | `Workable − Days Left` |
 | **Days Left** | `(realRota − recorded) ÷ 480 mins` rounded |
-| **Worked** | Days with any logged hours, excluding weekends |
+| **Worked** | Days with logged hours on any day of the month, **including Saturday and Sunday**. |
 
 **Real Rota** = Gross rota − absences − public holidays
+
+**Weekend-aware buffer (v30.1):** When recorded time is found on Saturday or Sunday, the dashboard automatically switches from the ordinary weekday buffer method to a **month-to-date rota pace estimate**. It credits all logged weekend work and debits the contracted monthly rota's proportionate share for elapsed weekdays, including weekdays with no entries. This lets a weekend shift compensate for an unlogged weekday rather than automatically appearing as extra hours. The monthly rota is taken from eDays' official summary and is **never increased** by working on weekends. Example: four 8-hour weekdays, Friday off, Saturday 8 hours → **0h buffer** against a 40-hour weekly portion; working all five weekdays and the same Saturday → **+8h**.
+
+This is a **pacing estimate, not an authoritative daily shift assignment**: the timesheet does not disclose which specific weekdays your colleague intended to replace. When no weekend hours are recorded, the original weekday buffer behavior is preserved. For a month without Today on the page, eDays' official monthly Difference remains authoritative.
+
+**Saturday/Sunday day-card styling:** Native Vue 3 weekend cards use a subtle cool blue-gray background **only on their header and footer** (light mode: #edf3fc; dark mode: #263544). The entry area and eDays controls are unchanged; the tint adapts when the site theme switches.
 
 <br/>
 
@@ -176,7 +182,7 @@ The dashboard re-renders automatically via a **MutationObserver** watching the t
 | Edge | ✅ |
 | Safari | ✅ (with Tampermonkey) |
 
-Legacy timesheet layout support is retained. Version 30.0 continues to recognize the new v3 day-card layout with stable IDs such as `timesheet-day-2026-10-26`, separate hour/minute inputs, activity selectors, daily totals and editable breaks. The v3 monthly summary is now parsed directly from eDays for **Time recorded, Absences, Public holidays, Rota, and signed Difference**. Only when the official totals are not rendered yet will Analyzer display provisional estimates derived from visible day cards. Browser-specific and complete live-site end-to-end behavior have not yet been re-tested.
+Legacy timesheet layout support is retained. Version 30.1 continues to recognize the new v3 day-card layout with stable IDs such as `timesheet-day-2026-10-26`, separate hour/minute inputs, activity selectors, daily totals and editable breaks. The v3 monthly summary is now parsed directly from eDays for **Time recorded, Absences, Public holidays, Rota, and signed Difference**. Only when the official totals are not rendered yet will Analyzer display provisional estimates derived from visible day cards. Browser-specific and complete live-site end-to-end behavior have not yet been re-tested.
 
 <br/>
 
@@ -184,6 +190,7 @@ Legacy timesheet layout support is retained. Version 30.0 continues to recognize
 
 | Version | Changes |
 |---|---|
+| **30.1** | **Flexible rota / weekend support:** When weekend work is recorded, Buffer & Outlook includes Saturday/Sunday hours and reconciles them against the elapsed weekday share of the authoritative monthly net rota (including unlogged past weekdays), so weekend substitutions are not falsely counted as surplus. Ordinary schedules retain the prior buffer behavior when no weekend work is present. Weekend work counts as a worked day; possible weekend dates are counted as workable in detected flexible mode. Added subtle weekend-only **header and footer** backgrounds to native Vue 3 timesheet cards, with separate light/dark colors; no tint on the day body or activity rows. The buffer caption identifies monthly rota pace in flexible mode. Other Today calculations, dashboard controls and themes are preserved. |
 | **30.0** | **Today comet progress bar:** Introduced the animated blue-to-cyan comet tail, traveling streaks and a glowing endpoint positioned at the real percentage. **Same-version tip refinement:** Reduced the head from 12px to 8px, softened its halo and streaks, and clipped the effect inside the existing 6px bar so the tip no longer looks like a detached neon dot. The bar still updates with actual progress, stays green at 100%, is quiet at 0%, supports light/dark themes and respects reduced-motion settings. No changes to the Minimized view, other progress bars, layout, controls or time/break/buffer calculations. |
 | **20.9** | Consolidated all v20.8 notes into one release entry and bumped the userscript version for Tampermonkey update detection. **Today:** Standard finish/overtime and mandatory-break coverage now share one horizontal status line; on narrow screens, only the break caption truncates, with the full text in a tooltip. Vertically centered the Today icon and label. **Buffer & Outlook:** Added a blue analytics icon matching the Today badge. Added a concise Tampermonkey **`@description`** describing the live workday tracker, office target, buffer, rota, planner, native toolbar, minimized view, and dark mode. **Unchanged:** break/time calculations, responsive themes, core dashboard layout, and native Timesheet controls. |
 | **20.8** | **Dashboard redesign:** Reorganized Expanded with **Today** as the live top status card (progress, remaining work, leave time, overtime, mandatory-break coverage and Include buffer), followed by a compact horizontal **Buffer & Outlook** KPI strip (buffer, workable days, days left, office needed, WFH available, monthly progress); below sit the three equal-height **Activity Breakdown**, **Office Target** and **Time vs Rota** cards and the Office Planner accordion. **Visual refinements:** White light-mode Analyzer background blending with eDays, theme-aware rounded cards and subtle shadows, smaller overall dashboard (shorter cards, donut charts and reduced spacing), preserved responsive dark mode. **Minimized redesign:** Re-styled all four tiles to match Expanded, improved Today width, displayed concise non-truncated break/status lines with detailed tooltips, and retained the buffer toggle. **Alignment and branding:** 24px side insets in Expanded and Minimized to align with native month navigation (12px below 650px); reduced the animated **Enhanced** label spacing to `margin-left: -12px` (13px closer than the earlier +1px position). Kept existing Timesheet title/icon and native Settings/Minimize toolbar controls without duplicates, as well as existing calculations, theme behavior and office-target celebration GIF. |
