@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      30.0
+// @version      30.1
 // @description  Compact, live eDays timesheet dashboard: Today work/finish/break tracking, office attendance targets, buffer & outlook, rota progress, and Office Planner. Includes native toolbar integration, minimized view, and dark mode.
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
@@ -10,6 +10,7 @@
 // @run-at       document-start
 // ==/UserScript==
 
+// Changelog v30.1: Detect weekend hours in the current month and switch Buffer & Outlook to a weekend-aware monthly-rota pace calculation. Use the authoritative net monthly rota, prorate its weekday baseline to contracted hours, include logged Saturday/Sunday work and offset unlogged elapsed weekdays that weekend shifts can replace; retain the existing fixed-weekday method when no weekend work is recorded. Count weekend entries as days worked and distinguish flexible pacing in the buffer label/tooltip. Give Vue 3 Saturday/Sunday cards a subtle blue-gray tint on their header and footer ONLY, using light/dark palette colors; day content remains unchanged. Preserved Today mandatory break rules, other timesheet features and existing native controls.
 // Changelog v30.0: Implemented the animated blue/cyan comet effect ONLY in Expanded Today's real-percentage progress bar, with traveling streaks and a luminous endpoint. Refined the original tip in the same version: clipped glow to the existing 6px track, reduced the head from 12px to 8px, softened bloom, and reduced streak brightness so the endpoint looks integrated instead of like a detached neon dot. Preserved green completion, quiet 0%, reduced-motion support, dark mode, all calculations, Minimized and other progress bars, controls and layout.
 // Changelog v20.9: Consolidated the v20.8 release history into one entry and bumped the userscript version for Tampermonkey update detection. Refined Today by showing standard finish/overtime and mandatory-break coverage on one horizontal status line (truncating only the break caption on narrow screens, with full text in a tooltip) and vertically centering the Today icon/title. Added a matching blue analytics icon beside Buffer & Outlook. Preserved existing work/break/buffer calculations, responsive light/dark styling, native Timesheet toolbar, and Expanded/Minimized behavior.
 // Changelog v20.8: Redesigned the expanded Analyzer to match the approved dashboard mockup: Today moved to a prominent live header/status card with progress, finish and overtime estimates, break coverage and Include buffer; Buffer & Outlook became an inline KPI strip; Activity Breakdown, Office Target and Time vs Rota became three equal-height cards above Office Planner. Preserved the native Timesheet heading and Settings/Minimize controls without duplication, existing calculations, office-target celebration GIF and responsive dark mode. Matched the site using a white light-mode background, rounded cards, subtle shadows and refined typography; made the overall layout more compact with reduced spacing, card heights and donut sizes. Restyled the four-tile Minimized view to match, widened Today, shortened status labels and kept full explanations in tooltips. Aligned both layouts to the native month navigator (24px horizontal inset, 12px on narrow screens) and adjusted the animated Enhanced label spacing to match reference screenshots (margin-left: -12px). 
@@ -326,8 +327,20 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
     };
     const getDayName = dayEl => (getDayLabel(dayEl).split(/\s+/)[0] || '').replace(/[^A-Za-z]/g, '');
     const isWeekendDay = dayEl => {
+        const parsed = parseDayDate(getDayLabel(dayEl));
+        if (parsed) return parsed.getDay() === 0 || parsed.getDay() === 6;
         const name = getDayName(dayEl);
         return name === 'Saturday' || name === 'Sunday';
+    };
+    // Mark only native Vue 3 weekend cards, so the tint never touches
+    // regular weekdays or nested activity/entry content.
+    const markV3WeekendCards = () => {
+        for (const day of getTimesheetDays()) {
+            if (!day.id?.startsWith('timesheet-day-')) continue;
+            const weekend = isWeekendDay(day);
+            if (day.classList.contains('ep-v3-weekend') !== weekend)
+                day.classList.toggle('ep-v3-weekend', weekend);
+        }
     };
     const getDayWorkTargetMinutes = dayEl => {
         if (isWeekendDay(dayEl)) return 0;
@@ -783,13 +796,59 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         });
         return days;
     };
+    /* Flexible monthly rota: a booked weekend can replace a weekday shift.
+       We cannot know which weekday was swapped from the DOM, so when
+       weekend work is present, compare actual logged time with the elapsed
+       weekday share of the OFFICIAL net monthly rota. In this mode unlogged
+       past weekdays must not be assumed to be fully worked, because doing so
+       would incorrectly count a replacement weekend shift as extra buffer.
+       Without weekend entries keep the established weekday-bank semantics. */
+    const getFlexibleRotaBuffer = (days, realRota) => {
+        if (!days.some(d => d.isWeekend && d.totalMins > 0 &&
+                (d.isPast || d.isToday))) return null;
+        const normalCapacity = days.reduce((sum, d) =>
+            sum + Math.max(0, d.workTargetMins), 0);
+        const quotaPerBaselineMinute = normalCapacity > 0
+            ? realRota / normalCapacity : 0;
+        let bufferMinutes = 0;
+        let priorBufferMinutes = 0;
+        for (const d of days) {
+            if (!d.isPast && !d.isToday) continue;
+            const expected = Math.max(0, d.workTargetMins) * quotaPerBaselineMinute;
+            const recorded = Math.max(0, d.totalMins);
+            if (d.isPast) {
+                // All elapsed rota slots count, even weekdays left blank in
+                // eDays when the employee worked a different day instead.
+                const delta = recorded - expected;
+                bufferMinutes += delta;
+                priorBufferMinutes += delta;
+            } else if (d.isToday && recorded > 0) {
+                const running = getTimesheetPeriods(d.el).some(isOpenPeriod);
+                // On a worked weekend no weekday quota is due; any logged
+                // time contributes to the bank. An open weekday shift is not
+                // charged its unfinished hours until completion/clock-out.
+                if (d.isWeekend || !running || recorded >= expected)
+                    bufferMinutes += recorded - expected;
+            }
+        }
+        return {
+            bufferMinutes: Math.round(bufferMinutes),
+            priorBufferMinutes: Math.round(priorBufferMinutes)
+        };
+    };
     const getDayStats = summary => {
         const realRota = Math.max(0, summary.rota - summary.absences - summary.holidays);
         const days = getDetailedDayData();
-        const workableDays = days.filter(d => d.isWorkable).length;
+        const flexibleRota = days.some(d => d.isWeekend && d.totalMins > 0 &&
+            (d.isPast || d.isToday));
+        // Under a flexible monthly rota weekends are also possible workdays,
+        // but the contracted rota HOURS still come from the official summary.
+        const workableDays = flexibleRota
+            ? days.filter(d => !d.isAbsent && !d.isHoliday).length
+            : days.filter(d => d.isWorkable).length;
         const workableMinutes = days.reduce(
             (sum, d) => sum + d.workTargetMins, 0);
-        const workedDays = days.filter(d => !d.isWeekend && d.totalMins > 0).length;
+        const workedDays = days.filter(d => d.totalMins > 0).length;
         const progressPct = realRota > 0 ? (summary.recorded / realRota) * 100 : 0;
         const remainingMinutes = Math.max(0, realRota - summary.recorded);
         const daysLeft = remainingMinutes > 0 ? round1(Math.ceil(remainingMinutes / HALF_DAY_MINUTES) / 2) : 0;
@@ -799,6 +858,12 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         if (!hasToday) {
             bufferMinutes = summary.difference;
             priorBufferMinutes = summary.difference;
+        } else if (flexibleRota) {
+            // A worked weekend may be a substituted weekday, not overtime.
+            // Reconcile the elapsed schedule with the official monthly quota.
+            const flexible = getFlexibleRotaBuffer(days, realRota);
+            bufferMinutes = flexible.bufferMinutes;
+            priorBufferMinutes = flexible.priorBufferMinutes;
         } else {
             bufferMinutes = 0;
             priorBufferMinutes = 0;
@@ -849,6 +914,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             daysLeft,
             remainingMinutes,
             workedDays,
+            flexibleRota,
             progressPct,
             bufferMinutes,
             priorBufferMinutes,
@@ -1255,6 +1321,14 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
 
         /* v20.2: revised eDays markup */
         [id^="timesheet-day-"].ep-v3-today{outline:2px solid rgba(59,130,246,.55);outline-offset:2px;border-radius:8px;}
+        /* v30.1: weekend cards have subtly tinted HEADER and FOOTER only.
+           The native date/body/period controls remain intact. These colors
+           are generated from the active Analyzer theme for Dark Reader. */
+        [id^="timesheet-day-"].ep-v3-weekend > [class*="_top-row_"],
+        [id^="timesheet-day-"].ep-v3-weekend > [class*="_bottom-row_"]{
+            background-color:${T.isDark ? '#263544' : '#edf3fc'} !important;
+        }
+
         #ep13 .ep-v3-estimate{font-size:12px;font-weight:600;background:rgba(245,158,11,.12);color:${T.isDark?'#fcd34d':'#92400e'};border:1px solid rgba(245,158,11,.34);border-radius:8px;padding:10px 12px;margin-bottom:10px;}
         /* v20.4: all Vue actions use the native Timesheet toolbar. */
         #ep13 .ep-hdr:has(.ep-v3-actions){gap:9px;flex-wrap:wrap;}
@@ -2708,6 +2782,9 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
     // Vue 3 Analyzer controls are mounted only in the native Timesheet toolbar.
     const renderUI = () => {
         const T = applySiteTheme();
+        // Run on every fresh/month-switched Vue render. Class changes are
+        // guarded, avoiding a mutation-observer feedback loop.
+        markV3WeekendCards();
         // Mount the entire enhanced module directly UNDER the native
         // Timesheet toolbar, and before Vue's month navigator.
         const v3Header = isV3Timesheet() ? findV3TimesheetHeader() : null;
@@ -3084,11 +3161,14 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                     <span class="ep-outlook-heading-text">Buffer &amp;<span>Outlook</span></span>
                 </div>
                 <div class="ep-outlook-buffer ${bc}"
-                     title="Net recorded hours versus net daily rota targets">
+                     title="${ds.flexibleRota
+                         ? 'Weekend shifts included. Actual net hours versus the elapsed weekday share of the official monthly rota; unlogged past weekdays may be replaced by weekend work.'
+                         : 'Net recorded hours versus net daily rota targets'}">
                     ${icon(bi,20,bCol)}
                     <strong class="ep-outlook-buffer-value">${fmt(ds.bufferMinutes)}</strong>
                     <span class="ep-outlook-buffer-caption">${ds.bufferMinutes > 0 ? 'ahead of' :
-                        ds.bufferMinutes < 0 ? 'behind' : 'on'} scheduled daily target to date</span>
+                        ds.bufferMinutes < 0 ? 'behind' : 'on'} ${ds.flexibleRota
+                            ? 'monthly rota pace to date' : 'scheduled daily target to date'}</span>
                 </div>
                 <div class="ep-outlook-kpi">
                     <strong class="ep-outlook-value">${ds.workableDays}</strong>
