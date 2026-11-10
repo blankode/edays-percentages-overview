@@ -10,7 +10,7 @@
 // @run-at       document-start
 // ==/UserScript==
 
-// Changelog v30.0: Applied the approved animated comet effect ONLY to the expanded Today progress bar. Replaced the flat fill with a blue-to-cyan gradient, traveling highlight streaks and a softly pulsing glow at the actual progress endpoint. Preserved percent-based progress, green 100% completion and a quiet 0% state; animations respect reduced-motion preferences and support dark mode. No changes to work/break/buffer calculations, mini-dashboard, other bars, controls or layout.
+// Changelog v30.0: Implemented the animated blue/cyan comet effect ONLY in Expanded Today's real-percentage progress bar, with traveling streaks and a luminous endpoint. Refined the original tip in the same version: clipped glow to the existing 6px track, reduced the head from 12px to 8px, softened bloom, and reduced streak brightness so the endpoint looks integrated instead of like a detached neon dot. Preserved green completion, quiet 0%, reduced-motion support, dark mode, all calculations, Minimized and other progress bars, controls and layout.
 // Changelog v20.9: Consolidated the v20.8 release history into one entry and bumped the userscript version for Tampermonkey update detection. Refined Today by showing standard finish/overtime and mandatory-break coverage on one horizontal status line (truncating only the break caption on narrow screens, with full text in a tooltip) and vertically centering the Today icon/title. Added a matching blue analytics icon beside Buffer & Outlook. Preserved existing work/break/buffer calculations, responsive light/dark styling, native Timesheet toolbar, and Expanded/Minimized behavior.
 // Changelog v20.8: Redesigned the expanded Analyzer to match the approved dashboard mockup: Today moved to a prominent live header/status card with progress, finish and overtime estimates, break coverage and Include buffer; Buffer & Outlook became an inline KPI strip; Activity Breakdown, Office Target and Time vs Rota became three equal-height cards above Office Planner. Preserved the native Timesheet heading and Settings/Minimize controls without duplication, existing calculations, office-target celebration GIF and responsive dark mode. Matched the site using a white light-mode background, rounded cards, subtle shadows and refined typography; made the overall layout more compact with reduced spacing, card heights and donut sizes. Restyled the four-tile Minimized view to match, widened Today, shortened status labels and kept full explanations in tooltips. Aligned both layouts to the native month navigator (24px horizontal inset, 12px on narrow screens) and adjusted the animated Enhanced label spacing to match reference screenshots (margin-left: -12px). 
 // Changelog v20.7: Fix Today overestimating the daily work target when Vue 3's read-only Breaks field mirrors real clock-out gaps (for example 1h28 break incorrectly produced 9h28). Separate 8h NET worked time from the maximum 30-minute outstanding mandatory break. Completed/off-clock breaks satisfy the requirement but never add their full duration to the target; explicitly editable breaks are only subtracted from gross periods when not already represented as gaps. Both full and compact Today, leave time and standard overtime now share the corrected calculation. Keep monthly buffer based on eDays net totals.
@@ -1619,21 +1619,23 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         }
         #ep13.ep-mini-mode .ep-mini-meter>span{border-radius:5px;}
 
-        /* v30.0 — comet effect scoped to the expanded Today progress bar. */
+        /* v30.0 — compact comet tip: clipped to the 6px Today progress track.
+           No detached neon glow, no effect on other or Minimized progress bars. */
         #ep13 .ep-today-track{
             position:relative;
             isolation:isolate;
-            overflow:visible;
+            overflow:hidden;
             border-radius:999px;
-            background:${T.isDark?'rgba(165,185,215,.22)':'#e8edf5'};
+            background:${T.isDark?'rgba(165,185,215,.20)':'#e8edf5'};
         }
         #ep13 .ep-today-fill{
             position:relative;
             isolation:isolate;
             height:100%;
             border-radius:inherit;
-            background:linear-gradient(90deg,#1877ff 0%,#075ef7 37%,#078bff 72%,#22c8ff 94%,#81f3ff 100%);
-            box-shadow:inset 0 1px 0 rgba(255,255,255,.30),0 0 6px rgba(0,124,255,.24);
+            background:linear-gradient(90deg,#1877ff 0%,#0b67f6 38%,#0b8dff 72%,#4fd6ff 100%);
+            box-shadow:inset 0 1px 0 rgba(255,255,255,.22),
+                       0 0 4px rgba(24,119,255,.14);
             transition:width .4s ease;
         }
         #ep13 .ep-today-fill::before{
@@ -1643,38 +1645,46 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             inset:0;
             z-index:1;
             border-radius:inherit;
+            opacity:.9;
             background:
-                linear-gradient(90deg,transparent,rgba(199,246,255,.95),transparent) -65% 21%/44% 1px no-repeat,
-                linear-gradient(90deg,transparent,rgba(255,255,255,.75),transparent) -95% 76%/34% 1px no-repeat,
-                linear-gradient(90deg,transparent,rgba(56,231,255,.90),transparent) -105% 50%/59% 1px no-repeat;
-            animation:ep-today-comet-trails 2.2s linear infinite;
+                linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent) -50% 35% / 34% 1px no-repeat,
+                linear-gradient(90deg,transparent,rgba(130,236,255,.72),transparent) -80% 70% / 46% 1px no-repeat;
+            animation:ep-today-comet-trails 2.4s linear infinite;
         }
         #ep13 .ep-today-fill::after{
             content:'';
             pointer-events:none;
             position:absolute;
             z-index:2;
-            width:12px;
-            height:12px;
-            right:-5px;
+            width:8px;
+            height:8px;
+            right:-1px;
             top:50%;
             transform:translateY(-50%);
             border-radius:50%;
-            background:radial-gradient(circle at 43% 38%,#fff 0%,#e7feff 31%,#94f2ff 61%,rgba(39,193,255,.65) 85%,transparent 100%);
-            box-shadow:0 0 4px 1px rgba(226,255,255,.95),
-                       0 0 9px 3px rgba(53,216,255,.69),
-                       0 0 15px 5px rgba(0,139,255,.30);
-            animation:ep-today-comet-glow 2.4s ease-in-out infinite;
+            background:radial-gradient(
+                circle at 40% 40%,
+                #ffffff 0%,
+                #f2feff 26%,
+                #b8f4ff 52%,
+                #6edcff 74%,
+                rgba(42,168,255,.40) 88%,
+                transparent 100%
+            );
+            box-shadow:0 0 0 1px rgba(255,255,255,.18),
+                       0 0 4px rgba(108,228,255,.45),
+                       0 0 8px rgba(24,119,255,.16);
+            animation:ep-today-comet-glow 1.9s ease-in-out infinite;
         }
         @keyframes ep-today-comet-trails{
-            from{background-position:-65% 21%,-95% 76%,-105% 50%;}
-            to{background-position:180% 21%,215% 76%,165% 50%;}
+            from{background-position:-50% 35%,-80% 70%;}
+            to{background-position:145% 35%,170% 70%;}
         }
         @keyframes ep-today-comet-glow{
-            0%,100%{opacity:.83;filter:brightness(.97);}
-            50%{opacity:1;filter:brightness(1.12);}
+            0%,100%{transform:translateY(-50%) scale(.96);opacity:.92;}
+            50%{transform:translateY(-50%) scale(1.04);opacity:1;}
         }
-        /* The completed day stays green; zero progress has no comet head. */
+        /* Keep the original complete/empty and reduced-motion behavior. */
         #ep13 .ep-today-fill.ep-comet-complete{
             background:linear-gradient(90deg,#16a34a,#22c55e);
             box-shadow:none;
@@ -1688,8 +1698,9 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             #ep13 .ep-today-fill{transition:none;}
             #ep13 .ep-today-fill::before,
             #ep13 .ep-today-fill::after{animation:none!important;}
-            #ep13 .ep-today-fill::before{background-position:58% 21%,76% 76%,42% 50%;}
+            #ep13 .ep-today-fill::before{background-position:52% 35%,68% 70%;}
         }
+
         @media(max-width:1100px){
             #ep13.ep-mini-mode .ep-mini-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
         }
