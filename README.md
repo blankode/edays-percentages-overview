@@ -15,7 +15,7 @@
 
 **A compact, live eDays timesheet dashboard for tracking today's working time, finish estimates, mandatory breaks, office attendance, buffer, rota progress, and office planning — with an integrated toolbar, minimized view, and dark mode.**
 
-[![Version](https://img.shields.io/badge/version-20.9-6366f1?style=flat-square&labelColor=0f0f0f)](https://github.com/blankode/edays-percentages-overview)
+[![Version](https://img.shields.io/badge/version-30.0-6366f1?style=flat-square&labelColor=0f0f0f)](https://github.com/blankode/edays-percentages-overview)
 [![Platform](https://img.shields.io/badge/platform-Tampermonkey-f59e0b?style=flat-square&labelColor=0f0f0f)](https://www.tampermonkey.net/)
 [![License](https://img.shields.io/badge/license-MIT-22c55e?style=flat-square&labelColor=0f0f0f)](LICENSE)
 [![Site](https://img.shields.io/badge/works%20on-e--days.com-3b82f6?style=flat-square&labelColor=0f0f0f)](https://e-days.com)
@@ -34,7 +34,7 @@ eDays has no built-in way to track your office attendance percentage, buffer tim
 
 ## ◈ Dashboard Layout
 
-The UI follows the approved light-mode mockup while preserving dark-mode support. **The existing eDays Timesheet title/icon, Settings and Minimize buttons are not duplicated inside the Analyzer.** Today is the first full-width live status row with a thin blue progress bar, normal finish/overtime details, break coverage and the Include buffer toggle. The next row is the horizontal **Buffer & Outlook** KPI strip: buffer, workable days, days left, office time needed, available WFH time and monthly progress. On narrower screens the strip wraps into balanced rows without clipping the values.
+The UI follows the approved light-mode mockup while preserving dark-mode support. In **v30.0**, only the expanded Today progress bar has a comet-like animated blue/cyan fill: flowing highlights travel toward a softly glowing leading tip that stays at the actual percentage. Completed days remain green, 0% is quiet, and `prefers-reduced-motion` users see a static effect. **The existing eDays Timesheet title/icon, Settings and Minimize buttons are not duplicated inside the Analyzer.** Today is the first full-width live status row with a thin blue progress bar, normal finish/overtime details, break coverage and the Include buffer toggle. The next row is the horizontal **Buffer & Outlook** KPI strip: buffer, workable days, days left, office time needed, available WFH time and monthly progress. On narrower screens the strip wraps into balanced rows without clipping the values.
 
 ### Expanded view — three equally sized cards
 
@@ -87,7 +87,7 @@ Go to your timesheet at `*.e-days.com` — on Vue 3 the dashboard will appear au
 
 ## ⧉ File Structure (introduced in v20.4)
 
-The userscript remains split into two maintained source files. The modular structure was introduced in **20.4**; the current userscript version is **20.9**:
+The userscript remains split into two maintained source files. The modular structure was introduced in **20.4**; the current userscript version is **30.0**:
 
 | File | Responsibility |
 |---|---|
@@ -102,7 +102,7 @@ The userscript remains split into two maintained source files. The modular struc
 
 The theme exposes a small `EPTheme` API so the Analyzer does not need to embed or maintain Dark Reader code. The modular split reduced the original main script from **13,447 to 3,349 lines** in v20.4; after the v20.8 dashboard restructuring, `script.js` contains approximately **3,600 lines**. The versioned query suffix also distinguishes this dependency URL from older cached resources; when changing `theme.js` again, update that suffix in `script.js` so Tampermonkey fetches the new dependency.
 
-**Updating to 20.9:** Tampermonkey can detect the new main-script version normally. If automatic updating is delayed, open the latest [raw `script.js`](https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js) and reinstall it. Only `script.js` needs installation — `theme.js` is downloaded through `@require`.
+**Updating to 30.0:** Tampermonkey can detect the new main-script version normally. If automatic updating is delayed, open the latest [raw `script.js`](https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js) and reinstall it. Only `script.js` needs installation — `theme.js` is downloaded through `@require`.
 
 **Note:** `@run-at document-start` is preserved, but loading an external `@require` may postpone first execution while the dependency downloads; the anti-flash bootstrap cannot be guaranteed on a cold first install.
 
@@ -124,7 +124,7 @@ The script includes auto-update headers pointing to the raw GitHub file:
 // @require      https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/theme.js?release=20.4-theme-split-1
 ```
 
-Tampermonkey detects version bumps such as **20.8 → 20.9** and can prompt you to update. The separately required `theme.js` remains cached under its unchanged `@require` URL. To control how often Tampermonkey checks:
+Tampermonkey detects version bumps such as **20.9 → 30.0** and can prompt you to update. The separately required `theme.js` remains cached under its unchanged `@require` URL. To control how often Tampermonkey checks:
 
 > **Tampermonkey Settings → Updates → Script Update Interval** → set to `Every 12 hours`
 
@@ -176,7 +176,7 @@ The dashboard re-renders automatically via a **MutationObserver** watching the t
 | Edge | ✅ |
 | Safari | ✅ (with Tampermonkey) |
 
-Legacy timesheet layout support is retained. Version 20.9 continues to recognize the new v3 day-card layout with stable IDs such as `timesheet-day-2026-10-26`, separate hour/minute inputs, activity selectors, daily totals and editable breaks. The v3 monthly summary is now parsed directly from eDays for **Time recorded, Absences, Public holidays, Rota, and signed Difference**. Only when the official totals are not rendered yet will Analyzer display provisional estimates derived from visible day cards. Browser-specific and complete live-site end-to-end behavior have not yet been re-tested.
+Legacy timesheet layout support is retained. Version 30.0 continues to recognize the new v3 day-card layout with stable IDs such as `timesheet-day-2026-10-26`, separate hour/minute inputs, activity selectors, daily totals and editable breaks. The v3 monthly summary is now parsed directly from eDays for **Time recorded, Absences, Public holidays, Rota, and signed Difference**. Only when the official totals are not rendered yet will Analyzer display provisional estimates derived from visible day cards. Browser-specific and complete live-site end-to-end behavior have not yet been re-tested.
 
 <br/>
 
@@ -184,6 +184,7 @@ Legacy timesheet layout support is retained. Version 20.9 continues to recognize
 
 | Version | Changes |
 |---|---|
+| **30.0** | **Today comet progress bar:** Replaced the expanded Today bar's flat blue fill with an animated blue-to-cyan comet tail, moving highlights and a soft glowing tip at the real progress endpoint. The bar retains its existing size and dynamic percentage, keeps the green completed-day state, hides the comet at 0%, supports both themes and respects reduced-motion preferences. **Only this progress bar changed**; the Minimized view, other progress indicators, layout, controls and all work/break/buffer calculations are unchanged. Updated the Tampermonkey version to 30.0. |
 | **20.9** | Consolidated all v20.8 notes into one release entry and bumped the userscript version for Tampermonkey update detection. **Today:** Standard finish/overtime and mandatory-break coverage now share one horizontal status line; on narrow screens, only the break caption truncates, with the full text in a tooltip. Vertically centered the Today icon and label. **Buffer & Outlook:** Added a blue analytics icon matching the Today badge. Added a concise Tampermonkey **`@description`** describing the live workday tracker, office target, buffer, rota, planner, native toolbar, minimized view, and dark mode. **Unchanged:** break/time calculations, responsive themes, core dashboard layout, and native Timesheet controls. |
 | **20.8** | **Dashboard redesign:** Reorganized Expanded with **Today** as the live top status card (progress, remaining work, leave time, overtime, mandatory-break coverage and Include buffer), followed by a compact horizontal **Buffer & Outlook** KPI strip (buffer, workable days, days left, office needed, WFH available, monthly progress); below sit the three equal-height **Activity Breakdown**, **Office Target** and **Time vs Rota** cards and the Office Planner accordion. **Visual refinements:** White light-mode Analyzer background blending with eDays, theme-aware rounded cards and subtle shadows, smaller overall dashboard (shorter cards, donut charts and reduced spacing), preserved responsive dark mode. **Minimized redesign:** Re-styled all four tiles to match Expanded, improved Today width, displayed concise non-truncated break/status lines with detailed tooltips, and retained the buffer toggle. **Alignment and branding:** 24px side insets in Expanded and Minimized to align with native month navigation (12px below 650px); reduced the animated **Enhanced** label spacing to `margin-left: -12px` (13px closer than the earlier +1px position). Kept existing Timesheet title/icon and native Settings/Minimize toolbar controls without duplicates, as well as existing calculations, theme behavior and office-target celebration GIF. |
 | **20.7** | Fixed Today incorrectly displaying **9h28 total** when a **1h28 clock-out gap** was already covering the required 30-minute break. Root cause: v20.6 interpreted Vue 3's read-only **Breaks** field as an extra 1h28 of working time. v20.7 distinguishes read-only gap summaries from manually editable breaks, counts real gaps once, and limits the additional time allowance to the **uncovered mandatory break only** (30m by default). After the break, the target is **8h net work**, never 8h plus the full gap. Example from 9 November: **4h01 / 8h**, **3h59 remaining**, rather than 4h01 / 9h28 and 5h27 remaining. Expanded and compact Today, standard finish time, overtime threshold and optional Include buffer all use the same calculation; Buffer & Outlook continues using net time from eDays. Theme and navigation unchanged. |
