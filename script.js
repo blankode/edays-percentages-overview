@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      30.4
+// @version      30.5
 // @description  Compact, live eDays timesheet dashboard: Today work/finish/break tracking, office attendance targets, buffer & outlook, rota progress, and Office Planner. Includes native toolbar integration, minimized view, and dark mode.
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
@@ -10,6 +10,7 @@
 // @run-at       document-start
 // ==/UserScript==
 
+// Changelog v30.5: For flexible-working users only, consolidate Activity Breakdown and Time vs Rota into one full-width compact horizontal strip styled like Today, with a shared outer surface, no separate card boxes, inline activity items and side-by-side rota ring/statistics. Responsive small-screen stacking preserves all values and regular-working layouts remain unchanged.
 // Changelog v30.4: Hide office-target-dependent metrics and Office Planner for automatically detected flexible rotas, including expanded, compact, and Buffer & Outlook views. Display Activity Breakdown and Time vs Rota as two equal inline cards, responsive down to a single mobile column. Normal weekday rota UI and all calculations remain unchanged.
 // Changelog v30.3: Corrected flexible-rota buffer to compare net logged time with completed shift targets, regardless of weekday/weekend, rather than incorrectly counting all elapsed weekdays as scheduled shifts. For worked days use 8h NET per shift (4h for a documented half day); blank weekdays do not consume a shift. Today while still clocked in does not debit its unfinished target, but surplus earned beyond the target is credited; once clocked out its actual variance is included. November 11 example: eight completed shifts total 64h01, giving +0h01 (not +8h01). The official 144h net monthly rota remains authoritative for month progress and remaining hours; flexible Workable now shows 18 equivalent rota shifts instead of 27 calendar possibilities. Updated labels/tooltips; preserved ordinary weekday mode and all other UI/theme/break logic.
 // Changelog v30.2: Fix flexible-rota Buffer & Outlook falsely showing +10h55 instead of +8h06 in the provided November 2026 timesheet. eDays labels November 30 as "Public Holidays" (plural), but the absence parser only matched singular "holiday", making the official 144h net rota spread across 19 days (152h) rather than 18 days (144h). Recognize both holiday/holidays in Vue 3 absence chips and holiday classification. Preserve weekend substitutions, actual net work, Today projections, Minimized, day coloring and dark mode.
@@ -1794,6 +1795,102 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             #ep13.ep-mini-mode .ep-mini-grid{grid-template-columns:1fr;}
             #ep13.ep-mini-mode .ep-mini-grid.ep-flexible-mini-grid{grid-template-columns:1fr;}
             #ep13.ep-mini-mode .ep-mini-tile{min-height:76px;}
+        }
+
+        /* v30.5: Flexible rota has ONE compact, full-width, Today-like analytics strip.
+           Do not alter the regular three-card grid or any underlying calculations. */
+        #ep13 .ep-grid.ep-flexible-grid{
+            display:grid;
+            grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr);
+            align-items:stretch;
+            gap:0;
+            margin:0 0 10px;
+            padding:11px 14px;
+            background:${T.isDark?'#202324':'#ffffff'};
+            border:1px solid ${T.border};
+            border-radius:11px;
+            box-shadow:${T.isDark?'0 3px 14px rgba(0,0,0,.22)':'0 3px 14px rgba(15,23,42,.065)'};
+        }
+        #ep13 .ep-grid.ep-flexible-grid .ep-card{
+            min-height:0!important;
+            min-width:0;
+            border:0!important;
+            box-shadow:none!important;
+            background:transparent!important;
+            border-radius:0!important;
+            padding:4px 13px!important;
+            gap:6px;
+        }
+        #ep13 .ep-grid.ep-flexible-grid .ep-card:first-child{
+            grid-column:auto!important;
+            display:flex;
+            flex-direction:row;
+            flex-wrap:wrap;
+            align-content:center;
+            align-items:center;
+            gap:7px 13px;
+            padding-left:0!important;
+        }
+        #ep13 .ep-grid.ep-flexible-grid .ep-card:first-child .ep-card-title{flex:0 0 100%;}
+        #ep13 .ep-grid.ep-flexible-grid .ep-card:first-child .ep-act-row{
+            flex:1 1 155px;
+            min-width:140px;
+            max-width:100%;
+            margin:0;
+        }
+        #ep13 .ep-grid.ep-flexible-grid .ep-card:first-child .ep-divider{flex:0 0 100%;margin:1px 0;}
+        #ep13 .ep-grid.ep-flexible-grid .ep-card:first-child .ep-total-row{flex:0 0 100%;margin:0;}
+        #ep13 .ep-grid.ep-flexible-grid .ep-card:first-child > .ep-bar:last-child{flex:0 0 100%;margin:0;}
+        #ep13 .ep-grid.ep-flexible-grid .ep-card-title{font-size:11px;letter-spacing:.75px;}
+        #ep13 .ep-grid.ep-flexible-grid .ep-act-name{font-size:11.5px;}
+        #ep13 .ep-grid.ep-flexible-grid .ep-act-meta{font-size:10.5px;}
+        #ep13 .ep-grid.ep-flexible-grid .ep-ring-card{
+            display:grid;
+            grid-template-columns:108px minmax(0,1fr);
+            grid-template-rows:auto repeat(5,minmax(0,auto));
+            align-content:center;
+            align-items:center;
+            column-gap:14px;
+            row-gap:5px;
+            border-left:1px solid ${T.border}!important;
+            padding-left:19px!important;
+        }
+        #ep13 .ep-grid.ep-flexible-grid .ep-ring-card .ep-card-title{
+            grid-column:1 / -1;
+            grid-row:1;
+            margin-bottom:1px;
+        }
+        #ep13 .ep-grid.ep-flexible-grid .ep-ring-card .ep-ring-wrap{
+            grid-column:1;
+            grid-row:2 / span 5;
+            width:108px;
+            height:108px;
+            margin:0 auto;
+        }
+        #ep13 .ep-grid.ep-flexible-grid .ep-ring-card .ep-ring-wrap svg{width:108px;height:108px;}
+        #ep13 .ep-grid.ep-flexible-grid .ep-ring-card .ep-ring-pct{font-size:23px;}
+        #ep13 .ep-grid.ep-flexible-grid .ep-ring-card .ep-stat-row{
+            grid-column:2;
+            margin:0;
+            min-width:0;
+            gap:9px;
+        }
+        @media(max-width:1010px){
+            #ep13 .ep-grid.ep-flexible-grid{grid-template-columns:minmax(0,1fr);}
+            #ep13 .ep-grid.ep-flexible-grid .ep-card:first-child{padding-right:0!important;}
+            #ep13 .ep-grid.ep-flexible-grid .ep-ring-card{
+                border-left:0!important;
+                border-top:1px solid ${T.border}!important;
+                padding:11px 0 2px!important;
+                margin-top:9px;
+            }
+        }
+        @media(max-width:430px){
+            #ep13 .ep-grid.ep-flexible-grid{padding:10px 12px;}
+            #ep13 .ep-grid.ep-flexible-grid .ep-ring-card{grid-template-columns:90px minmax(0,1fr);column-gap:9px;}
+            #ep13 .ep-grid.ep-flexible-grid .ep-ring-card .ep-ring-wrap,
+            #ep13 .ep-grid.ep-flexible-grid .ep-ring-card .ep-ring-wrap svg{width:90px;height:90px;}
+            #ep13 .ep-grid.ep-flexible-grid .ep-ring-card .ep-ring-pct{font-size:20px;}
         }
         `;
     };
