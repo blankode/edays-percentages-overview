@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      30.3
+// @version      30.4
 // @description  Compact, live eDays timesheet dashboard: Today work/finish/break tracking, office attendance targets, buffer & outlook, rota progress, and Office Planner. Includes native toolbar integration, minimized view, and dark mode.
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
@@ -10,6 +10,7 @@
 // @run-at       document-start
 // ==/UserScript==
 
+// Changelog v30.4: Hide office-target-dependent metrics and Office Planner for automatically detected flexible rotas, including expanded, compact, and Buffer & Outlook views. Display Activity Breakdown and Time vs Rota as two equal inline cards, responsive down to a single mobile column. Normal weekday rota UI and all calculations remain unchanged.
 // Changelog v30.3: Corrected flexible-rota buffer to compare net logged time with completed shift targets, regardless of weekday/weekend, rather than incorrectly counting all elapsed weekdays as scheduled shifts. For worked days use 8h NET per shift (4h for a documented half day); blank weekdays do not consume a shift. Today while still clocked in does not debit its unfinished target, but surplus earned beyond the target is credited; once clocked out its actual variance is included. November 11 example: eight completed shifts total 64h01, giving +0h01 (not +8h01). The official 144h net monthly rota remains authoritative for month progress and remaining hours; flexible Workable now shows 18 equivalent rota shifts instead of 27 calendar possibilities. Updated labels/tooltips; preserved ordinary weekday mode and all other UI/theme/break logic.
 // Changelog v30.2: Fix flexible-rota Buffer & Outlook falsely showing +10h55 instead of +8h06 in the provided November 2026 timesheet. eDays labels November 30 as "Public Holidays" (plural), but the absence parser only matched singular "holiday", making the official 144h net rota spread across 19 days (152h) rather than 18 days (144h). Recognize both holiday/holidays in Vue 3 absence chips and holiday classification. Preserve weekend substitutions, actual net work, Today projections, Minimized, day coloring and dark mode.
 // Changelog v30.1: Detect weekend hours in the current month and switch Buffer & Outlook to a weekend-aware monthly-rota pace calculation. Use the authoritative net monthly rota, prorate its weekday baseline to contracted hours, include logged Saturday/Sunday work and offset unlogged elapsed weekdays that weekend shifts can replace; retain the existing fixed-weekday method when no weekend work is recorded. Count weekend entries as days worked and distinguish flexible pacing in the buffer label/tooltip. Give Vue 3 Saturday/Sunday cards a subtle blue-gray tint on their header and footer ONLY, using light/dark palette colors; day content remains unchanged. Preserved Today mandatory break rules, other timesheet features and existing native controls.
@@ -1501,6 +1502,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             display:grid;grid-template-columns:minmax(120px,.87fr) minmax(205px,1.6fr) repeat(4,minmax(96px,.88fr)) minmax(155px,1.25fr);
             align-items:stretch;gap:9px;padding:16px 17px;margin:0 0 14px;width:100%;
         }
+        #ep13 .ep-outlook-strip.ep-flexible-outlook{grid-template-columns:minmax(120px,.87fr) minmax(205px,1.6fr) repeat(2,minmax(96px,.88fr)) minmax(155px,1.25fr);}
         #ep13 .ep-outlook-heading{align-self:center;display:flex;align-items:center;flex-direction:row;gap:7px;min-width:0;color:${T.muted};font-size:12px;line-height:1.4;font-weight:800;text-transform:uppercase;letter-spacing:1.05px;}
         #ep13 .ep-outlook-heading-text{display:flex;flex-direction:column;min-width:0;line-height:1.25;}
         #ep13 .ep-outlook-buffer{min-width:0;box-sizing:border-box;border-radius:10px;padding:10px;display:flex;align-items:center;justify-content:center;gap:7px;border:1px solid ${T.border};background:${T.chipBg};}
@@ -1523,6 +1525,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         #ep13 .ep-outlook-month .ep-prog-track{height:8px;border-radius:10px;}
         #ep13 .ep-outlook-month .ep-prog-fill{border-radius:10px;}
         #ep13 .ep-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;}
+        #ep13 .ep-grid.ep-flexible-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
         #ep13 .ep-card{min-height:300px;padding:18px 20px;gap:10px;}
         #ep13 .ep-card-title{font-size:13px;font-weight:800;letter-spacing:1.05px;}
         #ep13 .ep-ring-card{align-items:stretch;text-align:left;}
@@ -1540,6 +1543,8 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         #ep13 .ep-planner-toggle{margin-top:14px;padding:14px 17px;}
         @media(max-width:1160px){
             #ep13 .ep-outlook-strip{grid-template-columns:repeat(12,minmax(0,1fr));}
+            #ep13 .ep-outlook-strip.ep-flexible-outlook{grid-template-columns:repeat(12,minmax(0,1fr));}
+            #ep13 .ep-outlook-strip.ep-flexible-outlook .ep-outlook-month{grid-column:1 / -1;}
             #ep13 .ep-outlook-heading{grid-column:span 2;}
             #ep13 .ep-outlook-buffer{grid-column:span 4;}
             #ep13 .ep-outlook-kpi{grid-column:span 3;}
@@ -1547,7 +1552,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         }
         @media(max-width:920px){
             #ep13 .ep-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
-            #ep13 .ep-grid .ep-card:first-child{grid-column:1 / -1;min-height:unset;}
+            #ep13 .ep-grid:not(.ep-flexible-grid) .ep-card:first-child{grid-column:1 / -1;min-height:unset;}
             #ep13 .ep-today-strip{flex-wrap:wrap;column-gap:14px;}
             #ep13 .ep-today-centre{flex:1 1 65%;}
             #ep13 .ep-today-actions{align-self:center;padding-left:13px;}
@@ -1560,12 +1565,14 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             #ep13 .ep-today-rem{margin-left:0;padding-left:0;border:0;}
             #ep13 .ep-today-actions{border:0;padding:0;align-self:flex-start;}
             #ep13 .ep-outlook-strip{padding:12px;gap:8px;grid-template-columns:repeat(2,minmax(0,1fr));}
+            #ep13 .ep-outlook-strip.ep-flexible-outlook{grid-template-columns:repeat(2,minmax(0,1fr));}
             #ep13 .ep-outlook-heading{grid-column:1 / -1;flex-direction:row;gap:5px;}
             #ep13 .ep-outlook-buffer{grid-column:1 / -1;}
             #ep13 .ep-outlook-kpi{grid-column:auto;}
             #ep13 .ep-outlook-month{grid-column:1 / -1;padding:8px 0 0;border:0;border-top:1px solid ${T.border};}
             #ep13 .ep-outlook-value{font-size:17px;}
             #ep13 .ep-grid{grid-template-columns:1fr;}
+            #ep13 .ep-grid.ep-flexible-grid{grid-template-columns:1fr;}
             #ep13 .ep-grid .ep-card:first-child{grid-column:auto;}
             #ep13 .ep-card{min-height:unset;padding:16px;}
         }
@@ -1642,6 +1649,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             align-items:stretch;
             gap:8px;
         }
+        #ep13.ep-mini-mode .ep-mini-grid.ep-flexible-mini-grid{grid-template-columns:minmax(270px,1.36fr) repeat(2,minmax(165px,1fr));}
         #ep13.ep-mini-mode .ep-mini-tile{
             box-sizing:border-box;
             min-width:0;
@@ -1774,6 +1782,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
 
         @media(max-width:1100px){
             #ep13.ep-mini-mode .ep-mini-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
+            #ep13.ep-mini-mode .ep-mini-grid.ep-flexible-mini-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
         }
         @media(max-width:650px){
             /* Keep both layouts aligned and readable on narrow screens. */
@@ -1783,6 +1792,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             #ep13 .ep-outlook-strip{padding:10px;gap:7px;}
             #ep13 .ep-card{min-height:unset;padding:12px;}
             #ep13.ep-mini-mode .ep-mini-grid{grid-template-columns:1fr;}
+            #ep13.ep-mini-mode .ep-mini-grid.ep-flexible-mini-grid{grid-template-columns:1fr;}
             #ep13.ep-mini-mode .ep-mini-tile{min-height:76px;}
         }
         `;
@@ -2459,7 +2469,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             ? (buffer>0?'Ahead of completed shifts':buffer<0?'Behind completed shifts':'On completed-shift target')
             : (buffer>0?'Ahead of schedule':buffer<0?'Behind schedule':'On schedule');
         return `
-            <div class="ep-mini-grid" aria-label="Compact timesheet summary">
+            <div class="ep-mini-grid${ds.flexibleRota ? ' ep-flexible-mini-grid' : ''}" aria-label="Compact timesheet summary">
                 <div class="ep-mini-tile ep-mini-today">
                     <div class="ep-mini-heading">
                         <span class="ep-mini-label">Today</span>
@@ -2470,12 +2480,14 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                     ${todayStandardDetails ? `<div class="ep-mini-details ep-mini-standard" title="${todayFullDetails || todayStandardDetails}">${todayStandardDetails}</div>` : ''}
                     <div class="ep-mini-meter"><span style="width:${todayPct.toFixed(1)}%;background:#3b82f6"></span></div>
                 </div>
+                ${ds.flexibleRota ? '' : `
                 <div class="ep-mini-tile ep-mini-office">
                     <div class="ep-mini-heading"><span class="ep-mini-label">Office target · ${offTarget}%</span></div>
                     <div class="ep-mini-value" style="color:${officeTarget>0&&officeRemaining===0?'#22c55e':T.text}">${officeTarget>0?`${officePct}%`:'—'}</div>
                     <div class="ep-mini-details">${fmt(officeMinutes)} / ${fmt(officeTarget)}${officeTarget<=0?' · not set':officeRemaining>0?` · ${fmt(officeRemaining)} needed`:' · target met'}</div>
                     <div class="ep-mini-meter"><span style="width:${clamp(officePct,0,100)}%;background:#3b82f6"></span></div>
                 </div>
+                `}
                 <div class="ep-mini-tile ep-mini-buffer-card">
                     <div class="ep-mini-heading"><span class="ep-mini-label">Buffer</span></div>
                     <div class="ep-mini-value" style="color:${bufferColor}">${fmt(buffer)}</div>
@@ -2852,7 +2864,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                     </div>
                 </div>
             `;
-            container.innerHTML += buildOfficePlannerPanel({
+            if (!ds.flexibleRota) container.innerHTML += buildOfficePlannerPanel({
                 T,
                 ds,
                 days: detailedDays
@@ -2947,7 +2959,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         const offColor = getOffColor(officePct);
         const rotaColor = rotaPct >= 100 ? '#22c55e' : rotaPct >= 80 ? '#3b82f6' : '#f59e0b';
         const nextTheme = T.isDark ? 'light' : 'dark';
-        let html = `<div class="ep-grid">`;
+        let html = `<div class="ep-grid${ds.flexibleRota ? ' ep-flexible-grid' : ''}">`;
         /* Card 1 */
         const totalActPct = realRota > 0 ? (totalActMins / realRota) * 100 : 0;
         html += `<div class="ep-card">` + `<div class="ep-card-title">Activity Breakdown</div>`;
@@ -2964,7 +2976,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         const offRemMins = Math.max(0, Math.ceil(targetMins - officeMins));
         const offRemDays = offRemMins > 0 ? round1(Math.ceil(offRemMins / HALF_DAY_MINUTES) / 2) : 0;
         const officeChipVal = fmtDaysAndTime(offRemMins);
-        html += `
+        if (!ds.flexibleRota) html += `
             <div class="ep-card ep-ring-card">
                 <div class="ep-card-title">
                     Office Target · ${offTarget}%
@@ -3140,7 +3152,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         `;
         /* v20.8 — three cards only, followed by a separately composed outlook row. */
         const cardsHtml = html + '</div>';
-        const officeTargetReached = targetMins > 0 && offRemMins === 0;
+        const officeTargetReached = !ds.flexibleRota && targetMins > 0 && offRemMins === 0;
         const officeChipLbl = officeTargetReached ? 'Office Target Met'
             : offRemMins <= STANDARD_DAY_MINUTES ? 'Office Time Needed' : 'Office Days Needed';
         const wfhAvailableMins = Math.max(0, ds.remainingMinutes - offRemMins);
@@ -3153,8 +3165,25 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         const bCol = ds.bufferMinutes > 0 ? '#22c55e'
             : ds.bufferMinutes < 0 ? '#ef4444' : T.muted;
 
+        const officeWidgets = ds.flexibleRota ? '' : `
+                <div class="ep-outlook-kpi ${officeTargetReached ? 'ep-chip ep-office-celebration' : ''}"
+                     title="${officeChipVal || '0h'} · ${officeChipLbl}">
+                    ${officeTargetReached ? `
+                        <div class="ep-office-celebration-head">${officeChipLbl}</div>
+                        <div class="ep-office-gif-shell">
+                            <img class="ep-office-gif-image" alt="Congratulations! Office target achieved" decoding="async">
+                            <a class="ep-office-gif-fallback" hidden href="${OFFICE_CELEBRATION_GIF_URL}" target="_blank" rel="noopener noreferrer">🎉 Well done!</a>
+                        </div>` : `
+                        <strong class="ep-outlook-value ep-outlook-blue">${officeChipVal || '0h'}</strong>
+                        <span class="ep-outlook-label">${officeChipLbl}</span>`}
+                </div>
+                <div class="ep-outlook-kpi" title="${wfhChipVal} · ${wfhChipLbl}">
+                    <strong class="ep-outlook-value ep-outlook-orange">${wfhChipVal || '0h'}</strong>
+                    <span class="ep-outlook-label">${wfhChipLbl}</span>
+                </div>
+        `;
         const outlookHtml = `
-            <section class="ep-outlook-strip" aria-label="Buffer and Outlook">
+            <section class="ep-outlook-strip${ds.flexibleRota ? ' ep-flexible-outlook' : ''}" aria-label="Buffer and Outlook">
                 <div class="ep-outlook-heading">
                     ${iconBadge('analytics','#1776cf',26)}
                     <span class="ep-outlook-heading-text">Buffer &amp;<span>Outlook</span></span>
@@ -3179,21 +3208,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                     <strong class="ep-outlook-value ep-outlook-purple">${ds.daysLeft}</strong>
                     <span class="ep-outlook-label">Days left</span>
                 </div>
-                <div class="ep-outlook-kpi ${officeTargetReached ? 'ep-chip ep-office-celebration' : ''}"
-                     title="${officeChipVal || '0h'} · ${officeChipLbl}">
-                    ${officeTargetReached ? `
-                        <div class="ep-office-celebration-head">${officeChipLbl}</div>
-                        <div class="ep-office-gif-shell">
-                            <img class="ep-office-gif-image" alt="Congratulations! Office target achieved" decoding="async">
-                            <a class="ep-office-gif-fallback" hidden href="${OFFICE_CELEBRATION_GIF_URL}" target="_blank" rel="noopener noreferrer">🎉 Well done!</a>
-                        </div>` : `
-                        <strong class="ep-outlook-value ep-outlook-blue">${officeChipVal || '0h'}</strong>
-                        <span class="ep-outlook-label">${officeChipLbl}</span>`}
-                </div>
-                <div class="ep-outlook-kpi" title="${wfhChipVal} · ${wfhChipLbl}">
-                    <strong class="ep-outlook-value ep-outlook-orange">${wfhChipVal || '0h'}</strong>
-                    <span class="ep-outlook-label">${wfhChipLbl}</span>
-                </div>
+                ${officeWidgets}
                 <div class="ep-outlook-month"
                      title="${fmt(summary.recorded)} recorded of ${fmt(ds.realRota)} rota; ${fmt(ds.remainingMinutes)} remaining">
                     <div class="ep-outlook-month-head"><span>Month progress</span><strong>${ds.progressPct.toFixed(0)}%</strong></div>
@@ -3204,7 +3219,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             </section>
         `;
         html = buildTodayStrip({T, ds}) + outlookHtml + cardsHtml;
-        html += buildOfficePlannerPanel({
+        if (!ds.flexibleRota) html += buildOfficePlannerPanel({
             T,
             ds,
             days
