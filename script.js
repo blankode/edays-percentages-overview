@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      30.2
+// @version      30.3
 // @description  Compact, live eDays timesheet dashboard: Today work/finish/break tracking, office attendance targets, buffer & outlook, rota progress, and Office Planner. Includes native toolbar integration, minimized view, and dark mode.
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
@@ -10,6 +10,7 @@
 // @run-at       document-start
 // ==/UserScript==
 
+// Changelog v30.3: Corrected flexible-rota buffer to compare net logged time with completed shift targets, regardless of weekday/weekend, rather than incorrectly counting all elapsed weekdays as scheduled shifts. For worked days use 8h NET per shift (4h for a documented half day); blank weekdays do not consume a shift. Today while still clocked in does not debit its unfinished target, but surplus earned beyond the target is credited; once clocked out its actual variance is included. November 11 example: eight completed shifts total 64h01, giving +0h01 (not +8h01). The official 144h net monthly rota remains authoritative for month progress and remaining hours; flexible Workable now shows 18 equivalent rota shifts instead of 27 calendar possibilities. Updated labels/tooltips; preserved ordinary weekday mode and all other UI/theme/break logic.
 // Changelog v30.2: Fix flexible-rota Buffer & Outlook falsely showing +10h55 instead of +8h06 in the provided November 2026 timesheet. eDays labels November 30 as "Public Holidays" (plural), but the absence parser only matched singular "holiday", making the official 144h net rota spread across 19 days (152h) rather than 18 days (144h). Recognize both holiday/holidays in Vue 3 absence chips and holiday classification. Preserve weekend substitutions, actual net work, Today projections, Minimized, day coloring and dark mode.
 // Changelog v30.1: Detect weekend hours in the current month and switch Buffer & Outlook to a weekend-aware monthly-rota pace calculation. Use the authoritative net monthly rota, prorate its weekday baseline to contracted hours, include logged Saturday/Sunday work and offset unlogged elapsed weekdays that weekend shifts can replace; retain the existing fixed-weekday method when no weekend work is recorded. Count weekend entries as days worked and distinguish flexible pacing in the buffer label/tooltip. Give Vue 3 Saturday/Sunday cards a subtle blue-gray tint on their header and footer ONLY, using light/dark palette colors; day content remains unchanged. Preserved Today mandatory break rules, other timesheet features and existing native controls.
 // Changelog v30.0: Implemented the animated blue/cyan comet effect ONLY in Expanded Today's real-percentage progress bar, with traveling streaks and a luminous endpoint. Refined the original tip in the same version: clipped glow to the existing 6px track, reduced the head from 12px to 8px, softened bloom, and reduced streak brightness so the endpoint looks integrated instead of like a detached neon dot. Preserved green completion, quiet 0%, reduced-motion support, dark mode, all calculations, Minimized and other progress bars, controls and layout.
@@ -801,39 +802,30 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         });
         return days;
     };
-    /* Flexible monthly rota: a booked weekend can replace a weekday shift.
-       We cannot know which weekday was swapped from the DOM, so when
-       weekend work is present, compare actual logged time with the elapsed
-       weekday share of the OFFICIAL net monthly rota. In this mode unlogged
-       past weekdays must not be assumed to be fully worked, because doing so
-       would incorrectly count a replacement weekend shift as extra buffer.
-       Without weekend entries keep the established weekday-bank semantics. */
-    const getFlexibleRotaBuffer = (days, realRota) => {
-        if (!days.some(d => d.isWeekend && d.totalMins > 0 &&
-                (d.isPast || d.isToday))) return null;
-        const normalCapacity = days.reduce((sum, d) =>
-            sum + Math.max(0, d.workTargetMins), 0);
-        const quotaPerBaselineMinute = normalCapacity > 0
-            ? realRota / normalCapacity : 0;
+    /* Flexible monthly rota: an employee can work on ANY day. A blank
+       weekday is not evidence of a scheduled shift. Treat each date with
+       recorded NET work as a shift; weekdays and weekends follow the same
+       8h NET target unless eDays explicitly records a half-day absence.
+       This balance is SURPLUS vs worked shifts, NOT payroll overtime.
+       Official monthly rota is tracked separately for remaining work. */
+    const getFlexibleRotaBuffer = days => {
         let bufferMinutes = 0;
         let priorBufferMinutes = 0;
         for (const d of days) {
             if (!d.isPast && !d.isToday) continue;
-            const expected = Math.max(0, d.workTargetMins) * quotaPerBaselineMinute;
             const recorded = Math.max(0, d.totalMins);
+            if (recorded <= 0) continue;
+            const target = d.isHalfDay ? HALF_DAY_MINUTES : STANDARD_DAY_MINUTES;
+            const delta = recorded - target;
             if (d.isPast) {
-                // All elapsed rota slots count, even weekdays left blank in
-                // eDays when the employee worked a different day instead.
-                const delta = recorded - expected;
                 bufferMinutes += delta;
                 priorBufferMinutes += delta;
-            } else if (d.isToday && recorded > 0) {
+            } else if (d.isToday) {
                 const running = getTimesheetPeriods(d.el).some(isOpenPeriod);
-                // On a worked weekend no weekday quota is due; any logged
-                // time contributes to the bank. An open weekday shift is not
-                // charged its unfinished hours until completion/clock-out.
-                if (d.isWeekend || !running || recorded >= expected)
-                    bufferMinutes += recorded - expected;
+                // Open, unfinished shifts must not eat the existing bank.
+                // Extra time past target counts even before clock-out.
+                if (!running || recorded >= target)
+                    bufferMinutes += delta;
             }
         }
         return {
@@ -846,14 +838,15 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         const days = getDetailedDayData();
         const flexibleRota = days.some(d => d.isWeekend && d.totalMins > 0 &&
             (d.isPast || d.isToday));
-        // Under a flexible monthly rota weekends are also possible workdays,
-        // but the contracted rota HOURS still come from the official summary.
+        // Flexible employees have contracted SHIFT equivalents rather than
+        // fixed workable calendar dates. Read that count from eDays net rota.
         const workableDays = flexibleRota
-            ? days.filter(d => !d.isAbsent && !d.isHoliday).length
+            ? round1(realRota / STANDARD_DAY_MINUTES)
             : days.filter(d => d.isWorkable).length;
         const workableMinutes = days.reduce(
             (sum, d) => sum + d.workTargetMins, 0);
-        const workedDays = days.filter(d => d.totalMins > 0).length;
+        const workedDays = days.filter(d =>
+            (d.isPast || d.isToday) && d.totalMins > 0).length;
         const progressPct = realRota > 0 ? (summary.recorded / realRota) * 100 : 0;
         const remainingMinutes = Math.max(0, realRota - summary.recorded);
         const daysLeft = remainingMinutes > 0 ? round1(Math.ceil(remainingMinutes / HALF_DAY_MINUTES) / 2) : 0;
@@ -864,9 +857,8 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             bufferMinutes = summary.difference;
             priorBufferMinutes = summary.difference;
         } else if (flexibleRota) {
-            // A worked weekend may be a substituted weekday, not overtime.
-            // Reconcile the elapsed schedule with the official monthly quota.
-            const flexible = getFlexibleRotaBuffer(days, realRota);
+            // Count actual shifts regardless of calendar weekday.
+            const flexible = getFlexibleRotaBuffer(days);
             bufferMinutes = flexible.bufferMinutes;
             priorBufferMinutes = flexible.priorBufferMinutes;
         } else {
@@ -2463,7 +2455,9 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         }
         const buffer=ds.bufferMinutes;
         const bufferColor=buffer>0?'#22c55e':buffer<0?'#ef4444':T.text;
-        const bufferHint=buffer>0?'Ahead of schedule':buffer<0?'Behind schedule':'On schedule';
+        const bufferHint=ds.flexibleRota
+            ? (buffer>0?'Ahead of completed shifts':buffer<0?'Behind completed shifts':'On completed-shift target')
+            : (buffer>0?'Ahead of schedule':buffer<0?'Behind schedule':'On schedule');
         return `
             <div class="ep-mini-grid" aria-label="Compact timesheet summary">
                 <div class="ep-mini-tile ep-mini-today">
@@ -3167,17 +3161,19 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                 </div>
                 <div class="ep-outlook-buffer ${bc}"
                      title="${ds.flexibleRota
-                         ? 'Weekend shifts included. Actual net hours versus the elapsed weekday share of the official monthly rota; unlogged past weekdays may be replaced by weekend work.'
+                         ? 'Flexible rota: compare net logged time with an 8h net target per completed shift (4h for a documented half-day). Weekends count exactly like weekdays. Unworked dates are not presumed scheduled. Today is not debited while its shift is open and unfinished. This is not approved payroll overtime.'
                          : 'Net recorded hours versus net daily rota targets'}">
                     ${icon(bi,20,bCol)}
                     <strong class="ep-outlook-buffer-value">${fmt(ds.bufferMinutes)}</strong>
                     <span class="ep-outlook-buffer-caption">${ds.bufferMinutes > 0 ? 'ahead of' :
                         ds.bufferMinutes < 0 ? 'behind' : 'on'} ${ds.flexibleRota
-                            ? 'monthly rota pace to date' : 'scheduled daily target to date'}</span>
+                            ? 'completed-shift target' : 'scheduled daily target to date'}</span>
                 </div>
                 <div class="ep-outlook-kpi">
                     <strong class="ep-outlook-value">${ds.workableDays}</strong>
-                    <span class="ep-outlook-label">Workable</span>
+                    <span class="ep-outlook-label" title="${ds.flexibleRota
+                         ? 'Contracted 8h-equivalent shifts for the month, from the official net rota'
+                         : 'Eligible calendar workdays'}">${ds.flexibleRota ? 'Rota shifts' : 'Workable'}</span>
                 </div>
                 <div class="ep-outlook-kpi">
                     <strong class="ep-outlook-value ep-outlook-purple">${ds.daysLeft}</strong>
