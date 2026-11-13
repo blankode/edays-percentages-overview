@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         eDays Analyzer Pro
 // @namespace    http://tampermonkey.net/
-// @version      30.5
+// @version      30.6
 // @description  Compact, live eDays timesheet dashboard: Today work/finish/break tracking, office attendance targets, buffer & outlook, rota progress, and Office Planner. Includes native toolbar integration, minimized view, and dark mode.
 // @match        https://*.e-days.com/*
 // @updateURL    https://raw.githubusercontent.com/blankode/edays-percentages-overview/main/script.js
@@ -10,6 +10,7 @@
 // @run-at       document-start
 // ==/UserScript==
 
+// Changelog v30.6: Reordered Vue 3 actions: Submit month immediately before Audit log, Settings immediately after the page's Dark/Light mode control, and To today/To home immediately after Minimize/Expand. Days Left now rounds UP to a whole 8h-equivalent day. Increased Office Planner off/weekend contrast, with orange vacation and light-red public-holiday markers. Vue 3 tagged days now tint header/footer using the tag's own color (with explicit holiday/vacation fallbacks) while retaining weekend tints for untagged weekends and not recoloring timesheet inputs.
 // Changelog v30.5: For flexible-working users only, consolidate Activity Breakdown and Time vs Rota into one full-width compact horizontal strip styled like Today, with a shared outer surface, no separate card boxes, inline activity items and side-by-side rota ring/statistics. Responsive small-screen stacking preserves all values and regular-working layouts remain unchanged.
 // Changelog v30.4: Hide office-target-dependent metrics and Office Planner for automatically detected flexible rotas, including expanded, compact, and Buffer & Outlook views. Display Activity Breakdown and Time vs Rota as two equal inline cards, responsive down to a single mobile column. Normal weekday rota UI and all calculations remain unchanged.
 // Changelog v30.3: Corrected flexible-rota buffer to compare net logged time with completed shift targets, regardless of weekday/weekend, rather than incorrectly counting all elapsed weekdays as scheduled shifts. For worked days use 8h NET per shift (4h for a documented half day); blank weekdays do not consume a shift. Today while still clocked in does not debit its unfinished target, but surplus earned beyond the target is credited; once clocked out its actual variance is included. November 11 example: eight completed shifts total 64h01, giving +0h01 (not +8h01). The official 144h net monthly rota remains authoritative for month progress and remaining hours; flexible Workable now shows 18 equivalent rota shifts instead of 27 calendar possibilities. Updated labels/tooltips; preserved ordinary weekday mode and all other UI/theme/break logic.
@@ -340,14 +341,61 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         const name = getDayName(dayEl);
         return name === 'Saturday' || name === 'Sunday';
     };
-    // Mark only native Vue 3 weekend cards, so the tint never touches
-    // regular weekdays or nested activity/entry content.
+    // Only header/footer are tinted. Native day bodies, inputs and controls
+    // keep their own colors. Tagged days outrank the plain weekend highlight.
     const markV3WeekendCards = () => {
+        const T = getTheme();
         for (const day of getTimesheetDays()) {
             if (!day.id?.startsWith('timesheet-day-')) continue;
             const weekend = isWeekendDay(day);
             if (day.classList.contains('ep-v3-weekend') !== weekend)
                 day.classList.toggle('ep-v3-weekend', weekend);
+            const tagNodes = [...day.querySelectorAll('[class*="_tags_"] [class*="_information_"]')]
+                .filter(node => node.textContent.trim());
+            const absence = getAbsenceInfo(day);
+            const label = (absence.text || tagNodes.map(n => n.textContent.trim()).join(' ')).trim();
+            const tagged = !!label;
+            if (day.classList.contains('ep-v3-tagged') !== tagged)
+                day.classList.toggle('ep-v3-tagged', tagged);
+            if (!tagged) {
+                if (day.style.getPropertyValue('--ep-v3-tag-bg'))
+                    day.style.removeProperty('--ep-v3-tag-bg');
+                continue;
+            }
+            const holiday = /\bpublic\s+holidays?\b/i.test(label);
+            const vacation = /\bvacation\b/i.test(label);
+            const sick = /\b(sickness|sick)\b/i.test(label);
+            // Match the tag background where available, even when eDays
+            // introduces a new named tag. Avoid transparent/neutral wrappers.
+            let tagColor = '';
+            if (!holiday) {
+                const preferred = tagNodes.find(n => label.toLowerCase().includes(n.textContent.trim().toLowerCase()))
+                    || tagNodes[0];
+                let node = preferred;
+                for (let depth = 0; node && depth < 4; depth++, node = node.parentElement) {
+                    const background = getComputedStyle(node).backgroundColor;
+                    const components = background.match(/^rgba?\(([^)]+)\)$/i)?.[1]
+                        ?.split(',').map(v => Number.parseFloat(v.trim())) || [];
+                    if (components.length >= 3 && (components.length < 4 || components[3] > .15)) {
+                        const [red, green, blue] = components;
+                        if (Math.max(red,green,blue) - Math.min(red,green,blue) > 25) {
+                            tagColor = background;
+                            break;
+                        }
+                    }
+                    if (node.className && typeof node.className === 'string' && node.className.includes('_tags_')) break;
+                }
+            }
+            if (!tagColor) tagColor = holiday ? '#ef4444'
+                : vacation ? '#f59e0b'
+                : sick ? '#a855f7'
+                : '#64748b';
+            const surface = T.isDark ? '#202324' : '#ffffff';
+            const newTint = holiday
+                ? (T.isDark ? '#52282f' : '#ffe2e5')
+                : `color-mix(in srgb, ${tagColor} ${T.isDark ? 39 : 32}%, ${surface})`;
+            if (day.style.getPropertyValue('--ep-v3-tag-bg') !== newTint)
+                day.style.setProperty('--ep-v3-tag-bg', newTint);
         }
     };
     const getDayWorkTargetMinutes = dayEl => {
@@ -851,7 +899,7 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             (d.isPast || d.isToday) && d.totalMins > 0).length;
         const progressPct = realRota > 0 ? (summary.recorded / realRota) * 100 : 0;
         const remainingMinutes = Math.max(0, realRota - summary.recorded);
-        const daysLeft = remainingMinutes > 0 ? round1(Math.ceil(remainingMinutes / HALF_DAY_MINUTES) / 2) : 0;
+        const daysLeft = remainingMinutes > 0 ? Math.ceil(remainingMinutes / STANDARD_DAY_MINUTES) : 0;
         const hasToday = days.some(d => d.isToday);
         let bufferMinutes;
         let priorBufferMinutes;
@@ -1325,7 +1373,12 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
            are generated from the active Analyzer theme for Dark Reader. */
         [id^="timesheet-day-"].ep-v3-weekend > [class*="_top-row_"],
         [id^="timesheet-day-"].ep-v3-weekend > [class*="_bottom-row_"]{
-            background-color:${T.isDark ? '#263544' : '#edf3fc'} !important;
+            background-color:${T.isDark ? '#30485f' : '#dcecff'} !important;
+        }
+        /* Tag-colored header/footer takes priority over the weekend tint. */
+        [id^="timesheet-day-"].ep-v3-tagged > [class*="_top-row_"],
+        [id^="timesheet-day-"].ep-v3-tagged > [class*="_bottom-row_"]{
+            background-color:var(--ep-v3-tag-bg) !important;
         }
 
         #ep13 .ep-v3-estimate{font-size:12px;font-weight:600;background:rgba(245,158,11,.12);color:${T.isDark?'#fcd34d':'#92400e'};border:1px solid rgba(245,158,11,.34);border-radius:8px;padding:10px 12px;margin-bottom:10px;}
@@ -1390,6 +1443,35 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
         #ep13 .ep-week-day-pill.ep-wp-wfh{background:${T.chipBg};color:${T.muted};}
         #ep13 .ep-week-day-pill.ep-wp-off{background:transparent;color:${T.muted};opacity:.65;}
         #ep13 .ep-week-day-pill.ep-wp-absent{background:${T.chipBg};color:${T.muted};opacity:.75;font-size:12px;}
+        /* Stronger visual separation: non-working/weekend days are NOT unplanned workdays. */
+        #ep13 .ep-cal-day.ep-cal-weekend,
+        #ep13 .ep-week-day-pill.ep-wp-off{
+            background:${T.isDark?'#2d4c70':'#cfe5ff'};
+            color:${T.isDark?'#c7e2ff':'#1e40af'};
+            border:1px solid ${T.isDark?'#4b78a4':'#93c5fd'};
+            opacity:1;
+        }
+        #ep13 .ep-cal-day.ep-cal-absent,
+        #ep13 .ep-week-day-pill.ep-wp-absent{
+            background:${T.isDark?'#473e2d':'#fff0c7'};
+            color:${T.isDark?'#ffe4a3':'#854d0e'};
+            border:1px solid ${T.isDark?'#705b36':'#fcd34d'};
+            opacity:1;
+        }
+        #ep13 .ep-cal-day.ep-cal-vacation,
+        #ep13 .ep-week-day-pill.ep-wp-vacation{
+            background:${T.isDark?'#56351f':'#ffdfb7'};
+            color:${T.isDark?'#ffd5a3':'#9a3412'};
+            border:1px solid ${T.isDark?'#a45c26':'#fb923c'};
+            opacity:1;
+        }
+        #ep13 .ep-cal-day.ep-cal-holiday,
+        #ep13 .ep-week-day-pill.ep-wp-holiday{
+            background:${T.isDark?'#52282f':'#ffe2e5'};
+            color:${T.isDark?'#fecdd3':'#991b1b'};
+            border:1px solid ${T.isDark?'#964253':'#fca5a5'};
+            opacity:1;
+        }
         #ep13 .ep-week-row-summary{font-size:13px;line-height:1.4;color:${T.muted};min-width:113px;text-align:right;white-space:nowrap;}
         #ep13 .ep-week-row-summary span{color:${T.text};font-weight:800;font-variant-numeric:tabular-nums;}
         #ep13 .ep-hours-progress{display:flex;flex-direction:column;gap:7px;}
@@ -2044,6 +2126,8 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             } else {
                 cls += 'ep-cal-plan-wfh';
             }
+            if (d.isHoliday) cls += ' ep-cal-holiday';
+            else if (/\bvacation\b/i.test(d.absenceText || '')) cls += ' ep-cal-vacation';
             if (!hrsLbl && d.isHalfDay) {
                 hrsLbl = `<span class="ep-cal-hrs">` + `${d.halfDayPart} vac` + `</span>`;
             }
@@ -2112,6 +2196,8 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
                         sub = `<span class="ep-pill-sub">` + `${d.halfDayPart} vac · 4h` + `</span>`;
                     }
                 }
+                if (d.isHoliday) cls += ' ep-wp-holiday';
+                else if (/\bvacation\b/i.test(d.absenceText || '')) cls += ' ep-wp-vacation';
                 html += `<div class="${cls}" title="${d.label}${d.absenceText ? ' · ' + d.absenceText : ''}">` + `${DNAMES[dow]}` + `${sub}` + `</div>`;
             });
             html += `</div>` + `<div class="ep-week-row-summary">` + `<span>${fmtHours(round1(offDoneH + plannedH))}h</span> office` + `</div>` + `</div>`;
@@ -3624,6 +3710,43 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
     };
     let v3MonthLabel = null;
     let pendingV3TodayScroll = false;
+    const ensureV3SiteSettingsButton = () => {
+        const themeHost = document.getElementById('ep-site-theme-action');
+        if (!themeHost) return;
+        const id = 'ep-v3-site-settings';
+        let host = document.getElementById(id);
+        if (!host || !host.querySelector('button')) {
+            host?.remove();
+            host = themeHost.cloneNode(true);
+            host.id = id;
+            host.removeAttribute('data-ep-theme');
+            const button = host.querySelector('button');
+            if (!button) return;
+            button.id = 'ep-v3-site-settings-button';
+            button.type = 'button';
+            button.removeAttribute('disabled');
+            button.setAttribute('title', 'Analyzer settings');
+            button.setAttribute('aria-label', 'Analyzer settings');
+            const label = host.querySelector('.label');
+            if (label) label.textContent = 'Settings';
+            const svg = host.querySelector('svg');
+            if (svg) {
+                const symbol = document.createElement('span');
+                symbol.innerHTML = ICONS.settings;
+                svg.innerHTML = symbol.querySelector('svg')?.innerHTML || '';
+                svg.setAttribute('viewBox', '0 0 24 24');
+                svg.setAttribute('fill', 'currentColor');
+                svg.removeAttribute('data-ep-theme-icon');
+            }
+            button.addEventListener('click', event => {
+                event.preventDefault();
+                event.stopPropagation();
+                openSettingsModal();
+            });
+        }
+        if (themeHost.nextElementSibling !== host)
+            themeHost.insertAdjacentElement('afterend', host);
+    };
     const ensureV3Toolbar = () => {
         if (!isV3Timesheet()) return;
         document.getElementById('ep-v3-toolbar')?.remove();
@@ -3631,14 +3754,30 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             .forEach(button=>button.remove());
         const header = findV3TimesheetHeader();
         if (!header) return;
+        // The page-level theme control may hydrate after the Timesheet.
+        // Re-run on DOM mutations; the guard prevents re-insertion loops.
+        ensureSiteThemeAction();
+        ensureV3SiteSettingsButton();
+        document.getElementById('ep-v3-header-settings-shell')?.remove();
         enhanceV3TimesheetHeading(header);
         const submit = findV3SubmitMonthButton();
         const nativeButtons = [...header.actions.querySelectorAll('button')]
             .filter(button => !button.closest('.ep-timesheet-action'));
-        const saveMonth = nativeButtons.find(button =>
-            /^save\s+month$/i.test((button.querySelector('.label')?.textContent || button.textContent || '').trim()));
+        const buttonLabel = button => (button.querySelector('.label')?.textContent || button.textContent || '')
+            .replace(/\s+/g, ' ').trim();
+        const saveMonth = nativeButtons.find(button => /^save\s+month$/i.test(buttonLabel(button)));
+        const auditLog = nativeButtons.find(button => /^audit\s+log$/i.test(buttonLabel(button)));
+        const shellOf = button => button?.closest('.v3-button') || button;
+        const submitShell = shellOf(submit);
+        const auditShell = shellOf(auditLog);
+        // Reposition the ORIGINAL native action, preserving Vue event handlers.
+        if (submitShell && auditShell && submitShell !== auditShell &&
+            submitShell.parentElement === auditShell.parentElement &&
+            submitShell.nextElementSibling !== auditShell) {
+            auditShell.insertAdjacentElement('beforebegin', submitShell);
+        }
         const referenceButton = saveMonth || submit || nativeButtons[nativeButtons.length - 1];
-        const placementButton = submit || saveMonth || nativeButtons[nativeButtons.length - 1];
+        const placementButton = auditLog || submit || saveMonth || nativeButtons[nativeButtons.length - 1];
         if (!placementButton) return;
         const monthText = header.view.querySelector('[class*="_header-label_"]')?.textContent?.trim() || null;
         if (monthText && v3MonthLabel && monthText !== v3MonthLabel) timesheetNavForcedTarget = null;
@@ -3683,6 +3822,14 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             anchor = shell;
             return button;
         };
+        // Navigation follows Minimize/Expand, rather than Submit month.
+        action('ep-v3-header-minimize', miniMode ? 'Expand' : 'Minimize',
+            miniMode ? 'Expand Analyzer' : 'Minimize Analyzer',
+            miniMode ? 'chevron_down' : 'chevron_up', () => {
+            miniMode=!miniMode;
+            localStorage.setItem(LS.MINI_MODE,String(miniMode));
+            renderUI();ensureV3Toolbar();
+        });
         const target=getTodayRow()?getTimesheetNavState():'today';
         action('ep-v3-submit-nav', getTimesheetNavLabel(target).replace(/^[↑↓]\s*/, ''),
             target === 'today' ? 'Jump to today' : 'Back to Analyzer',
@@ -3698,15 +3845,6 @@ const MAX_MANDATORY_BREAK_MINUTES = 480;     // Up to 8 hours (settings and eDay
             if (getTimesheetNavState() === 'today') jumpToToday();
             else jumpToAnalyzer();
             scheduleTimesheetNavUpdate();
-        });
-        action('ep-v3-header-settings', 'Settings', 'Analyzer settings',
-            'settings', () => openSettingsModal());
-        action('ep-v3-header-minimize', miniMode ? 'Expand' : 'Minimize',
-            miniMode ? 'Expand Analyzer' : 'Minimize Analyzer',
-            miniMode ? 'chevron_down' : 'chevron_up', () => {
-            miniMode=!miniMode;
-            localStorage.setItem(LS.MINI_MODE,String(miniMode));
-            renderUI();ensureV3Toolbar();
         });
         updateTimesheetNavButton();bindTimesheetNavScroll();
         if(pendingV3TodayScroll&&getTodayRow()){
